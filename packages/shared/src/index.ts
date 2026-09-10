@@ -8,3 +8,5 @@ export * from "./domain/challenge";
 export * from "./domain/conflict";
 export * from "./domain/human-decision";
 export * from "./domain/event";
+export * from "./workflow/invariants";
+export * from "./workflow/state-machine";
