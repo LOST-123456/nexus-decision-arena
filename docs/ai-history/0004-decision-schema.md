@@ -139,3 +139,51 @@ Actual output:
 ## Commit Record
 
 - Commit title: `feat(shared): add validated decision domain schemas`
+
+## Review Fix Evidence
+
+Important review finding: `IdSchema` accepted any RFC 4122 UUID instead of
+requiring UUIDv7. The fix replaces the generic UUID check with a
+case-insensitive UUIDv7 pattern.
+
+### RED
+
+Command:
+
+```bash
+corepack pnpm --filter @nexus/shared exec vitest run src/domain/domain.test.ts
+```
+
+Actual output:
+
+```text
+ ❯ src/domain/domain.test.ts (8 tests | 1 failed) 10ms
+   × decision domain schemas > rejects a v4 UUID 3ms
+     → expected [Function] to throw an error
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 7 passed (8)
+```
+
+### GREEN
+
+Focused tests:
+
+```text
+ ✓ src/domain/domain.test.ts (8 tests) 6ms
+
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+```
+
+Full shared test:
+
+```text
+ ✓ src/index.test.ts (1 test) 1ms
+ ✓ src/domain/domain.test.ts (8 tests) 6ms
+
+ Test Files  2 passed (2)
+      Tests  9 passed (9)
+```
+
+Typecheck: `tsc --noEmit` passed with no errors.

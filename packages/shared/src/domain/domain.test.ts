@@ -5,6 +5,7 @@ import {
   ConflictSchema,
   EvidenceSchema,
   ExecutionEventSchema,
+  IdSchema,
   newId
 } from "../index";
 
@@ -32,6 +33,18 @@ describe("decision domain schemas", () => {
     });
 
     expect(claim.revision).toBe(1);
+  });
+
+  it("accepts a UUIDv7 ID from newId", () => {
+    expect(() => IdSchema.parse(newId())).not.toThrow();
+  });
+
+  it("rejects a v4 UUID", () => {
+    expect(() => IdSchema.parse("123e4567-e89b-42d3-a456-426614174000")).toThrow();
+  });
+
+  it("rejects a malformed UUID", () => {
+    expect(() => IdSchema.parse("not-a-uuid")).toThrow();
   });
 
   it("rejects confidence outside 0..1", () => {
