@@ -1,0 +1,7 @@
+packages:
+  - "apps/*"
+  - "services/*"
+  - "packages/*"
+  - "lib/*"
+allowBuilds:
+  esbuild: set this to true or false
