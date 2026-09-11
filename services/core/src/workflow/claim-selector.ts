@@ -8,6 +8,7 @@ const typeRank: Record<Claim["type"], number> = {
 };
 
 export function selectClaims(claims: Claim[], limit = 5): Claim[] {
+  const safeLimit = Math.min(Math.max(limit, 0), 5);
   return [...claims]
     .sort((left, right) => {
       if (left.importance !== right.importance) {
@@ -24,5 +25,5 @@ export function selectClaims(claims: Claim[], limit = 5): Claim[] {
       }
       return left.id.localeCompare(right.id);
     })
-    .slice(0, limit);
+    .slice(0, safeLimit);
 }

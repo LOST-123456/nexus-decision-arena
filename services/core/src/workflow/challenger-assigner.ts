@@ -27,9 +27,17 @@ export function assignChallengers(
   roles: AgentRole[],
   limit = 2
 ): AgentRole[] {
+  const safeLimit = Math.min(Math.max(limit, 0), 2);
   const preferred = preferredChallenger[claim.type];
+  const seen = new Set<AgentRoleKey>();
   return roles
-    .filter((role) => role.id !== claim.roleId)
+    .filter((role) => {
+      if (role.id === claim.roleId || seen.has(role.key)) {
+        return false;
+      }
+      seen.add(role.key);
+      return true;
+    })
     .sort((left, right) => {
       const leftRank = preferred.indexOf(left.key);
       const rightRank = preferred.indexOf(right.key);
@@ -38,5 +46,5 @@ export function assignChallengers(
         rightRank === -1 ? Number.MAX_SAFE_INTEGER : rightRank;
       return normalizedLeft - normalizedRight || left.id.localeCompare(right.id);
     })
-    .slice(0, limit);
+    .slice(0, safeLimit);
 }

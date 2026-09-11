@@ -52,12 +52,15 @@ export function detectConflicts(input: ConflictInput): Conflict[] {
       continue;
     }
     const target = claimById.get(challenge.targetClaimId);
+    if (!target) {
+      continue;
+    }
     const id = newId();
     conflicts.push(
       ConflictSchema.parse({
         id,
         sessionId: input.sessionId,
-        claimIds: target ? [target.id] : [challenge.targetClaimId],
+        claimIds: [target.id],
         challengeIds: [challenge.id],
         type: "evidence",
         summary: challenge.question,
