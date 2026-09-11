@@ -55,6 +55,9 @@ importers:
 
   services/core:
     dependencies:
+      '@nexus/llm':
+        specifier: workspace:*
+        version: link:../../lib/llm
       '@nexus/shared':
         specifier: workspace:*
         version: link:../../packages/shared
