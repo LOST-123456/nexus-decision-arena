@@ -1,5 +1,4 @@
 import type { ZodType } from "zod";
-import { withLlmTimeout } from "./provider";
 import type { LlmProvider, LlmRequest } from "./provider";
 
 export type StructuredGeneration<T> = {
@@ -33,7 +32,7 @@ export async function generateStructured<T>(
   schema: ZodType<T>,
   signal: AbortSignal
 ): Promise<StructuredGeneration<T>> {
-  const raw = await provider.generate(request, withLlmTimeout(signal));
+  const raw = await provider.generate(request, signal);
   const first = validateJson(schema, raw);
   if (first.success) {
     return { data: first.data, repaired: false, raw };
@@ -51,10 +50,7 @@ export async function generateStructured<T>(
     ].join("\n")
   };
 
-  const repairedRaw = await provider.generate(
-    repairRequest,
-    withLlmTimeout(signal)
-  );
+  const repairedRaw = await provider.generate(repairRequest, signal);
   const repaired = validateJson(schema, repairedRaw);
   if (!repaired.success) {
     throw new Error(

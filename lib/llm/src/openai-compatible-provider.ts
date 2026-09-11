@@ -1,3 +1,4 @@
+import { withLlmTimeout } from "./provider";
 import type { LlmProvider, LlmRequest } from "./provider";
 
 type OpenAiCompatibleOptions = {
@@ -18,11 +19,12 @@ export class OpenAiCompatibleProvider implements LlmProvider {
     request: LlmRequest,
     signal: AbortSignal
   ): Promise<string> {
+    const effectiveSignal = withLlmTimeout(signal);
     const response = await this.fetchImpl(
       `${this.options.baseUrl.replace(/\/$/, "")}/chat/completions`,
       {
         method: "POST",
-        signal,
+        signal: effectiveSignal,
         headers: {
           "content-type": "application/json",
           authorization: `Bearer ${this.options.apiKey}`,
