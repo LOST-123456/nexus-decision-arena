@@ -37,12 +37,20 @@ describe("migration runner", () => {
       );
 
       expect(firstRun).toEqual({
-        applied: ["0001_initial.sql", "0002_claim_inspector_view.sql"],
+        applied: [
+          "0001_initial.sql",
+          "0002_claim_inspector_view.sql",
+          "0003_idempotency_leases.sql"
+        ],
         skipped: []
       });
       expect(secondRun).toEqual({
         applied: [],
-        skipped: ["0001_initial.sql", "0002_claim_inspector_view.sql"]
+        skipped: [
+          "0001_initial.sql",
+          "0002_claim_inspector_view.sql",
+          "0003_idempotency_leases.sql"
+        ]
       });
 
       const records = (await migrationDatabase.execute(
@@ -53,10 +61,11 @@ describe("migration runner", () => {
         applied_at: string;
       }>;
 
-      expect(records).toHaveLength(2);
+      expect(records).toHaveLength(3);
       expect(records.map((record) => record.filename)).toEqual([
         "0001_initial.sql",
-        "0002_claim_inspector_view.sql"
+        "0002_claim_inspector_view.sql",
+        "0003_idempotency_leases.sql"
       ]);
       expect(records.every((record) => record.checksum.length === 64)).toBe(
         true

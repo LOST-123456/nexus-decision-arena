@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
-import { and, eq, lt } from "drizzle-orm";
+import { createHash, randomUUID } from "node:crypto";
+import { and, eq, isNull, lt, or } from "drizzle-orm";
 import { idempotencyKeys, type Database } from "@nexus/db";
 
 export type StoredResult = {
@@ -23,6 +23,10 @@ type StoredEntry = {
 };
 
 type IdempotencyRow = typeof idempotencyKeys.$inferSelect;
+type Lease = {
+  token: string;
+  expiresAt: string;
+};
 
 export class IdempotencyConflictError extends Error {
   constructor() {
@@ -35,6 +39,13 @@ export class IdempotencyTimeoutError extends Error {
   constructor() {
     super("Timed out waiting for the concurrent idempotent operation");
     this.name = "IdempotencyTimeoutError";
+  }
+}
+
+export class IdempotencyLeaseLostError extends Error {
+  constructor() {
+    super("Idempotency lease was lost before the operation completed");
+    this.name = "IdempotencyLeaseLostError";
   }
 }
 
@@ -125,16 +136,19 @@ export type PostgresIdempotencyStoreOptions = {
   processingTimeoutMs?: number;
   pollIntervalMs?: number;
   staleProcessingMs?: number;
+  leaseDurationMs?: number;
 };
 
-export const IDEMPOTENCY_STALE_PROCESSING_MS = 5 * 60_000;
+export const IDEMPOTENCY_LEASE_DURATION_MS = 5 * 60_000;
+export const IDEMPOTENCY_STALE_PROCESSING_MS =
+  IDEMPOTENCY_LEASE_DURATION_MS;
 const DEFAULT_PROCESSING_TIMEOUT_MS = 30_000;
 const DEFAULT_POLL_INTERVAL_MS = 25;
 
 export class PostgresIdempotencyStore implements IdempotencyStore {
   private readonly processingTimeoutMs: number;
   private readonly pollIntervalMs: number;
-  private readonly staleProcessingMs: number;
+  private readonly leaseDurationMs: number;
 
   constructor(
     private readonly database: Database,
@@ -144,8 +158,10 @@ export class PostgresIdempotencyStore implements IdempotencyStore {
       options.processingTimeoutMs ?? DEFAULT_PROCESSING_TIMEOUT_MS;
     this.pollIntervalMs =
       options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
-    this.staleProcessingMs =
-      options.staleProcessingMs ?? IDEMPOTENCY_STALE_PROCESSING_MS;
+    this.leaseDurationMs =
+      options.leaseDurationMs ??
+      options.staleProcessingMs ??
+      IDEMPOTENCY_LEASE_DURATION_MS;
   }
 
   async get(key: string, requestHash: string): Promise<StoredResult | null> {
@@ -165,8 +181,9 @@ export class PostgresIdempotencyStore implements IdempotencyStore {
     requestHash: string,
     operation: () => Promise<T>
   ): Promise<StoredResult & { response: T }> {
-    if (await this.reserve(key, requestHash)) {
-      return this.run(key, requestHash, operation);
+    const initialLease = await this.reserve(key, requestHash);
+    if (initialLease) {
+      return this.run(key, requestHash, initialLease, operation);
     }
 
     const deadline = Date.now() + this.processingTimeoutMs;
@@ -174,8 +191,9 @@ export class PostgresIdempotencyStore implements IdempotencyStore {
       const row = await this.read(key);
 
       if (!row) {
-        if (await this.reserve(key, requestHash)) {
-          return this.run(key, requestHash, operation);
+        const lease = await this.reserve(key, requestHash);
+        if (lease) {
+          return this.run(key, requestHash, lease, operation);
         }
       } else {
         assertSameHash(row.requestHash, requestHash);
@@ -200,8 +218,9 @@ export class PostgresIdempotencyStore implements IdempotencyStore {
           continue;
         }
 
-        if (await this.reclaimStale(key, requestHash)) {
-          return this.run(key, requestHash, operation);
+        const reclaimedLease = await this.reclaimStale(key, requestHash);
+        if (reclaimedLease) {
+          return this.run(key, requestHash, reclaimedLease, operation);
         }
       }
 
@@ -243,18 +262,86 @@ export class PostgresIdempotencyStore implements IdempotencyStore {
     assertSameHash(saved.requestHash, requestHash);
   }
 
+  private createLease(): Lease {
+    return {
+      token: randomUUID(),
+      expiresAt: new Date(Date.now() + this.leaseDurationMs).toISOString()
+    };
+  }
+
   private async reclaimStale(
     key: string,
     requestHash: string
-  ): Promise<boolean> {
-    const staleBefore = new Date(
-      Date.now() - this.staleProcessingMs
-    ).toISOString();
+  ): Promise<string | null> {
+    const now = new Date();
+    const nowIso = now.toISOString();
+    const lease = this.createLease();
     const reclaimed = await this.database
       .update(idempotencyKeys)
       .set({
         status: "processing",
         response: null,
+        leaseToken: lease.token,
+        leaseExpiresAt: lease.expiresAt,
+        updatedAt: nowIso
+      })
+      .where(
+        and(
+          eq(idempotencyKeys.key, key),
+          eq(idempotencyKeys.requestHash, requestHash),
+          eq(idempotencyKeys.status, "processing"),
+          or(
+            isNull(idempotencyKeys.leaseExpiresAt),
+            lt(idempotencyKeys.leaseExpiresAt, nowIso)
+          )
+        )
+      )
+      .returning({ leaseToken: idempotencyKeys.leaseToken });
+
+    return reclaimed[0]?.leaseToken ?? null;
+  }
+
+  private async reserve(
+    key: string,
+    requestHash: string
+  ): Promise<string | null> {
+    const lease = this.createLease();
+    const inserted = await this.database
+      .insert(idempotencyKeys)
+      .values({
+        key,
+        requestHash,
+        status: "processing",
+        leaseToken: lease.token,
+        leaseExpiresAt: lease.expiresAt
+      })
+      .onConflictDoNothing()
+      .returning({ leaseToken: idempotencyKeys.leaseToken });
+
+    return inserted[0]?.leaseToken ?? null;
+  }
+
+  private async run<T>(
+    key: string,
+    requestHash: string,
+    leaseToken: string,
+    operation: () => Promise<T>
+  ): Promise<StoredResult & { response: T }> {
+    let response: T;
+    try {
+      response = await operation();
+    } catch (error) {
+      await this.releaseLease(key, requestHash, leaseToken);
+      throw error;
+    }
+
+    const completed = await this.database
+      .update(idempotencyKeys)
+      .set({
+        status: "completed",
+        response: response ?? null,
+        leaseToken: null,
+        leaseExpiresAt: null,
         updatedAt: new Date().toISOString()
       })
       .where(
@@ -262,62 +349,33 @@ export class PostgresIdempotencyStore implements IdempotencyStore {
           eq(idempotencyKeys.key, key),
           eq(idempotencyKeys.requestHash, requestHash),
           eq(idempotencyKeys.status, "processing"),
-          lt(idempotencyKeys.updatedAt, staleBefore)
+          eq(idempotencyKeys.leaseToken, leaseToken)
         )
       )
       .returning({ key: idempotencyKeys.key });
 
-    return reclaimed.length > 0;
+    if (completed.length === 0) {
+      throw new IdempotencyLeaseLostError();
+    }
+
+    return { status: "completed", response };
   }
 
-  private async reserve(key: string, requestHash: string): Promise<boolean> {
-    const inserted = await this.database
-      .insert(idempotencyKeys)
-      .values({
-        key,
-        requestHash,
-        status: "processing"
-      })
-      .onConflictDoNothing()
-      .returning({ key: idempotencyKeys.key });
-
-    return inserted.length > 0;
-  }
-
-  private async run<T>(
+  private async releaseLease(
     key: string,
     requestHash: string,
-    operation: () => Promise<T>
-  ): Promise<StoredResult & { response: T }> {
-    try {
-      const response = await operation();
-      await this.database
-        .update(idempotencyKeys)
-        .set({
-          status: "completed",
-          response: response ?? null,
-          updatedAt: new Date().toISOString()
-        })
-        .where(
-          and(
-            eq(idempotencyKeys.key, key),
-            eq(idempotencyKeys.requestHash, requestHash),
-            eq(idempotencyKeys.status, "processing")
-          )
-        );
-      return { status: "completed", response };
-    } catch (error) {
-      await this.database
-        .delete(idempotencyKeys)
-        .where(
-          and(
-            eq(idempotencyKeys.key, key),
-            eq(idempotencyKeys.requestHash, requestHash),
-            eq(idempotencyKeys.status, "processing")
-          )
-        );
-      throw error;
-    }
+    leaseToken: string
+  ): Promise<void> {
+    await this.database
+      .delete(idempotencyKeys)
+      .where(
+        and(
+          eq(idempotencyKeys.key, key),
+          eq(idempotencyKeys.requestHash, requestHash),
+          eq(idempotencyKeys.status, "processing"),
+          eq(idempotencyKeys.leaseToken, leaseToken)
+        )
+      );
   }
 
   private async read(key: string): Promise<IdempotencyRow | null> {

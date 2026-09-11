@@ -244,6 +244,8 @@ export const idempotencyKeys = pgTable("idempotency_keys", {
   requestHash: text("request_hash").notNull(),
   status: text("status").notNull().default("completed"),
   response: jsonb("response"),
+  leaseToken: text("lease_token"),
+  leaseExpiresAt: timestampColumn("lease_expires_at"),
   createdAt: timestampColumn("created_at").notNull().defaultNow(),
   updatedAt: timestampColumn("updated_at").notNull().defaultNow()
 });

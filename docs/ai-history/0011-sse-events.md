@@ -223,3 +223,89 @@ DB typecheck:   tsc --noEmit with no diagnostics
 ### Review Fix Commit
 
 - Commit title: `fix(core): close SSE replay and idempotency gaps`
+
+## Task 9 Review Fixes Round 2
+
+### SSE: Strict Sequence Cursor
+
+The SSE route now subscribes, installs close/error cleanup, hijacks the
+response, flushes headers, and starts the heartbeat before awaiting replay.
+`expectedSequence` is the only cursor. Every replay or live event is placed in
+a pending map and only events starting exactly at `expectedSequence` are
+flushed. A sequence gap therefore holds all later events until the missing
+sequence arrives.
+
+When a gap remains, recovery calls `EventRepository.listAfter()` with bounded
+exponential backoff (`SSE_RECOVERY_BASE_DELAY_MS = 25`,
+`SSE_RECOVERY_MAX_DELAY_MS = 1_000`) and a single in-flight recovery guard.
+There is no tight database loop and no event is discarded merely because a
+higher sequence was observed first.
+
+RED evidence:
+
+```text
+FAIL src/api/routes/events.test.ts > holds replay and live events until a sequence gap is filled
+expected body to contain 'id: 1'
+
+FAIL src/api/routes/events.test.ts > unsubscribes when the client disconnects during replay
+expected +0 to be 1
+```
+
+GREEN evidence:
+
+```text
+Test Files  1 passed (1)
+Tests       5 passed (5)
+```
+
+### Idempotency: Lease Tokens and Expiry
+
+Migration `0003_idempotency_leases.sql` adds `lease_token` and
+`lease_expires_at` to `idempotency_keys`. `PostgresIdempotencyStore` now:
+
+- reserves processing rows with a generated owner token and lease expiry;
+- reclaims only expired or legacy-null leases through an atomic conditional
+  `UPDATE`;
+- completes a reservation only when key, request hash, status, processing, and
+  the exact lease token still match;
+- deletes a failed reservation only when the exact lease token still owns it;
+- throws `IdempotencyLeaseLostError` when an expired owner tries to complete
+  after a newer reclaim.
+
+The migration test now expects `0003_idempotency_leases.sql`.
+
+RED evidence:
+
+```text
+FAIL src/api/plugins/idempotency.integration.test.ts > prevents an expired owner from completing after a newer reclaim
+promise resolved "{ status: 'completed', response: { id: 'old-owner' } }" instead of rejecting
+```
+
+GREEN evidence:
+
+```text
+Test Files  1 passed (1)
+Tests       7 passed (7)
+```
+
+### Exact-Once Limitation
+
+The database lease prevents an old owner from overwriting a newer lease, but
+the operation's side effects and the idempotency completion update are still
+not one shared transaction. If a process dies after side effects commit but
+before marking the lease complete, reclaim can still run the operation again.
+True exactly-once behavior would require the operation itself to participate
+in the database transaction or an equivalent outbox/transactional protocol.
+
+### Round 2 Verification
+
+```text
+Core: Test Files 9 passed (9), Tests 39 passed (39)
+DB:   Test Files 3 passed (3), Tests 4 passed (4)
+Core typecheck: tsc --noEmit with no diagnostics
+DB typecheck:   tsc --noEmit with no diagnostics
+```
+
+### Round 2 Commit
+
+- Commit title: `fix(core): hold SSE gaps and lease idempotency`

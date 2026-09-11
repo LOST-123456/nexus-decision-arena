@@ -4,7 +4,8 @@ import type { AppDependencies } from "../../app";
 import type { EventBus } from "../../execution/event-bus";
 
 export const SSE_HEARTBEAT_MS = 15_000;
-export const SSE_REORDER_WINDOW = 16;
+export const SSE_RECOVERY_BASE_DELAY_MS = 25;
+export const SSE_RECOVERY_MAX_DELAY_MS = 1_000;
 
 function formatEvent(event: ExecutionEvent): string {
   return [
@@ -45,123 +46,93 @@ export function registerEventRoutes(
           : 0);
 
       let closed = false;
-      let replaying = true;
-      let nextSequence = lastSequence + 1;
+      let expectedSequence = lastSequence + 1;
       let recovering = false;
+      let recoveryAttempts = 0;
+      let recoveryTimer: ReturnType<typeof setTimeout> | undefined;
       let heartbeat: ReturnType<typeof setInterval> | undefined;
-      const buffered: ExecutionEvent[] = [];
+      let unsubscribe = (): void => undefined;
       const pending = new Map<number, ExecutionEvent>();
 
       const writeEvent = (event: ExecutionEvent): void => {
         reply.raw.write(formatEvent(event));
       };
 
-      const flushPending = (): void => {
+      const flushContiguous = (): void => {
         while (!closed) {
-          const event = pending.get(nextSequence);
+          const event = pending.get(expectedSequence);
           if (!event) {
-            return;
+            break;
           }
-          pending.delete(nextSequence);
+          pending.delete(expectedSequence);
           writeEvent(event);
-          nextSequence += 1;
+          expectedSequence += 1;
+        }
+
+        if (pending.size === 0) {
+          recoveryAttempts = 0;
         }
       };
 
-      const recover = (): void => {
+      const recover = async (): Promise<void> => {
         if (recovering || closed) {
           return;
         }
         recovering = true;
 
-        void dependencies.repository
-          .listAfter(sessionId, nextSequence - 1)
-          .then((events) => {
-            if (closed) {
-              return;
+        try {
+          const events = (await dependencies.repository.listAfter(
+            sessionId,
+            expectedSequence - 1
+          )) as ExecutionEvent[];
+          if (closed) {
+            return;
+          }
+          for (const event of events) {
+            if (event.sequence >= expectedSequence) {
+              pending.set(event.sequence, event);
             }
-            for (const event of events as ExecutionEvent[]) {
-              if (event.sequence >= nextSequence) {
-                pending.set(event.sequence, event);
-              }
-            }
-            flushPending();
-          })
-          .catch(() => undefined)
-          .finally(() => {
-            recovering = false;
-            if (!closed && pending.size > SSE_REORDER_WINDOW) {
-              recover();
-            }
-          });
+          }
+          flushContiguous();
+        } catch {
+          // The bounded timer below retries without a tight database loop.
+        } finally {
+          recovering = false;
+          if (!closed && pending.size > 0) {
+            scheduleRecovery();
+          }
+        }
+      };
+
+      const scheduleRecovery = (): void => {
+        if (closed || recovering || recoveryTimer) {
+          return;
+        }
+
+        const delay = Math.min(
+          SSE_RECOVERY_BASE_DELAY_MS * 2 ** recoveryAttempts,
+          SSE_RECOVERY_MAX_DELAY_MS
+        );
+        recoveryAttempts += 1;
+        recoveryTimer = setTimeout(() => {
+          recoveryTimer = undefined;
+          void recover();
+        }, delay);
+        recoveryTimer.unref?.();
       };
 
       const enqueue = (event: ExecutionEvent): void => {
-        if (closed || event.sequence < nextSequence) {
+        if (closed || event.sequence < expectedSequence) {
           return;
         }
 
         pending.set(event.sequence, event);
-        flushPending();
+        flushContiguous();
 
-        if (pending.size > SSE_REORDER_WINDOW) {
-          recover();
+        if (pending.size > 0) {
+          scheduleRecovery();
         }
       };
-
-      const unsubscribe = dependencies.bus.subscribe(sessionId, (event) => {
-        if (closed) {
-          return;
-        }
-        if (replaying) {
-          buffered.push(event);
-          return;
-        }
-        enqueue(event);
-      });
-
-      let replay: ExecutionEvent[];
-      try {
-        replay = (await dependencies.repository.listAfter(
-          sessionId,
-          lastSequence
-        )) as ExecutionEvent[];
-      } catch (error) {
-        unsubscribe();
-        throw error;
-      }
-
-      if (closed) {
-        unsubscribe();
-        return;
-      }
-
-      reply.hijack();
-      reply.raw.writeHead(200, {
-        "content-type": "text/event-stream; charset=utf-8",
-        "cache-control": "no-cache",
-        connection: "keep-alive"
-      });
-      reply.raw.flushHeaders();
-
-      const initialEvents = new Map<number, ExecutionEvent>();
-      for (const event of sortBySequence([...replay, ...buffered])) {
-        if (event.sequence >= nextSequence) {
-          initialEvents.set(event.sequence, event);
-        }
-      }
-      for (const event of initialEvents.values()) {
-        writeEvent(event);
-        nextSequence = event.sequence + 1;
-      }
-      replaying = false;
-
-      heartbeat = setInterval(() => {
-        if (!closed) {
-          reply.raw.write(": heartbeat\n\n");
-        }
-      }, SSE_HEARTBEAT_MS);
-      heartbeat.unref?.();
 
       const cleanup = (): void => {
         if (closed) {
@@ -171,16 +142,55 @@ export function registerEventRoutes(
         if (heartbeat) {
           clearInterval(heartbeat);
         }
+        if (recoveryTimer) {
+          clearTimeout(recoveryTimer);
+        }
         unsubscribe();
         pending.clear();
-        buffered.length = 0;
         request.raw.off("close", cleanup);
         reply.raw.off("close", cleanup);
+        reply.raw.off("error", cleanup);
       };
 
+      unsubscribe = dependencies.bus.subscribe(sessionId, enqueue);
       request.raw.once("close", cleanup);
       reply.raw.once("close", cleanup);
       reply.raw.once("error", cleanup);
+
+      reply.hijack();
+      reply.raw.writeHead(200, {
+        "content-type": "text/event-stream; charset=utf-8",
+        "cache-control": "no-cache",
+        connection: "keep-alive"
+      });
+      reply.raw.flushHeaders();
+
+      heartbeat = setInterval(() => {
+        if (!closed) {
+          reply.raw.write(": heartbeat\n\n");
+        }
+      }, SSE_HEARTBEAT_MS);
+      heartbeat.unref?.();
+
+      let replay: ExecutionEvent[];
+      try {
+        replay = (await dependencies.repository.listAfter(
+          sessionId,
+          lastSequence
+        )) as ExecutionEvent[];
+      } catch {
+        cleanup();
+        reply.raw.destroy();
+        return;
+      }
+
+      if (closed) {
+        return;
+      }
+
+      for (const event of sortBySequence(replay)) {
+        enqueue(event);
+      }
     }
   );
 }
