@@ -160,3 +160,27 @@ state-loss defect was observed or fabricated.
 ## Commit Record
 
 - Commit title: `feat(core): orchestrate cross examination flow`
+## Review Fix: Immutable CHALLENGE_CREATED Payload
+
+Review found that the service emitted the live Challenge object for
+`CHALLENGE_CREATED`, then later mutated that same object while answering and
+evaluating the Challenge. A retaining event sink could therefore observe a
+created event whose `status` had changed from `open` to `unresolved`.
+
+The regression test retains the emitted `CHALLENGE_CREATED` payload and
+asserts that it remains `open` after the service finishes. The minimal fix is
+to emit `structuredClone(challenge)` for that event while keeping the live
+domain object for the subsequent state transition.
+
+Verified after the fix:
+
+```text
+corepack pnpm --filter @nexus/core exec vitest run src/arena/cross-examination.test.ts
+4 passed
+
+corepack pnpm --filter @nexus/core test
+15 passed
+
+corepack pnpm --filter @nexus/core typecheck
+no diagnostics
+```

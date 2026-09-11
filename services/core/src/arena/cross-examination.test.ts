@@ -166,4 +166,40 @@ describe("cross examination service", () => {
     expect(result.challenges[0]?.status).toBe("open");
     expect(emitted).toContain("CHALLENGE_FAILED");
   });
+
+  it("keeps the created challenge event payload stable after evaluation", async () => {
+    const market = role("market_analyst");
+    const finance = role("finance_analyst");
+    const target = claim(market.id);
+    let createdPayload: Challenge | undefined;
+
+    const service = new CrossExaminationService({
+      generateChallenge: async () => challengeDraft(target),
+      respondToChallenge: async (challenge: Challenge) => ({
+        ...target,
+        id: newId(),
+        revision: target.revision + 1,
+        revisionOfClaimId: target.id,
+        respondsToChallengeId: challenge.id,
+        disposition: "insufficient_evidence",
+        updatedAt: new Date().toISOString()
+      }),
+      evaluateResponse: async () => "unresolved"
+    });
+
+    const result = await service.run({
+      sessionId,
+      claims: [target],
+      roles: [market, finance],
+      emit: (event) => {
+        if (event.type === "CHALLENGE_CREATED") {
+          createdPayload = event.payload as Challenge;
+        }
+      }
+    });
+
+    expect(result.challenges[0]?.status).toBe("unresolved");
+    expect(createdPayload?.status).toBe("open");
+    expect(createdPayload?.updatedAt).toBe(createdPayload?.createdAt);
+  });
 });

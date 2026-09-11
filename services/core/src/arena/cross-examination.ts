@@ -1,4 +1,4 @@
-import {
+﻿import {
   ChallengeSchema,
   ClaimSchema,
   newId,
@@ -119,7 +119,7 @@ export class CrossExaminationService {
           challenges.push(challenge);
           input.emit({
             type: "CHALLENGE_CREATED",
-            payload: challenge,
+            payload: structuredClone(challenge),
             correlationId: challenge.correlationId
           });
 
