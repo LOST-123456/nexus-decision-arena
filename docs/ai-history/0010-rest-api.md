@@ -103,3 +103,46 @@ Result: `tsc --noEmit` completed with no diagnostics.
 ## Commit Record
 
 - Commit title: `feat(core): expose idempotent session APIs`
+
+## Review Fix Evidence
+
+### Atomic Concurrent Idempotency
+
+The store now exposes `execute(key, requestHash, operation)`. The first caller
+reserves the key with a shared in-flight promise; same-key same-hash callers
+await that promise and receive the same completed response. Failed operations
+remove the reservation so a later retry can run.
+
+RED evidence:
+
+```text
+FAIL src/api/plugins/idempotency.test.ts
+store.execute is not a function
+
+FAIL src/api/routes/sessions.test.ts
+expected 2 to be 1
+
+expected 500 to be 409
+```
+
+GREEN evidence:
+
+```text
+Test Files  2 passed (2)
+Tests       10 passed (10)
+
+Test Files  6 passed (6)
+Tests       25 passed (25)
+```
+
+### Typed Conflict Handling
+
+`IdempotencyConflictError` is thrown when a key is reused with a different
+request hash. Session create and start routes map that typed error to HTTP `409`
+while preserving `201`, `202`, and existing sequential replay behavior.
+
+### Task 9 Requirement
+
+The current reservation store is in-memory. Task 9 must wire a persistent,
+database-backed idempotency adapter or equivalent distributed lock so atomic
+reservation also holds across processes and restarts.

@@ -2,7 +2,10 @@ import { newId } from "@nexus/shared";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { AppDependencies } from "../../app";
-import { InMemoryIdempotencyStore } from "../plugins/idempotency";
+import {
+  IdempotencyConflictError,
+  InMemoryIdempotencyStore
+} from "../plugins/idempotency";
 
 export const CreateSessionSchema = z.object({
   project: z.object({
@@ -14,6 +17,13 @@ export const CreateSessionSchema = z.object({
   }),
   locale: z.enum(["zh-CN", "en-US"]).default("zh-CN")
 });
+
+class SessionNotFoundError extends Error {
+  constructor() {
+    super("Session not found");
+    this.name = "SessionNotFoundError";
+  }
+}
 
 function getIdempotencyKey(request: FastifyRequest): string | null {
   const key = request.headers["idempotency-key"];
@@ -45,31 +55,38 @@ export function registerSessionRoutes(
       operation: "create-session",
       body: parsed.data
     });
-    const stored = await idempotency.get(key, requestHash);
-    if (stored) {
-      return reply.code(201).send(stored.response);
-    }
 
-    const projectId = newId();
-    const sessionId = newId();
-    const created = await dependencies.sessions.createWithProject(
-      parsed.data.project,
-      {
-        id: sessionId,
-        projectId,
-        locale: parsed.data.locale,
-        phase: "CREATED",
-        operationalStatus: "ACTIVE",
-        currentConclusion: null
+    try {
+      const result = await idempotency.execute(key, requestHash, async () => {
+        const projectId = newId();
+        const sessionId = newId();
+        const created = await dependencies.sessions.createWithProject(
+          parsed.data.project,
+          {
+            id: sessionId,
+            projectId,
+            locale: parsed.data.locale,
+            phase: "CREATED",
+            operationalStatus: "ACTIVE",
+            currentConclusion: null
+          }
+        );
+
+        if (!created) {
+          throw new Error("Session creation failed");
+        }
+
+        return created;
+      });
+
+      return reply.code(201).send(result.response);
+    } catch (error) {
+      if (error instanceof IdempotencyConflictError) {
+        return reply.code(409).send({ error: error.message });
       }
-    );
 
-    if (!created) {
-      throw new Error("Session creation failed");
+      throw error;
     }
-
-    await idempotency.save(key, requestHash, created);
-    return reply.code(201).send(created);
   });
 
   app.post<{ Params: { id: string } }>(
@@ -87,20 +104,30 @@ export function registerSessionRoutes(
         operation: "start-session",
         sessionId
       });
-      const stored = await idempotency.get(key, requestHash);
-      if (stored) {
-        return reply.code(202).send(stored.response);
-      }
 
-      const session = await dependencies.sessions.getById(sessionId);
-      if (!session) {
-        return reply.code(404).send({ error: "Session not found" });
-      }
+      try {
+        const result = await idempotency.execute(key, requestHash, async () => {
+          const session = await dependencies.sessions.getById(sessionId);
+          if (!session) {
+            throw new SessionNotFoundError();
+          }
 
-      await dependencies.runSession.start(sessionId);
-      const response = { id: sessionId, status: "STARTED" };
-      await idempotency.save(key, requestHash, response);
-      return reply.code(202).send(response);
+          await dependencies.runSession.start(sessionId);
+          return { id: sessionId, status: "STARTED" };
+        });
+
+        return reply.code(202).send(result.response);
+      } catch (error) {
+        if (error instanceof IdempotencyConflictError) {
+          return reply.code(409).send({ error: error.message });
+        }
+
+        if (error instanceof SessionNotFoundError) {
+          return reply.code(404).send({ error: error.message });
+        }
+
+        throw error;
+      }
     }
   );
 
