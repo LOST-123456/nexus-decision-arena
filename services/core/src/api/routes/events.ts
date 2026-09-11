@@ -4,6 +4,7 @@ import type { AppDependencies } from "../../app";
 import type { EventBus } from "../../execution/event-bus";
 
 export const SSE_HEARTBEAT_MS = 15_000;
+export const SSE_REORDER_WINDOW = 16;
 
 function formatEvent(event: ExecutionEvent): string {
   return [
@@ -13,6 +14,10 @@ function formatEvent(event: ExecutionEvent): string {
     "",
     ""
   ].join("\n");
+}
+
+function sortBySequence(events: Iterable<ExecutionEvent>): ExecutionEvent[] {
+  return [...events].sort((left, right) => left.sequence - right.sequence);
 }
 
 export function registerEventRoutes(
@@ -39,10 +44,97 @@ export function registerEventRoutes(
           ? Number(request.headers["last-event-id"])
           : 0);
 
-      const replay = (await dependencies.repository.listAfter(
-        sessionId,
-        lastSequence
-      )) as ExecutionEvent[];
+      let closed = false;
+      let replaying = true;
+      let nextSequence = lastSequence + 1;
+      let recovering = false;
+      let heartbeat: ReturnType<typeof setInterval> | undefined;
+      const buffered: ExecutionEvent[] = [];
+      const pending = new Map<number, ExecutionEvent>();
+
+      const writeEvent = (event: ExecutionEvent): void => {
+        reply.raw.write(formatEvent(event));
+      };
+
+      const flushPending = (): void => {
+        while (!closed) {
+          const event = pending.get(nextSequence);
+          if (!event) {
+            return;
+          }
+          pending.delete(nextSequence);
+          writeEvent(event);
+          nextSequence += 1;
+        }
+      };
+
+      const recover = (): void => {
+        if (recovering || closed) {
+          return;
+        }
+        recovering = true;
+
+        void dependencies.repository
+          .listAfter(sessionId, nextSequence - 1)
+          .then((events) => {
+            if (closed) {
+              return;
+            }
+            for (const event of events as ExecutionEvent[]) {
+              if (event.sequence >= nextSequence) {
+                pending.set(event.sequence, event);
+              }
+            }
+            flushPending();
+          })
+          .catch(() => undefined)
+          .finally(() => {
+            recovering = false;
+            if (!closed && pending.size > SSE_REORDER_WINDOW) {
+              recover();
+            }
+          });
+      };
+
+      const enqueue = (event: ExecutionEvent): void => {
+        if (closed || event.sequence < nextSequence) {
+          return;
+        }
+
+        pending.set(event.sequence, event);
+        flushPending();
+
+        if (pending.size > SSE_REORDER_WINDOW) {
+          recover();
+        }
+      };
+
+      const unsubscribe = dependencies.bus.subscribe(sessionId, (event) => {
+        if (closed) {
+          return;
+        }
+        if (replaying) {
+          buffered.push(event);
+          return;
+        }
+        enqueue(event);
+      });
+
+      let replay: ExecutionEvent[];
+      try {
+        replay = (await dependencies.repository.listAfter(
+          sessionId,
+          lastSequence
+        )) as ExecutionEvent[];
+      } catch (error) {
+        unsubscribe();
+        throw error;
+      }
+
+      if (closed) {
+        unsubscribe();
+        return;
+      }
 
       reply.hijack();
       reply.raw.writeHead(200, {
@@ -52,22 +144,19 @@ export function registerEventRoutes(
       });
       reply.raw.flushHeaders();
 
-      let closed = false;
-      let highestSequence = lastSequence;
-      const send = (event: ExecutionEvent): void => {
-        if (closed || event.sequence <= highestSequence) {
-          return;
+      const initialEvents = new Map<number, ExecutionEvent>();
+      for (const event of sortBySequence([...replay, ...buffered])) {
+        if (event.sequence >= nextSequence) {
+          initialEvents.set(event.sequence, event);
         }
-        highestSequence = event.sequence;
-        reply.raw.write(formatEvent(event));
-      };
-
-      for (const event of replay) {
-        send(event);
       }
+      for (const event of initialEvents.values()) {
+        writeEvent(event);
+        nextSequence = event.sequence + 1;
+      }
+      replaying = false;
 
-      const unsubscribe = dependencies.bus.subscribe(sessionId, send);
-      const heartbeat = setInterval(() => {
+      heartbeat = setInterval(() => {
         if (!closed) {
           reply.raw.write(": heartbeat\n\n");
         }
@@ -79,8 +168,12 @@ export function registerEventRoutes(
           return;
         }
         closed = true;
-        clearInterval(heartbeat);
+        if (heartbeat) {
+          clearInterval(heartbeat);
+        }
         unsubscribe();
+        pending.clear();
+        buffered.length = 0;
         request.raw.off("close", cleanup);
         reply.raw.off("close", cleanup);
       };

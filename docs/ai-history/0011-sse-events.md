@@ -135,3 +135,91 @@ Typechecks:
 ## Commit Record
 
 - Commit title: `feat(core): stream replayable execution events`
+
+## Task 9 Review Fixes
+
+### High 1: Subscribe Before Replay
+
+The SSE route now subscribes to `EventBus` before calling
+`EventRepository.listAfter()`. Events published while replay is in flight are
+buffered. When replay resolves, the route synchronously merges replay and
+buffered events, deduplicates by sequence, writes them in ascending order, and
+only then leaves replay mode. There is no `await` inside that final flush.
+
+RED evidence for the controlled replay-time publication test:
+
+```text
+FAIL src/api/routes/events.test.ts > delivers an event published while replay is in flight
+Test timed out in 5000ms
+```
+
+GREEN evidence:
+
+```text
+Test Files  1 passed (1)
+Tests       4 passed (4)
+```
+
+### Medium 3: Preserve Out-Of-Order Live Events
+
+Live delivery now uses a per-subscription sequence buffer with a bounded
+`SSE_REORDER_WINDOW` of 16 events. A higher sequence is held until the missing
+lower sequence arrives, then both are emitted in order. If the buffer grows
+past the window, the route recovers the range from `EventRepository.listAfter`
+instead of discarding the event.
+
+RED evidence for the focused out-of-order test:
+
+```text
+FAIL src/api/routes/events.test.ts > emits a lower live sequence after a higher one in order
+Test timed out in 5000ms
+```
+
+GREEN evidence is included in the four passing SSE tests above.
+
+### High 2: Reclaim Stale Idempotency Reservations
+
+`PostgresIdempotencyStore` now has an explicit
+`IDEMPOTENCY_STALE_PROCESSING_MS` threshold of five minutes. A request that
+finds an old `processing` row performs an atomic conditional `UPDATE` that
+matches only the same key, request hash, status, and an `updated_at` older than
+the threshold. Exactly one caller can claim the stale reservation and execute
+the operation. Hash mismatches still fail with
+`IdempotencyConflictError` before reclaim is attempted.
+
+RED evidence:
+
+```text
+FAIL src/api/plugins/idempotency.integration.test.ts > reclaims an old processing reservation and executes it
+IdempotencyTimeoutError: Timed out waiting for the concurrent idempotent operation
+```
+
+GREEN evidence:
+
+```text
+Test Files  1 passed (1)
+Tests       5 passed (5)
+```
+
+### Residual Exact-Once Limitation
+
+Completion of the wrapped side effect and the `idempotency_keys` update are not
+one shared transaction. If a process crashes after committing side effects but
+before marking the reservation complete, stale reclaim can execute the
+operation again. Eliminating that failure mode would require the operation to
+participate in the same database transaction or an equivalent outbox protocol;
+Task 9 does not couple agent/repository side effects into the idempotency
+adapter.
+
+### Review Verification
+
+```text
+Core: Test Files 9 passed (9), Tests 36 passed (36)
+DB:   Test Files 3 passed (3), Tests 4 passed (4)
+Core typecheck: tsc --noEmit with no diagnostics
+DB typecheck:   tsc --noEmit with no diagnostics
+```
+
+### Review Fix Commit
+
+- Commit title: `fix(core): close SSE replay and idempotency gaps`

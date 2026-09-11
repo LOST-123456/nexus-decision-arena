@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { and, eq } from "drizzle-orm";
+import { and, eq, lt } from "drizzle-orm";
 import { idempotencyKeys, type Database } from "@nexus/db";
 
 export type StoredResult = {
@@ -124,14 +124,17 @@ export class InMemoryIdempotencyStore implements IdempotencyStore {
 export type PostgresIdempotencyStoreOptions = {
   processingTimeoutMs?: number;
   pollIntervalMs?: number;
+  staleProcessingMs?: number;
 };
 
+export const IDEMPOTENCY_STALE_PROCESSING_MS = 5 * 60_000;
 const DEFAULT_PROCESSING_TIMEOUT_MS = 30_000;
 const DEFAULT_POLL_INTERVAL_MS = 25;
 
 export class PostgresIdempotencyStore implements IdempotencyStore {
   private readonly processingTimeoutMs: number;
   private readonly pollIntervalMs: number;
+  private readonly staleProcessingMs: number;
 
   constructor(
     private readonly database: Database,
@@ -141,6 +144,8 @@ export class PostgresIdempotencyStore implements IdempotencyStore {
       options.processingTimeoutMs ?? DEFAULT_PROCESSING_TIMEOUT_MS;
     this.pollIntervalMs =
       options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
+    this.staleProcessingMs =
+      options.staleProcessingMs ?? IDEMPOTENCY_STALE_PROCESSING_MS;
   }
 
   async get(key: string, requestHash: string): Promise<StoredResult | null> {
@@ -194,6 +199,10 @@ export class PostgresIdempotencyStore implements IdempotencyStore {
             );
           continue;
         }
+
+        if (await this.reclaimStale(key, requestHash)) {
+          return this.run(key, requestHash, operation);
+        }
       }
 
       const remaining = deadline - Date.now();
@@ -232,6 +241,33 @@ export class PostgresIdempotencyStore implements IdempotencyStore {
       throw new Error("Idempotency result was not saved");
     }
     assertSameHash(saved.requestHash, requestHash);
+  }
+
+  private async reclaimStale(
+    key: string,
+    requestHash: string
+  ): Promise<boolean> {
+    const staleBefore = new Date(
+      Date.now() - this.staleProcessingMs
+    ).toISOString();
+    const reclaimed = await this.database
+      .update(idempotencyKeys)
+      .set({
+        status: "processing",
+        response: null,
+        updatedAt: new Date().toISOString()
+      })
+      .where(
+        and(
+          eq(idempotencyKeys.key, key),
+          eq(idempotencyKeys.requestHash, requestHash),
+          eq(idempotencyKeys.status, "processing"),
+          lt(idempotencyKeys.updatedAt, staleBefore)
+        )
+      )
+      .returning({ key: idempotencyKeys.key });
+
+    return reclaimed.length > 0;
   }
 
   private async reserve(key: string, requestHash: string): Promise<boolean> {

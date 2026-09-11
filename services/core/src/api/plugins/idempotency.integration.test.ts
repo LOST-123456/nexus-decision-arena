@@ -1,6 +1,11 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { createDatabase, type Database } from "@nexus/db";
 import {
+  createDatabase,
+  idempotencyKeys,
+  type Database
+} from "@nexus/db";
+import {
+  IdempotencyConflictError,
   IdempotencyTimeoutError,
   PostgresIdempotencyStore
 } from "./idempotency";
@@ -111,5 +116,50 @@ describe("PostgresIdempotencyStore", () => {
     releaseOperation();
     await owner;
     expect(operation).toHaveBeenCalledTimes(1);
+  });
+
+  it("reclaims an old processing reservation and executes it", async () => {
+    await database.insert(idempotencyKeys).values({
+      key: "stale-key",
+      requestHash: "hash-1",
+      status: "processing",
+      response: null,
+      updatedAt: new Date(Date.now() - 60_000).toISOString()
+    });
+    const store = new PostgresIdempotencyStore(database, {
+      processingTimeoutMs: 500,
+      pollIntervalMs: 5,
+      staleProcessingMs: 10
+    });
+    const operation = vi.fn().mockResolvedValue({ id: "session-1" });
+
+    await expect(
+      store.execute("stale-key", "hash-1", operation)
+    ).resolves.toEqual({
+      status: "completed",
+      response: { id: "session-1" }
+    });
+    expect(operation).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a hash mismatch as a conflict instead of reclaiming it", async () => {
+    await database.insert(idempotencyKeys).values({
+      key: "stale-conflict-key",
+      requestHash: "hash-1",
+      status: "processing",
+      response: null,
+      updatedAt: new Date(Date.now() - 60_000).toISOString()
+    });
+    const store = new PostgresIdempotencyStore(database, {
+      processingTimeoutMs: 500,
+      pollIntervalMs: 5,
+      staleProcessingMs: 10
+    });
+    const operation = vi.fn().mockResolvedValue({ id: "session-1" });
+
+    await expect(
+      store.execute("stale-conflict-key", "hash-2", operation)
+    ).rejects.toBeInstanceOf(IdempotencyConflictError);
+    expect(operation).not.toHaveBeenCalled();
   });
 });
