@@ -9,8 +9,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@nexus/db": "workspace:*",
     "@nexus/llm": "workspace:*",
     "@nexus/shared": "workspace:*",
+    "drizzle-orm": "0.40.1",
     "fastify": "5.2.1",
     "zod": "3.24.2"
   },

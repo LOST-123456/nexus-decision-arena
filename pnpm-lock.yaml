@@ -80,12 +80,18 @@ importers:
 
   services/core:
     dependencies:
+      '@nexus/db':
+        specifier: workspace:*
+        version: link:../../lib/db
       '@nexus/llm':
         specifier: workspace:*
         version: link:../../lib/llm
       '@nexus/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      drizzle-orm:
+        specifier: 0.40.1
+        version: 0.40.1(gel@2.2.0)(postgres@3.4.5)
       fastify:
         specifier: 5.2.1
         version: 5.2.1

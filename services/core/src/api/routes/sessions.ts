@@ -3,8 +3,10 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { AppDependencies } from "../../app";
 import {
+  hashIdempotencyRequest,
   IdempotencyConflictError,
-  InMemoryIdempotencyStore
+  IdempotencyTimeoutError,
+  type IdempotencyStore
 } from "../plugins/idempotency";
 
 export const CreateSessionSchema = z.object({
@@ -33,7 +35,7 @@ function getIdempotencyKey(request: FastifyRequest): string | null {
 export function registerSessionRoutes(
   app: FastifyInstance,
   dependencies: AppDependencies,
-  idempotency: InMemoryIdempotencyStore
+  idempotency: IdempotencyStore
 ): void {
   app.post("/api/sessions", async (request, reply) => {
     const key = getIdempotencyKey(request);
@@ -51,7 +53,7 @@ export function registerSessionRoutes(
       });
     }
 
-    const requestHash = InMemoryIdempotencyStore.hash({
+    const requestHash = hashIdempotencyRequest({
       operation: "create-session",
       body: parsed.data
     });
@@ -81,7 +83,10 @@ export function registerSessionRoutes(
 
       return reply.code(201).send(result.response);
     } catch (error) {
-      if (error instanceof IdempotencyConflictError) {
+      if (
+        error instanceof IdempotencyConflictError ||
+        error instanceof IdempotencyTimeoutError
+      ) {
         return reply.code(409).send({ error: error.message });
       }
 
@@ -100,7 +105,7 @@ export function registerSessionRoutes(
       }
 
       const sessionId = request.params.id;
-      const requestHash = InMemoryIdempotencyStore.hash({
+      const requestHash = hashIdempotencyRequest({
         operation: "start-session",
         sessionId
       });
@@ -118,7 +123,10 @@ export function registerSessionRoutes(
 
         return reply.code(202).send(result.response);
       } catch (error) {
-        if (error instanceof IdempotencyConflictError) {
+        if (
+          error instanceof IdempotencyConflictError ||
+          error instanceof IdempotencyTimeoutError
+        ) {
           return reply.code(409).send({ error: error.message });
         }
 
