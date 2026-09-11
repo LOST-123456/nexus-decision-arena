@@ -12,8 +12,15 @@ SELECT
   ) AS evidence,
   COALESCE(
     (
-      SELECT jsonb_agg(to_jsonb(ch) ORDER BY ch.created_at)
+      SELECT jsonb_agg(
+        jsonb_build_object(
+          'challenge', to_jsonb(ch),
+          'responseClaim', to_jsonb(rc)
+        )
+        ORDER BY ch.created_at
+      )
       FROM challenges ch
+      LEFT JOIN claims rc ON rc.id = ch.response_claim_id
       WHERE ch.target_claim_id = c.id
          OR ch.response_claim_id = c.id
     ),

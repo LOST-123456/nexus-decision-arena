@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { newId } from "@nexus/shared";
 import { createDatabase, type Database } from "../client";
@@ -38,13 +39,14 @@ describe("inspector repository", () => {
     expect(result).toBeNull();
   });
 
-  it("returns the stable DTO for a populated claim", async () => {
+  it("returns the stable camelCase DTO with an optional response claim", async () => {
     const projectId = newId();
     const sessionId = newId();
     const promptVersionId = newId();
     const roleId = newId();
     const agentRunId = newId();
     const claimId = newId();
+    const responseClaimId = newId();
     const evidenceId = newId();
     const challengeId = newId();
     const conflictId = newId();
@@ -141,11 +143,37 @@ describe("inspector repository", () => {
       requiredEvidence: ["Sample size"],
       severity: 4,
       resolutionStrategy: "provide_evidence",
-      status: "open",
+      status: "answered",
       correlationId: newId(),
       createdAt,
       updatedAt: createdAt
     });
+    await database.insert(claims).values({
+      id: responseClaimId,
+      sessionId,
+      agentRunId,
+      roleId,
+      lens: "market",
+      statement: "The survey used a representative campus sample.",
+      type: "fact",
+      stance: "support",
+      importance: 5,
+      confidence: 0.85,
+      evidenceIds: [evidenceId],
+      status: "supported",
+      rootClaimId: claimId,
+      revisionOfClaimId: claimId,
+      revision: 2,
+      relations: [],
+      respondsToChallengeId: challengeId,
+      disposition: "accept",
+      createdAt,
+      updatedAt: createdAt
+    });
+    await database
+      .update(challenges)
+      .set({ responseClaimId, updatedAt: createdAt })
+      .where(eq(challenges.id, challengeId));
     await database.insert(conflicts).values({
       id: conflictId,
       sessionId,
@@ -176,9 +204,45 @@ describe("inspector repository", () => {
         sessionId,
         evidenceIds: [evidenceId]
       },
-      evidence: [{ id: evidenceId }],
-      challenges: [{ id: challengeId }],
-      conflicts: [{ id: conflictId }],
+      evidence: [
+        expect.objectContaining({
+          id: evidenceId,
+          sessionId,
+          claimId,
+          verificationStatus: "verified",
+          retrievedAt: expect.any(String)
+        })
+      ],
+      challenges: [
+        {
+          challenge: expect.objectContaining({
+            id: challengeId,
+            sessionId,
+            targetClaimId: claimId,
+            challengerRoleId: roleId,
+            responseClaimId
+          }),
+          responseClaim: expect.objectContaining({
+            id: responseClaimId,
+            revisionOfClaimId: claimId,
+            respondsToChallengeId: challengeId
+          })
+        }
+      ],
+      conflicts: [
+        expect.objectContaining({
+          id: conflictId,
+          sessionId,
+          claimIds: [claimId],
+          challengeIds: [challengeId],
+          humanDecisionRequired: true,
+          resolutionSuggestion: "Request more evidence.",
+          impactScope: {
+            analysisAreas: ["market"],
+            stakeholders: ["Students"]
+          }
+        })
+      ],
       provenance: {
         agentRun: { id: agentRunId },
         promptVersion: { id: promptVersionId }
@@ -188,5 +252,7 @@ describe("inspector repository", () => {
         evidenceIds: [evidenceId]
       }
     });
+    expect(result.evidence[0]).not.toHaveProperty("verification_status");
+    expect(result.conflicts[0]).not.toHaveProperty("human_decision_required");
   });
 });

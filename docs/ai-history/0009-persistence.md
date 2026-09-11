@@ -140,3 +140,87 @@ The tests cover:
 ## Commit Record
 
 - Commit title: `feat(db): persist decision sessions and inspector data`
+
+## Review Fix Evidence: Replay-Safe Migrations and Stable Inspector DTO
+
+### RED
+
+Command:
+
+```bash
+$env:DATABASE_URL='postgres://nexus:nexus@localhost:5432/nexus'
+corepack pnpm --filter @nexus/db test
+```
+
+Actual failures:
+
+```text
+FAIL src/migrate.integration.test.ts
+PostgresError: relation "agent_roles" already exists
+
+FAIL src/repositories/inspector-repository.integration.test.ts
+expected { challenges: [{ challenger_role_id: ... }] } to match object
+{ challenges: [{ challenge: ObjectContaining, responseClaim: ObjectContaining }] }
+```
+
+The migration RED proved that importing `migrate.ts` executed the migration
+unconditionally and reran `0001_initial.sql`. The Inspector RED showed raw
+snake_case evidence/conflict rows and bare Challenge rows instead of the
+stable DTO.
+
+### GREEN
+
+Focused migration ledger test:
+
+```bash
+$env:DATABASE_URL='postgres://nexus:nexus@localhost:5432/nexus'
+corepack pnpm --filter @nexus/db exec vitest run src/migrate.integration.test.ts
+```
+
+Actual result:
+
+```text
+Test Files  1 passed (1)
+Tests       1 passed (1)
+```
+
+Packaged migration first run:
+
+```text
+applied 0001_initial.sql
+applied 0002_claim_inspector_view.sql
+```
+
+Packaged migration second run:
+
+```text
+skipped 0001_initial.sql
+skipped 0002_claim_inspector_view.sql
+```
+
+Focused Inspector contract test:
+
+```bash
+$env:DATABASE_URL='postgres://nexus:nexus@localhost:5432/nexus'
+corepack pnpm --filter @nexus/db exec vitest run src/repositories/inspector-repository.integration.test.ts
+```
+
+Actual result:
+
+```text
+Test Files  1 passed (1)
+Tests       2 passed (2)
+```
+
+Full DB suite and typecheck:
+
+```text
+Test Files  3 passed (3)
+Tests       4 passed (4)
+
+@nexus/db typecheck: tsc --noEmit with no diagnostics
+```
+
+### Review Fix Commit
+
+- Commit title: `fix(db): make migrations replay-safe and map inspector DTO`

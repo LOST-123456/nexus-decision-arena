@@ -1,25 +1,84 @@
+import type {
+  Challenge,
+  Claim,
+  Conflict,
+  Evidence
+} from "@nexus/shared";
 import { eq, sql } from "drizzle-orm";
 import type { Database } from "../client";
 import { agentRuns, claims, promptVersions } from "../schema";
 
+type JsonObject = Record<string, unknown>;
+
 type InspectorViewRow = {
-  claim: unknown;
-  evidence: unknown[];
-  challenges: unknown[];
-  conflicts: unknown[];
+  claim: JsonObject;
+  evidence: JsonObject[];
+  challenges: Array<{
+    challenge: JsonObject;
+    responseClaim?: JsonObject | null;
+  }>;
+  conflicts: JsonObject[];
 };
+
+type AgentRunRow = typeof agentRuns.$inferSelect;
+type PromptVersionRow = typeof promptVersions.$inferSelect;
+
+export type ClaimInspectorDTO = {
+  claim: Claim;
+  evidence: Evidence[];
+  challenges: Array<{
+    challenge: Challenge;
+    responseClaim?: Claim;
+  }>;
+  conflicts: Conflict[];
+  provenance: {
+    agentRun: AgentRunRow | undefined;
+    promptVersion: PromptVersionRow | undefined;
+  };
+  decisionRationale: {
+    outcome: "accepted" | "rejected" | "contested" | "needs_human";
+    summary: string;
+    decisiveChallengeIds: string[];
+    evidenceIds: string[];
+  };
+};
+
+function snakeToCamel(key: string): string {
+  return key.replace(/_([a-z])/g, (_match, letter: string) =>
+    letter.toUpperCase()
+  );
+}
+
+function camelize(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(camelize);
+  }
+
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).flatMap(([key, child]) =>
+        child === null ? [] : [[snakeToCamel(key), camelize(child)]]
+      )
+    );
+  }
+
+  return value;
+}
 
 export class InspectorRepository {
   constructor(private readonly database: Database) {}
 
-  async getInspector(sessionId: string, claimId: string) {
-    const [claim] = await this.database
+  async getInspector(
+    sessionId: string,
+    claimId: string
+  ): Promise<ClaimInspectorDTO | null> {
+    const [claimRecord] = await this.database
       .select()
       .from(claims)
       .where(eq(claims.id, claimId))
       .limit(1);
 
-    if (!claim || claim.sessionId !== sessionId) {
+    if (!claimRecord || claimRecord.sessionId !== sessionId) {
       return null;
     }
 
@@ -31,7 +90,7 @@ export class InspectorRepository {
     const [agentRun] = await this.database
       .select()
       .from(agentRuns)
-      .where(eq(agentRuns.id, claim.agentRunId))
+      .where(eq(agentRuns.id, claimRecord.agentRunId))
       .limit(1);
 
     const [promptVersion] = agentRun
@@ -42,11 +101,19 @@ export class InspectorRepository {
           .limit(1)
       : [];
 
+    const claim = camelize(view?.claim ?? claimRecord) as Claim;
+    const evidence = camelize(view?.evidence ?? []) as Evidence[];
+    const challenges = camelize(view?.challenges ?? []) as Array<{
+      challenge: Challenge;
+      responseClaim?: Claim;
+    }>;
+    const conflicts = camelize(view?.conflicts ?? []) as Conflict[];
+
     return {
       claim,
-      evidence: view?.evidence ?? [],
-      challenges: view?.challenges ?? [],
-      conflicts: view?.conflicts ?? [],
+      evidence,
+      challenges,
+      conflicts,
       provenance: { agentRun, promptVersion },
       decisionRationale: {
         outcome:
