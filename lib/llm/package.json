@@ -1,0 +1,18 @@
+{
+  "name": "@nexus/llm",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@nexus/shared": "workspace:*",
+    "zod": "3.24.2"
+  },
+  "devDependencies": {
+    "typescript": "5.7.3",
+    "vitest": "3.0.8"
+  }
+}
