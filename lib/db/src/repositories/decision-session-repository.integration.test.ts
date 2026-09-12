@@ -17,7 +17,8 @@ import {
 import {
   DecisionSessionRepository,
   HumanDecisionConflictNotEligibleError,
-  SessionNotInHumanReviewError
+  SessionNotInHumanReviewError,
+  SupplementRoundLimitError
 } from "./decision-session-repository";
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -44,8 +45,8 @@ async function seedCheckpoint(options: {
 } = {}) {
   const projectId = newId();
   const sessionId = newId();
-  const promptVersionId = newId();
-  const roleId = newId();
+  let promptVersionId = newId();
+  let roleId = newId();
   const agentRunId = newId();
   const claimId = newId();
   const challengeId = newId();
@@ -65,24 +66,34 @@ async function seedCheckpoint(options: {
     operationalStatus: "PAUSED",
     currentConclusion: "Hold scale-up"
   });
-  await database.insert(promptVersions).values({
-    id: promptVersionId,
-    name: "analyst",
-    version: projectId,
-    content: "Analyze the project."
-  });
-  await database.insert(agentRoles).values({
-    id: roleId,
-    key: "market_analyst",
-    name: "Market Analyst",
-    goal: "Analyze",
-    perspective: "Evidence",
-    evaluationCriteria: ["evidence"],
-    evidenceRequired: ["source"],
-    conflictPreference: ["evidence_gap"],
-    lenses: ["market"],
-    promptVersionId
-  });
+  const [existingRole] = await database
+    .select()
+    .from(agentRoles)
+    .where(eq(agentRoles.key, "market_analyst"))
+    .limit(1);
+  if (existingRole) {
+    roleId = existingRole.id;
+    promptVersionId = existingRole.promptVersionId;
+  } else {
+    await database.insert(promptVersions).values({
+      id: promptVersionId,
+      name: "analyst",
+      version: projectId,
+      content: "Analyze the project."
+    });
+    await database.insert(agentRoles).values({
+      id: roleId,
+      key: "market_analyst",
+      name: "Market Analyst",
+      goal: "Analyze",
+      perspective: "Evidence",
+      evaluationCriteria: ["evidence"],
+      evidenceRequired: ["source"],
+      conflictPreference: ["evidence_gap"],
+      lenses: ["market"],
+      promptVersionId
+    });
+  }
   await database.insert(agentRuns).values({
     id: agentRunId,
     sessionId,
@@ -322,5 +333,49 @@ describe("DecisionSessionRepository.recordHumanDecision", () => {
         .from(humanDecisions)
         .where(eq(humanDecisions.id, recordInput.id))
     ).resolves.toHaveLength(0);
+  });
+
+  it("allows only one supplement round per session", async () => {
+    const { sessionId, conflictId, claimId } = await seedCheckpoint();
+    const requestDecision: HumanDecision = {
+      ...decision(sessionId, conflictId, [claimId], "Supplement requested"),
+      action: "request_more_analysis",
+      rationale: "Provide the missing evidence once"
+    };
+
+    const first = await repository.recordHumanDecision({
+      decision: requestDecision,
+      transition: {
+        phase: "REASSESSING",
+        operationalStatus: "ACTIVE",
+        conclusion: requestDecision.newConclusion
+      },
+      event: {
+        correlationId: requestDecision.id,
+        type: "SESSION_STATE_CHANGED",
+        payload: {
+          phase: "REASSESSING",
+          operationalStatus: "ACTIVE",
+          currentConclusion: requestDecision.newConclusion,
+          humanDecision: requestDecision
+        }
+      }
+    });
+
+    expect(first.session.supplementRound).toBe(1);
+
+    await database
+      .update(decisionSessions)
+      .set({ phase: "HUMAN_REVIEW", operationalStatus: "PAUSED" })
+      .where(eq(decisionSessions.id, sessionId));
+    const secondDecision: HumanDecision = {
+      ...decision(sessionId, conflictId, [claimId], "Supplement again"),
+      action: "request_more_analysis",
+      rationale: "Request a second round"
+    };
+
+    await expect(
+      record(sessionId, secondDecision)
+    ).rejects.toBeInstanceOf(SupplementRoundLimitError);
   });
 });

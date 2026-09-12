@@ -15,19 +15,28 @@ export const EvidenceSchema = z
     title: z.string().min(1),
     content: z.string().min(1),
     description: z.string().min(1),
-    sourceRef: z.string().url().optional(),
+    sourceRef: z.preprocess(
+      (value) => (value === null ? undefined : value),
+      z.string().url().optional()
+    ),
     direction: z.enum(["supports", "opposes"]),
     reliability: z.number().min(0).max(1),
     verificationStatus: z.enum(["unverified", "verified", "rejected"]),
-    validityPeriod: z
-      .object({
-        from: TimestampSchema.optional(),
-        to: TimestampSchema.optional()
-      })
-      .optional(),
+    validityPeriod: z.preprocess(
+      (value) => (value === null ? undefined : value),
+      z
+        .object({
+          from: TimestampSchema.optional(),
+          to: TimestampSchema.optional()
+        })
+        .optional()
+    ),
     retrievedAt: TimestampSchema,
     createdBy: z.enum(["system", "agent", "human"]),
-    agentRunId: IdSchema.optional()
+    agentRunId: z.preprocess(
+      (value) => (value === null ? undefined : value),
+      IdSchema.optional()
+    )
   })
   .superRefine((value, context) => {
     if (value.kind === "external_reference" && !value.sourceRef) {

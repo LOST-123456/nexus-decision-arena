@@ -1,8 +1,9 @@
-import type { Claim, Evidence } from "../index";
+import type { Challenge, Claim, Evidence } from "../index";
 
 export function assertClaimInvariants(
   claim: Claim,
-  evidence: Evidence[]
+  evidence: Evidence[],
+  challenges: Challenge[] = []
 ): void {
   if (claim.rootClaimId === claim.id && claim.revision !== 1) {
     throw new Error("Root claim revision must be 1");
@@ -27,6 +28,21 @@ export function assertClaimInvariants(
   ) {
     throw new Error(
       "Accepted important claims require verified evidence"
+    );
+  }
+
+  if (
+    claim.status === "accepted" &&
+    claim.importance >= 4 &&
+    challenges.some(
+      (challenge) =>
+        challenge.targetClaimId === claim.id &&
+        challenge.severity >= 4 &&
+        challenge.status !== "resolved"
+    )
+  ) {
+    throw new Error(
+      "Accepted important claims cannot have unresolved severe challenges"
     );
   }
 

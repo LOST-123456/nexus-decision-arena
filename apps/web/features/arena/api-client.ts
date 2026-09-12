@@ -1,4 +1,5 @@
 import {
+  ExecutionEventTypeSchema,
   SESSION_PHASES,
   type ClaimInspectorDTO,
   type ExecutionEvent,
@@ -104,6 +105,19 @@ export async function getInspector(
   return response.json() as Promise<ClaimInspectorDTO>;
 }
 
+export async function getEvents(
+  sessionId: string
+): Promise<ExecutionEvent[]> {
+  const response = await fetch(
+    `${apiUrl}/api/sessions/${encodeURIComponent(sessionId)}/events`,
+    { cache: "no-store" }
+  );
+  if (!response.ok) {
+    throw new Error(`Event request failed: ${response.status}`);
+  }
+  return response.json() as Promise<ExecutionEvent[]>;
+}
+
 export async function submitHumanDecision(
   sessionId: string,
   command: HumanDecisionCommand,
@@ -146,7 +160,16 @@ export function subscribeToEvents(
   }
 
   const source = new EventSource(url);
-  source.onmessage = (message) =>
+  const listener = (message: MessageEvent<string>): void => {
     onEvent(JSON.parse(message.data) as ExecutionEvent);
-  return () => source.close();
+  };
+  for (const eventType of ExecutionEventTypeSchema.options) {
+    source.addEventListener(eventType, listener as EventListener);
+  }
+  return () => {
+    for (const eventType of ExecutionEventTypeSchema.options) {
+      source.removeEventListener(eventType, listener as EventListener);
+    }
+    source.close();
+  };
 }

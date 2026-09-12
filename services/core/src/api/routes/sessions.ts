@@ -2,6 +2,7 @@ import { newId } from "@nexus/shared";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { AppDependencies } from "../../app";
+import { SessionAlreadyStartedError } from "../../arena/run-session";
 import {
   hashIdempotencyRequest,
   IdempotencyConflictError,
@@ -134,6 +135,10 @@ export function registerSessionRoutes(
           return reply.code(404).send({ error: error.message });
         }
 
+        if (error instanceof SessionAlreadyStartedError) {
+          return reply.code(409).send({ error: error.message });
+        }
+
         throw error;
       }
     }
@@ -142,12 +147,11 @@ export function registerSessionRoutes(
   app.get<{ Params: { id: string } }>(
     "/api/sessions/:id",
     async (request, reply) => {
-      const session = await dependencies.sessions.getById(request.params.id);
-      if (!session) {
+      const view = await dependencies.sessions.getView(request.params.id);
+      if (!view) {
         return reply.code(404).send({ error: "Session not found" });
       }
-
-      return reply.send(session);
+      return reply.send(view);
     }
   );
 }

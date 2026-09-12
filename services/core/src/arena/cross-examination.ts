@@ -16,9 +16,20 @@ export type CrossExaminationInput = {
   sessionId: string;
   claims: Claim[];
   roles: AgentRole[];
+  plans?: CrossExaminationPlan[];
+  persistChallenge?: (challenge: Challenge) => Promise<void>;
+  persistResponseClaim?: (claim: Claim) => Promise<void>;
+  persistChallengeUpdate?: (challenge: Challenge) => Promise<void>;
+  persistConflict?: (conflict: Conflict) => Promise<void>;
   emit: (
     event: Partial<ExecutionEvent> & { type: ExecutionEvent["type"] }
-  ) => void;
+  ) => Promise<void> | void;
+};
+
+export type CrossExaminationPlan = {
+  targetClaimId: string;
+  challengerRoleId: string;
+  challengerRunId: string;
 };
 
 export type ChallengeDraft = Pick<
@@ -90,12 +101,25 @@ export class CrossExaminationService {
   async run(input: CrossExaminationInput): Promise<CrossExaminationResult> {
     const challenges: Challenge[] = [];
     const responseClaims: Claim[] = [];
-    const selected = selectClaims(input.claims, 5);
+    const claimById = new Map(input.claims.map((claim) => [claim.id, claim]));
+    const roleById = new Map(input.roles.map((role) => [role.id, role]));
+    const work = input.plans
+      ? input.plans.flatMap((plan) => {
+          const target = claimById.get(plan.targetClaimId);
+          const challenger = roleById.get(plan.challengerRoleId);
+          return target && challenger
+            ? [{ target, challenger, challengerRunId: plan.challengerRunId }]
+            : [];
+        })
+      : selectClaims(input.claims, 5).flatMap((target) =>
+          assignChallengers(target, input.roles, 2).map((challenger) => ({
+            target,
+            challenger,
+            challengerRunId: newId()
+          }))
+        );
 
-    for (const target of selected) {
-      const challengers = assignChallengers(target, input.roles, 2);
-
-      for (const challenger of challengers) {
+    for (const { target, challenger, challengerRunId } of work) {
         const correlationId = newId();
 
         try {
@@ -108,7 +132,7 @@ export class CrossExaminationService {
             id: newId(),
             sessionId: input.sessionId,
             targetClaimId: target.id,
-            challengerRunId: newId(),
+            challengerRunId,
             challengerRoleId: challenger.id,
             ...draft,
             status: "open",
@@ -117,7 +141,8 @@ export class CrossExaminationService {
             updatedAt: now
           });
           challenges.push(challenge);
-          input.emit({
+          await input.persistChallenge?.(structuredClone(challenge));
+          await input.emit({
             type: "CHALLENGE_CREATED",
             payload: structuredClone(challenge),
             correlationId: challenge.correlationId
@@ -132,6 +157,7 @@ export class CrossExaminationService {
             challenge
           );
           responseClaims.push(response);
+          await input.persistResponseClaim?.(structuredClone(response));
           challenge.status = "answered";
           challenge.responseClaimId = response.id;
           challenge.status = await this.dependencies.evaluateResponse(
@@ -139,13 +165,14 @@ export class CrossExaminationService {
             response
           );
           challenge.updatedAt = new Date().toISOString();
-          input.emit({
+          await input.persistChallengeUpdate?.(structuredClone(challenge));
+          await input.emit({
             type: "CHALLENGE_RESOLVED",
             payload: challenge,
             correlationId: challenge.correlationId
           });
         } catch (error) {
-          input.emit({
+          await input.emit({
             type: "CHALLENGE_FAILED",
             payload: {
               targetClaimId: target.id,
@@ -158,7 +185,6 @@ export class CrossExaminationService {
             correlationId
           });
         }
-      }
     }
 
     const conflicts = detectConflicts({
@@ -168,7 +194,8 @@ export class CrossExaminationService {
     });
 
     for (const conflict of conflicts) {
-      input.emit({
+      await input.persistConflict?.(structuredClone(conflict));
+      await input.emit({
         type: "CONFLICT_DETECTED",
         payload: conflict,
         correlationId: newId()

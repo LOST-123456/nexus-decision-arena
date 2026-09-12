@@ -1,4 +1,5 @@
 import { mkdir } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 
@@ -93,6 +94,21 @@ test("fixed demo reaches a limited-pilot decision", async ({
   await expect(page.getByTestId("challenge-status")).toHaveText(
     "待人工裁决"
   );
+  await expect(page.getByTestId("demo-fixture")).toHaveAttribute(
+    "data-opposing-claim-count",
+    "3"
+  );
+  await expect(page.getByTestId("demo-fixture")).toHaveAttribute(
+    "data-challenge-count",
+    "5"
+  );
+  await expect(page.getByTestId("demo-fixture")).toHaveAttribute(
+    "data-conflict-count",
+    "3"
+  );
+  await expect(page.getByTestId("opposing-claim-count")).toHaveText("3");
+  await expect(page.getByTestId("challenge-count")).toHaveText("5");
+  await expect(page.getByTestId("conflict-count")).toHaveText("3");
   await expect(page.getByText(conflictSummary).first()).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await expectNoRegionOverlap(page);
@@ -111,6 +127,16 @@ test("fixed demo reaches a limited-pilot decision", async ({
   await expect(page.getByTestId("decision-explanation")).toContainText(
     decisionExplanation
   );
+
+  await page
+    .getByRole("button", { name: /Sequence 20 HUMAN_REVIEW_REQUIRED/ })
+    .click();
+  await expect(page.getByTestId("initial-conclusion")).toHaveText("建议立项");
+  await page
+    .getByRole("button", { name: /Sequence 21 SESSION_STATE_CHANGED/ })
+    .click();
+  await expect(page.getByTestId("final-conclusion")).toHaveText("有限立项");
+  await expect(page.getByTestId("challenge-status")).toHaveText("已采纳");
   await expectNoHorizontalOverflow(page);
   await expectNoRegionOverlap(page);
 
@@ -129,4 +155,52 @@ test("fixed demo reaches a limited-pilot decision", async ({
   ).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await captureViewport(page, testInfo.project.name, "report");
+});
+
+test("live session streams into the workspace and produces a persisted report", async ({
+  page,
+  request
+}, testInfo) => {
+  const createKey = `e2e-live-create-${randomUUID()}`;
+  const created = await request.post("http://127.0.0.1:4100/api/sessions", {
+    headers: { "idempotency-key": createKey },
+    data: {
+      project: {
+        name: "Live browser fixture",
+        summary: "Browser orchestration verification",
+        targetUsers: "Decision operators",
+        businessModel: "Annual subscription",
+        expectedData: "24 months"
+      },
+      locale: "zh-CN"
+    }
+  });
+  expect(created.status()).toBe(201);
+  const { id: sessionId } = (await created.json()) as { id: string };
+  const started = await request.post(
+    `http://127.0.0.1:4100/api/sessions/${sessionId}/start`,
+    {
+      headers: { "idempotency-key": `e2e-live-start-${randomUUID()}` },
+      data: {}
+    }
+  );
+  expect(started.status()).toBe(202);
+
+  await page.goto(`/sessions/${sessionId}`);
+  await expect(
+    page.locator('main[data-session-source="live"]')
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "采纳质询" })).toBeVisible();
+  await expect(page.getByTestId("timeline")).toContainText(
+    "CHALLENGE_CREATED"
+  );
+
+  await page.getByRole("button", { name: "采纳质询" }).click();
+  await expect(page.getByText("DECISION COMPLETE")).toBeVisible();
+  await expect(page.getByText("有限立项").first()).toBeVisible();
+  await page.getByRole("link", { name: /查看决策报告/ }).click();
+  await expect(page.locator('main[data-report-source="live"]')).toBeVisible();
+  await expect(page.getByRole("heading", { name: "有限立项" })).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  await captureViewport(page, testInfo.project.name, "live-report");
 });

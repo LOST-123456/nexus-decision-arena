@@ -2,8 +2,10 @@
 
 import type {
   ClaimInspectorDTO,
+  ExecutionEvent,
   HumanDecision
 } from "@nexus/shared";
+import { DecisionReplay } from "@nexus/shared";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { AgentPanel } from "../../components/agent-panel";
@@ -16,11 +18,14 @@ import {
 } from "../../components/timeline";
 import {
   getInspector,
+  getEvents,
   getSession,
+  subscribeToEvents,
   submitHumanDecision,
   type HumanDecisionCommand
 } from "./api-client";
 import type { ReplayableSession } from "./event-reducer";
+import { reduceSessionEvent } from "./event-reducer";
 import { toPreviewInspectorDTO } from "./preview-inspector";
 import {
   previewSession,
@@ -141,6 +146,7 @@ export function SessionWorkspace({ sessionId }: { sessionId: string }) {
   const [events, setEvents] = useState<TimelineEvent[]>(
     persisted ? [] : previewTimeline.map((event) => ({ ...event }))
   );
+  const [rawEvents, setRawEvents] = useState<ExecutionEvent[]>([]);
   const [liveInspector, setLiveInspector] =
     useState<ClaimInspectorDTO | null>(null);
   const [loading, setLoading] = useState(persisted);
@@ -165,12 +171,20 @@ export function SessionWorkspace({ sessionId }: { sessionId: string }) {
 
     let cancelled = false;
     setLoading(true);
-    getSession(sessionId)
-      .then(async (loaded) => {
+    Promise.all([getSession(sessionId), getEvents(sessionId)])
+      .then(async ([loaded, persistedEvents]) => {
         if (cancelled) {
           return;
         }
         setSession(loaded);
+        setRawEvents(persistedEvents);
+        setEvents(
+          persistedEvents.map((event) => ({
+            id: event.id,
+            sequence: event.sequence,
+            type: event.type
+          }))
+        );
         setSelectedSequence(loaded.lastSequence);
         const claim = loaded.claims[0];
         if (!claim) {
@@ -199,6 +213,36 @@ export function SessionWorkspace({ sessionId }: { sessionId: string }) {
       cancelled = true;
     };
   }, [persisted, sessionId]);
+
+  useEffect(() => {
+    if (!persisted || loading) {
+      return;
+    }
+
+    return subscribeToEvents(sessionId, session.lastSequence, (event) => {
+      setRawEvents((current) =>
+        current.some((item) => item.id === event.id)
+          ? current
+          : [...current, event].sort(
+              (left, right) => left.sequence - right.sequence
+            )
+      );
+      setEvents((current) =>
+        current.some((item) => item.id === event.id)
+          ? current
+          : [
+              ...current,
+              {
+                id: event.id,
+                sequence: event.sequence,
+                type: event.type
+              }
+            ].sort((left, right) => left.sequence - right.sequence)
+      );
+      setSession((current) => reduceSessionEvent(current, event));
+      setSelectedSequence(event.sequence);
+    });
+  }, [loading, persisted, session.lastSequence, sessionId]);
 
   async function handleDecision(
     action: HumanDecision["action"],
@@ -273,6 +317,7 @@ export function SessionWorkspace({ sessionId }: { sessionId: string }) {
           type: response.event.type
         }
       ]);
+      setRawEvents((current) => [...current, response.event]);
       setSelectedSequence(response.event.sequence);
 
       if (primaryClaim) {
@@ -293,7 +338,16 @@ export function SessionWorkspace({ sessionId }: { sessionId: string }) {
     setSelectedSequence(sequence);
     if (!persisted) {
       setSession(previewSnapshotAt(sequence, sessionId));
+      return;
     }
+
+    const snapshot = new DecisionReplay(rawEvents).snapshotAt(sequence);
+    setSession((current) => ({
+      ...current,
+      ...snapshot,
+      agents: current.agents,
+      evidence: current.evidence
+    }));
   }
 
   return (

@@ -10,6 +10,7 @@ import { Inspector } from "../../components/inspector";
 import { Timeline, type TimelineEvent } from "../../components/timeline";
 import type { ReplayableSession } from "./event-reducer";
 import { toPreviewInspectorDTO } from "./preview-inspector";
+import { previewSession } from "./preview-session";
 
 const fixtureTimestamp = "2026-09-10T04:00:00.000Z";
 const initialConclusion = "建议立项";
@@ -86,7 +87,7 @@ const demoRoles: AgentPanelRole[] = [
   }
 ];
 
-const baseSession: ReplayableSession = {
+const legacyBaseSession: ReplayableSession = {
   sessionId: "demo",
   phase: "HUMAN_REVIEW",
   operationalStatus: "PAUSED",
@@ -160,6 +161,29 @@ const baseSession: ReplayableSession = {
   lastSequence: 20
 };
 
+const baseSession: ReplayableSession = {
+  ...structuredClone(previewSession),
+  sessionId: "demo",
+  claims: previewSession.claims.map((claim) => ({
+    ...claim,
+    sessionId: "demo"
+  })),
+  evidence: previewSession.evidence.map((item) => ({
+    ...item,
+    sessionId: "demo"
+  })),
+  challenges: previewSession.challenges.map((challenge) => ({
+    ...challenge,
+    sessionId: "demo"
+  })),
+  conflicts: previewSession.conflicts.map((conflict) => ({
+    ...conflict,
+    sessionId: "demo"
+  })),
+  humanDecisions: [],
+  lastSequence: 20
+};
+
 const initialEvents: TimelineEvent[] = [
   {
     id: "demo-event-1",
@@ -214,11 +238,18 @@ export function DemoArena() {
   const [selectedSequence, setSelectedSequence] = useState(20);
   const [events, setEvents] = useState<TimelineEvent[]>(initialEvents);
   const [outcome, setOutcome] = useState<DecisionOutcome | null>(null);
+  const [decidedSession, setDecidedSession] =
+    useState<ReplayableSession | null>(null);
 
   const inspectorData = toPreviewInspectorDTO(session);
   const primaryConflict = session.conflicts[0];
   const primaryClaim = session.claims[0];
   const finalVisible = session.phase === "DECIDED" && outcome !== null;
+  const opposingClaimCount = session.claims.filter(
+    (claim) => claim.stance === "oppose"
+  ).length;
+  const challengeCount = session.challenges.length;
+  const conflictCount = session.conflicts.length;
 
   function handleDecision(action: HumanDecision["action"], rationale: string) {
     if (!primaryConflict) {
@@ -251,16 +282,16 @@ export function DemoArena() {
         label: "人工裁决"
       }
     ]);
-    setSession((current) => ({
-      ...current,
+    const nextSession: ReplayableSession = {
+      ...session,
       phase: action === "request_more_analysis" ? "REASSESSING" : "DECIDED",
       operationalStatus:
         action === "request_more_analysis" ? "ACTIVE" : "COMPLETED",
       currentConclusion: nextOutcome.conclusion,
-      claims: current.claims.map((claim, index) =>
+      claims: session.claims.map((claim, index) =>
         index === 0 ? { ...claim, status: "accepted" } : claim
       ),
-      challenges: current.challenges.map((challenge, index) =>
+      challenges: session.challenges.map((challenge, index) =>
         index === 0
           ? {
               ...challenge,
@@ -269,7 +300,7 @@ export function DemoArena() {
             }
           : challenge
       ),
-      conflicts: current.conflicts.map((conflict, index) =>
+      conflicts: session.conflicts.map((conflict, index) =>
         index === 0
           ? {
               ...conflict,
@@ -279,15 +310,19 @@ export function DemoArena() {
             }
           : conflict
       ),
-      humanDecisions: [...current.humanDecisions, decision],
+      humanDecisions: [...session.humanDecisions, decision],
       lastSequence: 21
-    }));
+    };
+    setSession(nextSession);
+    setDecidedSession(nextSession);
   }
 
   function handleReplay(sequence: number) {
     setSelectedSequence(sequence);
-    setOutcome(null);
-    setEvents(initialEvents);
+    if (sequence >= 21 && decidedSession) {
+      setSession(decidedSession);
+      return;
+    }
     if (sequence <= 8) {
       setSession({
         ...baseSession,
@@ -310,6 +345,9 @@ export function DemoArena() {
       className="demo-shell"
       data-demo-fixture="true"
       data-testid="demo-fixture"
+      data-opposing-claim-count={opposingClaimCount}
+      data-challenge-count={challengeCount}
+      data-conflict-count={conflictCount}
     >
       <header className="demo-header" data-testid="workspace-header">
         <div className="demo-header-brand">
@@ -345,6 +383,18 @@ export function DemoArena() {
             <dd data-testid="challenge-status">
               {outcome?.challengeStatus ?? "待人工裁决"}
             </dd>
+          </div>
+          <div>
+            <dt>反方 Claim</dt>
+            <dd data-testid="opposing-claim-count">{opposingClaimCount}</dd>
+          </div>
+          <div>
+            <dt>结构化质询</dt>
+            <dd data-testid="challenge-count">{challengeCount}</dd>
+          </div>
+          <div>
+            <dt>冲突</dt>
+            <dd data-testid="conflict-count">{conflictCount}</dd>
           </div>
         </dl>
       </header>

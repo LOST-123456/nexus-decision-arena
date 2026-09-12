@@ -50,6 +50,7 @@ export const decisionSessions = pgTable("decision_sessions", {
   operationalStatus: text("operational_status").notNull(),
   currentConclusion: text("current_conclusion"),
   nextEventSequence: integer("next_event_sequence").notNull().default(1),
+  supplementRound: integer("supplement_round").notNull().default(0),
   pauseReason: text("pause_reason"),
   resumePhase: text("resume_phase"),
   createdAt: timestampColumn("created_at").notNull().defaultNow(),
@@ -213,6 +214,34 @@ export const humanDecisions = pgTable("human_decisions", {
   operatorId: text("operator_id").notNull(),
   createdAt: timestampColumn("created_at").notNull().defaultNow()
 });
+
+export const finalReports = pgTable(
+  "final_reports",
+  {
+    id: uuid("id").primaryKey(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => decisionSessions.id),
+    projectName: text("project_name").notNull(),
+    executiveSummary: text("executive_summary").notNull(),
+    initialConclusion: text("initial_conclusion").notNull(),
+    postChallengeConclusion: text("post_challenge_conclusion").notNull(),
+    humanAction: text("human_action").notNull(),
+    finalConclusion: text("final_conclusion").notNull(),
+    decisionExplanation: text("decision_explanation").notNull(),
+    requiredNextActions: jsonb("required_next_actions").notNull(),
+    decisiveChallengeIds: jsonb("decisive_challenge_ids").notNull(),
+    evidenceIds: jsonb("evidence_ids").notNull(),
+    humanDecisionId: uuid("human_decision_id").references(
+      () => humanDecisions.id
+    ),
+    createdAt: timestampColumn("created_at").notNull().defaultNow(),
+    updatedAt: timestampColumn("updated_at").notNull().defaultNow()
+  },
+  (table) => ({
+    session: uniqueIndex("final_reports_session_id_idx").on(table.sessionId)
+  })
+);
 
 export const executionEvents = pgTable(
   "execution_events",

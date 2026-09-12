@@ -8,7 +8,12 @@ import type {
 export type { ClaimInspectorDTO } from "@nexus/shared";
 import { eq, sql } from "drizzle-orm";
 import type { Database } from "../client";
-import { agentRuns, claims, promptVersions } from "../schema";
+import {
+  agentRuns,
+  claims,
+  humanDecisions,
+  promptVersions
+} from "../schema";
 
 type JsonObject = Record<string, unknown>;
 
@@ -87,6 +92,33 @@ export class InspectorRepository {
       responseClaim?: Claim;
     }>;
     const conflicts = camelize(view?.conflicts ?? []) as Conflict[];
+    const decisions = await this.database
+      .select()
+      .from(humanDecisions)
+      .where(eq(humanDecisions.sessionId, sessionId));
+    const linkedDecision = [...decisions]
+      .sort((left, right) =>
+        right.createdAt.localeCompare(left.createdAt)
+      )
+      .find(
+        (decision) =>
+          (Array.isArray(decision.affectedClaimIds)
+            ? decision.affectedClaimIds
+            : []
+          ).includes(claim.id) ||
+          conflicts.some(
+            (conflict) =>
+              conflict.id === decision.conflictId &&
+              conflict.claimIds.includes(claim.id)
+          )
+      );
+    const decisiveChallengeIds = [
+      ...new Set(
+        conflicts
+          .filter((conflict) => conflict.claimIds.includes(claim.id))
+          .flatMap((conflict) => conflict.challengeIds)
+      )
+    ];
 
     return {
       claim,
@@ -107,8 +139,11 @@ export class InspectorRepository {
           claim.status === "accepted"
             ? "\u8be5 Claim \u5df2\u901a\u8fc7\u8bc1\u636e\u4e0e\u8d28\u8be2\u5ba1\u67e5\u3002"
             : "\u8be5 Claim \u4ecd\u9700\u8865\u5145\u8bc1\u636e\u6216\u7531\u4eba\u5de5\u590d\u6838\u3002",
-        decisiveChallengeIds: [],
-        evidenceIds: claim.evidenceIds
+        decisiveChallengeIds,
+        evidenceIds: claim.evidenceIds,
+        ...(linkedDecision
+          ? { humanDecisionId: linkedDecision.id }
+          : {})
       }
     };
   }

@@ -160,6 +160,25 @@ export const previewSession: PreviewSession = {
       updatedAt: timestamp
     },
     {
+      id: "claim-risk",
+      sessionId,
+      agentRunId: "run-risk",
+      roleId: "agent-risk",
+      lens: "合规审查",
+      statement: "危化品数据、安全责任与采购合规边界尚未验证，直接扩张风险过高。",
+      type: "recommendation",
+      stance: "oppose",
+      importance: 5,
+      confidence: 0.81,
+      evidenceIds: ["evidence-compliance"],
+      status: "contested",
+      rootClaimId: "claim-risk",
+      revision: 1,
+      relations: [],
+      createdAt: timestamp,
+      updatedAt: timestamp
+    },
+    {
       id: "claim-pilot",
       sessionId,
       agentRunId: "run-moderator",
@@ -221,6 +240,20 @@ export const previewSession: PreviewSession = {
       verificationStatus: "verified",
       retrievedAt: timestamp,
       createdBy: "agent"
+    },
+    {
+      id: "evidence-compliance",
+      sessionId,
+      claimId: "claim-risk",
+      kind: "assumption",
+      title: "责任边界待确认",
+      content: "学校安全责任、事故责任和数据处理边界尚未形成书面依据。",
+      description: "需要在试点前完成责任边界确认。",
+      direction: "opposes",
+      reliability: 0.68,
+      verificationStatus: "unverified",
+      retrievedAt: timestamp,
+      createdBy: "agent"
     }
   ],
   challenges: [
@@ -264,6 +297,66 @@ export const previewSession: PreviewSession = {
       correlationId: "correlation-pilot",
       createdAt: timestamp,
       updatedAt: timestamp
+    },
+    {
+      id: "challenge-feasibility",
+      sessionId,
+      targetClaimId: "claim-feasibility",
+      challengerRunId: "run-risk",
+      challengerRoleId: "agent-risk",
+      type: "feasibility",
+      question: "6 个月完成多类硬件适配是否有原型验证依据？",
+      context: {
+        triggerClaimIds: ["claim-feasibility"],
+        explanation: "开发周期直接决定试点成本和市场窗口。"
+      },
+      requiredEvidence: ["硬件兼容性原型报告"],
+      severity: 5,
+      resolutionStrategy: "provide_evidence",
+      status: "unresolved",
+      correlationId: "correlation-feasibility",
+      createdAt: timestamp,
+      updatedAt: timestamp
+    },
+    {
+      id: "challenge-margin",
+      sessionId,
+      targetClaimId: "claim-margin",
+      challengerRunId: "run-market",
+      challengerRoleId: "agent-market",
+      type: "evidence_gap",
+      question: "65% 毛利率是否包含硬件、部署和售后成本？",
+      context: {
+        triggerClaimIds: ["claim-margin"],
+        explanation: "缺少成本拆分会使财务模型无法验证。"
+      },
+      requiredEvidence: ["单位经济模型和成本拆分表"],
+      severity: 5,
+      resolutionStrategy: "revise_claim",
+      status: "unresolved",
+      correlationId: "correlation-margin",
+      createdAt: timestamp,
+      updatedAt: timestamp
+    },
+    {
+      id: "challenge-risk",
+      sessionId,
+      targetClaimId: "claim-risk",
+      challengerRunId: "run-risk",
+      challengerRoleId: "agent-risk",
+      type: "logic_flaw",
+      question: "安全责任风险是否与免费试点的责任边界一致？",
+      context: {
+        triggerClaimIds: ["claim-risk"],
+        explanation: "试点阶段也需要明确事故责任和数据责任。"
+      },
+      requiredEvidence: ["试点协议和责任边界说明"],
+      severity: 5,
+      resolutionStrategy: "human_decision",
+      status: "unresolved",
+      correlationId: "correlation-risk",
+      createdAt: timestamp,
+      updatedAt: timestamp
     }
   ],
   conflicts: [
@@ -273,7 +366,7 @@ export const previewSession: PreviewSession = {
       claimIds: ["claim-scope", "claim-margin"],
       challengeIds: ["challenge-scope"],
       type: "evidence",
-      summary: "规模化目标与采购、成本证据发生冲突。",
+      summary: "建议立项与暂缓规模化扩张存在冲突",
       severity: 5,
       status: "human_review",
       humanDecisionRequired: true,
@@ -299,6 +392,24 @@ export const previewSession: PreviewSession = {
       impactScope: {
         analysisAreas: ["technology", "risk"],
         stakeholders: ["技术团队"]
+      },
+      createdAt: timestamp,
+      updatedAt: timestamp
+    },
+    {
+      id: "conflict-compliance",
+      sessionId,
+      claimIds: ["claim-risk"],
+      challengeIds: ["challenge-risk"],
+      type: "logic",
+      summary: "安全责任边界与规模化扩张决策存在冲突。",
+      severity: 5,
+      status: "human_review",
+      humanDecisionRequired: true,
+      resolutionSuggestion: "明确责任边界后再决定规模化范围。",
+      impactScope: {
+        analysisAreas: ["risk", "operations"],
+        stakeholders: ["学校实验室", "项目团队"]
       },
       createdAt: timestamp,
       updatedAt: timestamp

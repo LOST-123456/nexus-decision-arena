@@ -11,6 +11,7 @@ import {
   claims,
   conflicts,
   evidence,
+  humanDecisions,
   promptVersions
 } from "../schema";
 
@@ -192,6 +193,20 @@ describe("inspector repository", () => {
       createdAt,
       updatedAt: createdAt
     });
+    const humanDecisionId = newId();
+    await database.insert(humanDecisions).values({
+      id: humanDecisionId,
+      sessionId,
+      conflictId,
+      action: "accept_challenge",
+      rationale: "The challenge is decisive",
+      affectedClaimIds: [claimId],
+      affectedAgentRoleIds: [roleId],
+      previousConclusion: "Proceed",
+      newConclusion: "Limited pilot",
+      operatorId: "operator-1",
+      createdAt
+    });
 
     const result = await repository.getInspector(sessionId, claimId);
     if (!result) {
@@ -249,7 +264,9 @@ describe("inspector repository", () => {
       },
       decisionRationale: {
         outcome: "needs_human",
-        evidenceIds: [evidenceId]
+        decisiveChallengeIds: [challengeId],
+        evidenceIds: [evidenceId],
+        humanDecisionId
       }
     });
     expect(result.evidence[0]).not.toHaveProperty("verification_status");

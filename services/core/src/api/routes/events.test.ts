@@ -71,7 +71,10 @@ describe("SSE replay", () => {
     const response = await fetch(
       `http://127.0.0.1:${address.port}/api/sessions/${sessionId}/events/stream`,
       {
-        headers: { "last-event-id": "4" },
+        headers: {
+          "last-event-id": "4",
+          origin: "http://127.0.0.1:3000"
+        },
         signal: controller.signal
       }
     );
@@ -79,6 +82,9 @@ describe("SSE replay", () => {
     expect(response.status).toBe(200);
     expect(listAfter).toHaveBeenCalledWith(sessionId, 4);
     expect(response.headers.get("content-type")).toContain("text/event-stream");
+    expect(response.headers.get("access-control-allow-origin")).toBe(
+      "http://127.0.0.1:3000"
+    );
     void response.body?.cancel();
     controller.abort();
   });

@@ -34,13 +34,20 @@ export const ClaimSchema = z.object({
   evidenceIds: z.array(IdSchema),
   status: ClaimStatusSchema,
   rootClaimId: IdSchema,
-  revisionOfClaimId: IdSchema.optional(),
+  revisionOfClaimId: z.preprocess(
+    (value) => (value === null ? undefined : value),
+    IdSchema.optional()
+  ),
   revision: z.number().int().positive(),
   relations: z.array(ClaimRelationSchema),
-  respondsToChallengeId: IdSchema.optional(),
-  disposition: z
-    .enum(["accept", "reject", "qualify", "insufficient_evidence"])
-    .optional(),
+  respondsToChallengeId: z.preprocess(
+    (value) => (value === null ? undefined : value),
+    IdSchema.optional()
+  ),
+  disposition: z.preprocess(
+    (value) => (value === null ? undefined : value),
+    z.enum(["accept", "reject", "qualify", "insufficient_evidence"]).optional()
+  ),
   createdAt: TimestampSchema,
   updatedAt: TimestampSchema
 });

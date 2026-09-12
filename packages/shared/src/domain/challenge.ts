@@ -34,7 +34,10 @@ export const ChallengeSchema = z.object({
     "resolved",
     "unresolved"
   ]),
-  responseClaimId: IdSchema.optional(),
+  responseClaimId: z.preprocess(
+    (value) => (value === null ? undefined : value),
+    IdSchema.optional()
+  ),
   correlationId: IdSchema,
   createdAt: TimestampSchema,
   updatedAt: TimestampSchema

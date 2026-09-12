@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { newId, type HumanDecision } from "@nexus/shared";
-import { SessionNotInHumanReviewError } from "@nexus/db";
+import {
+  SessionNotInHumanReviewError,
+  SupplementRoundLimitError
+} from "@nexus/db";
 import { createApp } from "../../app";
 import { EventBus } from "../../execution/event-bus";
 
@@ -190,6 +193,41 @@ describe("human decision route", () => {
       phase: "REASSESSING",
       operationalStatus: "ACTIVE",
       currentConclusion: "Reassess procurement evidence"
+    });
+  });
+
+  it("returns 409 when a second supplement round is requested", async () => {
+    const sessionId = newId();
+    const app = createApp({
+      sessions: {
+        getById: vi.fn().mockResolvedValue({
+          id: sessionId,
+          phase: "HUMAN_REVIEW",
+          currentConclusion: "Hold scale-up"
+        }),
+        recordHumanDecision: vi
+          .fn()
+          .mockRejectedValue(new SupplementRoundLimitError())
+      } as never,
+      inspector: {} as never,
+      events: {} as never,
+      runSession: {} as never
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/sessions/${sessionId}/human-decisions`,
+      headers: { "idempotency-key": "decision-second-supplement" },
+      payload: {
+        ...decisionBody,
+        action: "request_more_analysis",
+        rationale: "Request another round"
+      }
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toEqual({
+      error: "Only one supplement analysis round is allowed"
     });
   });
 

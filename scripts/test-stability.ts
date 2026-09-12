@@ -62,7 +62,7 @@ async function main(): Promise<void> {
   ].join("\n");
 
   await mkdir(dirname(outputPath), { recursive: true });
-  await writeFile(outputPath, `${output}\n`, "utf8");
+  await writeFile(outputPath, output, "utf8");
 
   if (result.status !== 0) {
     process.stderr.write(stdout);

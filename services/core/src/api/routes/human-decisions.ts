@@ -1,6 +1,7 @@
 import {
   HumanDecisionConflictNotEligibleError,
-  SessionNotInHumanReviewError
+  SessionNotInHumanReviewError,
+  SupplementRoundLimitError
 } from "@nexus/db";
 import {
   HumanDecisionSchema,
@@ -142,6 +143,7 @@ export function registerHumanDecisionRoutes(
           error instanceof IdempotencyTimeoutError ||
           error instanceof IdempotencyLeaseLostError ||
           error instanceof SessionNotInHumanReviewError ||
+          error instanceof SupplementRoundLimitError ||
           error instanceof HumanDecisionConflictNotEligibleError
         ) {
           return reply.code(409).send({ error: error.message });

@@ -2,16 +2,29 @@ import { and, eq, sql } from "drizzle-orm";
 import {
   newId,
   type ExecutionEvent,
-  type HumanDecision
+  type HumanDecision,
+  type SessionView
 } from "@nexus/shared";
 import type { Database } from "../client";
 import {
   conflicts,
+  agentRoles,
+  challenges,
+  claims,
   decisionSessions,
+  evidence,
   executionEvents,
   humanDecisions,
   projects
 } from "../schema";
+import {
+  parseAgentRoles,
+  parseChallenges,
+  parseClaims,
+  parseConflicts,
+  parseEvidence,
+  parseHumanDecisions
+} from "./domain-mapper";
 
 type ProjectInput = {
   name: string;
@@ -56,6 +69,13 @@ export class HumanDecisionConflictNotEligibleError extends Error {
   }
 }
 
+export class SupplementRoundLimitError extends Error {
+  constructor() {
+    super("Only one supplement analysis round is allowed");
+    this.name = "SupplementRoundLimitError";
+  }
+}
+
 export class DecisionSessionRepository {
   constructor(private readonly database: Database) {}
 
@@ -92,6 +112,53 @@ export class DecisionSessionRepository {
     return session ?? null;
   }
 
+  async getView(id: string): Promise<SessionView | null> {
+    const session = await this.getById(id);
+    if (!session) {
+      return null;
+    }
+
+    const [
+      roles,
+      sessionClaims,
+      sessionEvidence,
+      sessionChallenges,
+      sessionConflicts,
+      sessionDecisions
+    ] = await Promise.all([
+      this.database.select().from(agentRoles),
+      this.database.select().from(claims).where(eq(claims.sessionId, id)),
+      this.database.select().from(evidence).where(eq(evidence.sessionId, id)),
+      this.database
+        .select()
+        .from(challenges)
+        .where(eq(challenges.sessionId, id)),
+      this.database
+        .select()
+        .from(conflicts)
+        .where(eq(conflicts.sessionId, id)),
+      this.database
+        .select()
+        .from(humanDecisions)
+        .where(eq(humanDecisions.sessionId, id))
+    ]);
+
+    return {
+      sessionId: session.id,
+      phase: session.phase as SessionView["phase"],
+      operationalStatus:
+        session.operationalStatus as SessionView["operationalStatus"],
+      agents: parseAgentRoles(roles),
+      claims: parseClaims(sessionClaims),
+      evidence: parseEvidence(sessionEvidence),
+      challenges: parseChallenges(sessionChallenges),
+      conflicts: parseConflicts(sessionConflicts),
+      humanDecisions: parseHumanDecisions(sessionDecisions),
+      currentConclusion: session.currentConclusion,
+      supplementRound: session.supplementRound
+    };
+  }
+
   async recordHumanDecision(input: {
     decision: HumanDecision;
     transition: HumanDecisionTransition;
@@ -106,6 +173,13 @@ export class DecisionSessionRepository {
 
       if (!currentSession || currentSession.phase !== "HUMAN_REVIEW") {
         throw new SessionNotInHumanReviewError();
+      }
+
+      if (
+        input.decision.action === "request_more_analysis" &&
+        currentSession.supplementRound >= 1
+      ) {
+        throw new SupplementRoundLimitError();
       }
 
       const [eligibleConflict] = await transaction
@@ -137,6 +211,9 @@ export class DecisionSessionRepository {
           operationalStatus: input.transition.operationalStatus,
           currentConclusion: input.transition.conclusion,
           nextEventSequence: sql`${decisionSessions.nextEventSequence} + 1`,
+          ...(input.decision.action === "request_more_analysis"
+            ? { supplementRound: currentSession.supplementRound + 1 }
+            : {}),
           updatedAt: new Date().toISOString()
         })
         .where(

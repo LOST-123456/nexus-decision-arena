@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { AgentRoleSchema, newId, type AgentRole } from "@nexus/shared";
 import type { AgentAnalysis } from "./agent-runner";
+import { CrossExaminationService } from "./cross-examination";
+import { DEFAULT_AGENT_ROLES } from "./default-roles";
+import {
+  DeterministicAgentRunner,
+  loadDeterministicFixtures
+} from "./deterministic-agent-runner";
+import { MemoryRunSessionStore } from "./memory-run-session-store";
 import { RunSessionService } from "./run-session";
+import { EventBus } from "../execution/event-bus";
 
 const role = (key: AgentRole["key"]): AgentRole =>
   AgentRoleSchema.parse({
@@ -47,5 +55,54 @@ describe("run session service", () => {
     expect(emitted.filter((type) => type === "AGENT_RUN_FAILED")).toHaveLength(
       2
     );
+  });
+
+  it("runs the deterministic engine through conflict detection and human review", async () => {
+    const fixtures = await loadDeterministicFixtures();
+    const sessionId = newId();
+    const store = new MemoryRunSessionStore(
+      {
+        id: sessionId,
+        phase: "CREATED",
+        operationalStatus: "ACTIVE",
+        currentConclusion: null,
+        supplementRound: 0
+      },
+      { name: "Fixture project" },
+      DEFAULT_AGENT_ROLES
+    );
+    const runner = new DeterministicAgentRunner(fixtures);
+    const eventBus = new EventBus();
+    const service = new RunSessionService(runner, {
+      store,
+      roles: DEFAULT_AGENT_ROLES,
+      crossExamination: new CrossExaminationService(
+        runner.createChallengeDependencies()
+      ),
+      createChallengePlans: (roles, claims, runIdByRoleId) =>
+        runner.createChallengePlans(roles, claims, runIdByRoleId),
+      appendEvent: (input) => store.appendEvent(input),
+      eventBus
+    });
+
+    await service.start(sessionId);
+
+    expect(store.claims.filter((claim) => claim.stance === "oppose").length)
+      .toBeGreaterThanOrEqual(3);
+    expect(store.challenges).toHaveLength(5);
+    expect(store.conflicts.length).toBeGreaterThanOrEqual(3);
+    expect(store.events.map((event) => event.type)).toEqual(
+      expect.arrayContaining([
+        "AGENT_RUN_STARTED",
+        "AGENT_RUN_COMPLETED",
+        "CLAIM_CREATED",
+        "CHALLENGE_CREATED",
+        "CONFLICT_DETECTED",
+        "HUMAN_REVIEW_REQUIRED"
+      ])
+    );
+    await expect(store.getRunContext(sessionId)).resolves.toMatchObject({
+      session: { phase: "HUMAN_REVIEW", operationalStatus: "PAUSED" }
+    });
   });
 });

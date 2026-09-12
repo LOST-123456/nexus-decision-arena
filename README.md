@@ -4,7 +4,7 @@
 
 Nexus Decision Arena 是一个 AI 决策质询沙盘。五个角色先独立分析，再通过交叉质询暴露冲突，最后由人类完成裁决并生成可回放报告。
 
-本仓库的固定演示项目为“高校实验室 AI 危化品库存与安全预警平台”。为控制离线环境的不确定性，页面在 `DEMO FIXTURE` 模式下读取固定输入、固定角色分析、固定质询和预期有限立项报告；页面不调用真实模型。完整 live orchestration 尚未接入浏览器演示路径，因此不能将 fixture 回放描述为真实模型运行结果。
+本仓库的固定演示项目为“高校实验室 AI 危化品库存与安全预警平台”。`/sessions/demo` 继续使用标记为 `DEMO FIXTURE` 的离线回放；通过 REST API 创建的 UUID 会话则运行完整 Mock Mode orchestration，持久化五角色分析、Claim、Evidence、Challenge、Conflict、人工裁决与 FinalReport，并通过 SSE 推送到同一套浏览器工作区。
 
 ## 10 分钟极速复现
 
@@ -82,6 +82,13 @@ corepack pnpm demo:fixture
 
 该命令读取 `fixtures/`，使用 `MockLlmProvider`，不需要数据库、外网或模型 API。
 
+Live Mock Mode：
+
+1. 使用 `POST /api/sessions` 创建会话。
+2. 使用 `POST /api/sessions/:id/start` 启动真实 orchestration 路径。
+3. 打开 `/sessions/:id` 查看 SSE 更新、统一 Timeline 和 DecisionReplay。
+4. 完成人工裁决后打开 `/sessions/:id/report`，报告来自持久化的 FinalReport。
+
 ### 8. 运行测试
 
 ```bash
@@ -91,7 +98,7 @@ corepack pnpm --filter @nexus/web build
 corepack pnpm --filter @nexus/web test:e2e
 ```
 
-Playwright 覆盖 `1440x900` 与 `390x844`，并检查初始结论、冲突、人工采纳、最终“有限立项”、决策解释、水平溢出和关键区域几何重叠。截图输出到 `artifacts/playwright/`。
+Playwright 覆盖 `1440x900` 与 `390x844`，并检查固定 Demo 至少 3 个反方 Claim、5 个结构化 Challenge、3 个 Conflict，人工采纳、最终“有限立项”、Timeline 回放不丢失最终裁决、live SSE 会话、持久化报告、水平溢出和关键区域几何重叠。截图输出到 `artifacts/playwright/`。
 
 20 次稳定性检查：
 
@@ -103,7 +110,7 @@ corepack pnpm test:stability
 
 ## Mock Mode
 
-`LLM_MODE=mock` 时应用使用确定性的 fixture/provider 路径，不发送外部网络请求。固定 Demo 页面始终标记为 `DEMO FIXTURE`，避免把离线回放误认为实时模型或持久化会话。Mock Mode 可用于无网络、无 API Key、无外部搜索服务的复现。
+`LLM_MODE=mock` 是默认模式。Live UUID 会话使用确定性的 fixture/provider 路径完成五角色分析、Cross Examination、Conflict Detection、Human Review 和最终报告持久化，不发送外部网络请求。固定 Demo 页面仍单独标记为 `DEMO FIXTURE`，避免把离线回放误认为真实模型运行结果。
 
 ## 真实模型模式
 
@@ -116,7 +123,7 @@ LLM_API_KEY=your-api-key
 LLM_MODEL=your-model
 ```
 
-真实模型模式需要 Core Service 中的 live orchestration 已接入。当前固定浏览器 Demo 不因切换环境变量而自动改为实时运行；不要用真实模型模式描述 fixture 截图。
+Live UUID 会话会在 `LLM_MODE=openai-compatible` 时使用环境变量配置的模型 Provider。固定浏览器 Demo 不因切换环境变量而自动改为实时运行；不要用真实模型模式描述 fixture 截图或 Mock Mode 证据。
 
 ## 常见问题
 
@@ -149,6 +156,7 @@ corepack pnpm --version
 - `docs/ai-history/0005-state-machine.md`
 - `docs/ai-history/0013-human-checkpoint.md`
 - `docs/ai-history/0014-demo-delivery.md`
+- `docs/ai-history/0015-final-fix-wave.md`
 
 ## 架构与协议文档
 

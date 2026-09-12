@@ -40,7 +40,8 @@ describe("migration runner", () => {
         applied: [
           "0001_initial.sql",
           "0002_claim_inspector_view.sql",
-          "0003_idempotency_leases.sql"
+          "0003_idempotency_leases.sql",
+          "0004_live_orchestration_and_reports.sql"
         ],
         skipped: []
       });
@@ -49,7 +50,8 @@ describe("migration runner", () => {
         skipped: [
           "0001_initial.sql",
           "0002_claim_inspector_view.sql",
-          "0003_idempotency_leases.sql"
+          "0003_idempotency_leases.sql",
+          "0004_live_orchestration_and_reports.sql"
         ]
       });
 
@@ -61,11 +63,12 @@ describe("migration runner", () => {
         applied_at: string;
       }>;
 
-      expect(records).toHaveLength(3);
+      expect(records).toHaveLength(4);
       expect(records.map((record) => record.filename)).toEqual([
         "0001_initial.sql",
         "0002_claim_inspector_view.sql",
-        "0003_idempotency_leases.sql"
+        "0003_idempotency_leases.sql",
+        "0004_live_orchestration_and_reports.sql"
       ]);
       expect(records.every((record) => record.checksum.length === 64)).toBe(
         true

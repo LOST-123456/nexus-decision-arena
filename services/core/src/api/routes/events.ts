@@ -26,8 +26,20 @@ export function registerEventRoutes(
   dependencies: {
     bus: EventBus;
     repository: Pick<AppDependencies["events"], "listAfter">;
-  }
+  },
+  allowedOrigins: ReadonlySet<string> = new Set()
 ): void {
+  app.get<{ Params: { id: string } }>(
+    "/api/sessions/:id/events",
+    async (request, reply) => {
+      const events = await dependencies.repository.listAfter(
+        request.params.id,
+        0
+      );
+      return reply.send(events);
+    }
+  );
+
   app.get<{ Params: { id: string } }>(
     "/api/sessions/:id/events/stream",
     async (request, reply) => {
@@ -158,7 +170,14 @@ export function registerEventRoutes(
       reply.raw.once("error", cleanup);
 
       reply.hijack();
+      const origin = request.headers.origin;
       reply.raw.writeHead(200, {
+        ...(origin && allowedOrigins.has(origin)
+          ? {
+              "access-control-allow-origin": origin,
+              vary: "Origin"
+            }
+          : {}),
         "content-type": "text/event-stream; charset=utf-8",
         "cache-control": "no-cache",
         connection: "keep-alive"

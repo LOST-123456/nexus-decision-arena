@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   assertClaimInvariants,
+  ChallengeSchema,
   ClaimSchema,
   canTransition,
   EvidenceSchema,
@@ -146,6 +147,45 @@ describe("claim invariants", () => {
         []
       )
     ).toThrow("A revision must have revision greater than 1");
+  });
+
+  it("rejects an accepted important Claim with an unresolved severe Challenge", () => {
+    const claim = baseClaim();
+    const evidence = baseEvidence(claim.id, "verified");
+    const challenge = ChallengeSchema.parse({
+      id: newId(),
+      sessionId: claim.sessionId,
+      targetClaimId: claim.id,
+      challengerRunId: newId(),
+      challengerRoleId: newId(),
+      type: "evidence_gap",
+      question: "Where is the independent source?",
+      context: {
+        triggerClaimIds: [claim.id],
+        explanation: "The claim remains contested."
+      },
+      requiredEvidence: ["independent source"],
+      severity: 4,
+      resolutionStrategy: "provide_evidence",
+      status: "unresolved",
+      correlationId: newId(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    });
+
+    expect(() =>
+      assertClaimInvariants(
+        {
+          ...claim,
+          status: "accepted",
+          evidenceIds: [evidence.id]
+        },
+        [evidence],
+        [challenge]
+      )
+    ).toThrow(
+      "Accepted important claims cannot have unresolved severe challenges"
+    );
   });
 });
 

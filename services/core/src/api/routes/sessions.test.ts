@@ -17,6 +17,33 @@ const flushAsyncWork = (): Promise<void> =>
   new Promise((resolve) => setImmediate(resolve));
 
 describe("session routes", () => {
+  it("allows the configured web origin for browser transport", async () => {
+    const app = createApp(
+      {
+        sessions: {} as never,
+        inspector: {} as never,
+        events: {} as never,
+        runSession: {} as never
+      },
+      undefined,
+      { webOrigin: "http://localhost:4321" }
+    );
+
+    const response = await app.inject({
+      method: "OPTIONS",
+      url: "/api/sessions",
+      headers: {
+        origin: "http://localhost:4321",
+        "access-control-request-method": "POST"
+      }
+    });
+
+    expect(response.statusCode).toBe(204);
+    expect(response.headers["access-control-allow-origin"]).toBe(
+      "http://localhost:4321"
+    );
+  });
+
   it("creates and starts a session once", async () => {
     const sessionId = newId();
     const sessions = {
@@ -261,5 +288,37 @@ describe("session routes", () => {
 
     expect(response.statusCode).toBe(404);
     expect(getInspector).toHaveBeenCalledWith(sessionId, claimId);
+  });
+
+  it("returns the persisted session view used by the live workspace", async () => {
+    const sessionId = newId();
+    const view = {
+      sessionId,
+      phase: "HUMAN_REVIEW",
+      operationalStatus: "PAUSED",
+      agents: [],
+      claims: [],
+      evidence: [],
+      challenges: [],
+      conflicts: [],
+      humanDecisions: [],
+      currentConclusion: "暂缓规模化扩张"
+    };
+    const app = createApp({
+      sessions: {
+        getView: vi.fn().mockResolvedValue(view)
+      } as never,
+      inspector: {} as never,
+      events: {} as never,
+      runSession: {} as never
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/sessions/${sessionId}`
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual(view);
   });
 });

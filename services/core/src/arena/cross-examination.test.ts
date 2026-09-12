@@ -84,7 +84,9 @@ describe("cross examination service", () => {
       sessionId,
       claims: [target],
       roles: [market, finance],
-      emit: (event) => emitted.push(event.type as string)
+      emit: (event) => {
+        emitted.push(event.type as string);
+      }
     });
 
     expect(result.challenges[0]?.status).toBe("unresolved");
@@ -125,7 +127,9 @@ describe("cross examination service", () => {
       sessionId,
       claims: [target],
       roles: [market, finance, risk],
-      emit: (event) => emitted.push(event.type as string)
+      emit: (event) => {
+        emitted.push(event.type as string);
+      }
     });
 
     expect(target).toEqual(original);
@@ -159,7 +163,9 @@ describe("cross examination service", () => {
       sessionId,
       claims: [target],
       roles: [market, finance],
-      emit: (event) => emitted.push(event.type as string)
+      emit: (event) => {
+        emitted.push(event.type as string);
+      }
     });
 
     expect(result.responseClaims).toHaveLength(0);

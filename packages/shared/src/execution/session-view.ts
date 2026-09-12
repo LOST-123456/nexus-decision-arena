@@ -17,4 +17,5 @@ export type SessionView = {
   conflicts: Conflict[];
   humanDecisions: HumanDecision[];
   currentConclusion: string | null;
+  supplementRound?: number;
 };
