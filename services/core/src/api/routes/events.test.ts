@@ -182,6 +182,96 @@ describe("SSE replay", () => {
     controller.abort();
   });
 
+  it("bounds recovery reads with exponential backoff and no overlap", async () => {
+    const sessionId = newId();
+    const eventBus = new EventBus();
+    let initialReplayRead = true;
+    let activeRecoveryReads = 0;
+    let resolveRecoveryRead!: (events: ExecutionEvent[]) => void;
+    const recoveryStarts: number[] = [];
+    const listAfter = vi.fn(() => {
+      if (initialReplayRead) {
+        initialReplayRead = false;
+        return Promise.resolve([]);
+      }
+
+      recoveryStarts.push(Date.now());
+      activeRecoveryReads += 1;
+      return new Promise<ExecutionEvent[]>((resolve) => {
+        resolveRecoveryRead = (events) => {
+          activeRecoveryReads -= 1;
+          resolve(events);
+        };
+      });
+    });
+    const app = createApp(
+      {
+        sessions: {} as never,
+        inspector: {} as never,
+        events: { listAfter } as never,
+        runSession: {} as never
+      },
+      undefined,
+      { eventBus }
+    );
+    apps.push(app);
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    const address = app.server.address() as AddressInfo;
+
+    const controller = new AbortController();
+    const response = await fetch(
+      `http://127.0.0.1:${address.port}/api/sessions/${sessionId}/events/stream`,
+      { signal: controller.signal }
+    );
+    await vi.waitFor(() => expect(listAfter).toHaveBeenCalledTimes(1));
+
+    vi.useFakeTimers({
+      toFake: [
+        "setTimeout",
+        "clearTimeout",
+        "setInterval",
+        "clearInterval",
+        "Date"
+      ]
+    });
+    try {
+      vi.setSystemTime(0);
+      await eventBus.publishAfterCommit({
+        append: async () => createEvent(sessionId, 2)
+      });
+
+      const expectedDelays = [25, 50, 100, 200, 400, 800, 1_000, 1_000];
+      const expectedRecoveryStarts: number[] = [];
+      for (const [index, delay] of expectedDelays.entries()) {
+        await vi.advanceTimersByTimeAsync(delay - 1);
+        expect(recoveryStarts).toHaveLength(index);
+
+        await vi.advanceTimersByTimeAsync(1);
+        const previousStart = expectedRecoveryStarts.at(-1);
+        expectedRecoveryStarts.push(
+          previousStart === undefined ? delay : previousStart + delay
+        );
+        expect(recoveryStarts).toEqual(expectedRecoveryStarts);
+        expect(activeRecoveryReads).toBe(1);
+
+        if (index === 0) {
+          await vi.advanceTimersByTimeAsync(1_000);
+          expect(listAfter).toHaveBeenCalledTimes(2);
+          expect(activeRecoveryReads).toBe(1);
+          vi.setSystemTime(expectedRecoveryStarts[0]!);
+        }
+
+        resolveRecoveryRead([]);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(activeRecoveryReads).toBe(0);
+      }
+    } finally {
+      await response.body?.cancel().catch(() => undefined);
+      controller.abort();
+      vi.useRealTimers();
+    }
+  });
+
   it("unsubscribes when the client disconnects during replay", async () => {
     const sessionId = newId();
     const unsubscribe = vi.fn();

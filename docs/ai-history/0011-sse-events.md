@@ -309,3 +309,35 @@ DB typecheck:   tsc --noEmit with no diagnostics
 ### Round 2 Commit
 
 - Commit title: `fix(core): hold SSE gaps and lease idempotency`
+
+## Task 9 Follow-Up Tests
+
+### Deterministic SSE Recovery Backoff
+
+The SSE route tests now use fake timers and a manually resolved recovery read.
+The test proves the retry times are 25, 50, 100, 200, 400, 800, 1000, and
+1000ms, that the delay is capped at 1000ms, and that recovery reads do not
+overlap because no second read starts until the first is resolved.
+
+### Expired Owner Failure Fencing
+
+The PostgreSQL idempotency integration tests now cover failure cleanup after a
+lease has been reclaimed. The old owner's operation rejects after the new owner
+has claimed the row; the old owner's cleanup leaves the row `processing` with
+the new owner's lease token and null response. The new owner then completes
+successfully, proving the old owner could neither delete nor overwrite the
+replacement reservation.
+
+### Follow-Up Verification
+
+```text
+Focused: Test Files 2 passed (2), Tests 14 passed (14)
+Core:    Test Files 9 passed (9), Tests 41 passed (41)
+DB:      Test Files 3 passed (3), Tests 4 passed (4)
+Core typecheck: tsc --noEmit with no diagnostics
+DB typecheck:   tsc --noEmit with no diagnostics
+```
+
+### Follow-Up Commit
+
+- Commit title: `test(core): cover sse recovery and lease fencing`

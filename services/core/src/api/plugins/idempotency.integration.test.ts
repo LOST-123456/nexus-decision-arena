@@ -1,4 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { eq } from "drizzle-orm";
 import {
   createDatabase,
   idempotencyKeys,
@@ -254,6 +255,98 @@ describe("PostgresIdempotencyStore", () => {
 
     await expect(first).rejects.toBeInstanceOf(IdempotencyLeaseLostError);
     expect(reclaimed).toEqual({
+      status: "completed",
+      response: { id: "new-owner" }
+    });
+  });
+
+  it("prevents an expired owner from deleting a newer reservation on failure", async () => {
+    const firstStore = new PostgresIdempotencyStore(database, {
+      processingTimeoutMs: 500,
+      pollIntervalMs: 5,
+      staleProcessingMs: 10,
+      leaseDurationMs: 10
+    });
+    const secondStore = new PostgresIdempotencyStore(database, {
+      processingTimeoutMs: 500,
+      pollIntervalMs: 5,
+      staleProcessingMs: 10,
+      leaseDurationMs: 500
+    });
+    let signalFirstStarted!: () => void;
+    const firstStarted = new Promise<void>((resolve) => {
+      signalFirstStarted = resolve;
+    });
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const first = firstStore.execute(
+      "old-owner-failure-key",
+      "hash-1",
+      async () => {
+        signalFirstStarted();
+        await firstGate;
+        throw new Error("old owner failed");
+      }
+    );
+
+    await firstStarted;
+    await database
+      .update(idempotencyKeys)
+      .set({ leaseExpiresAt: new Date(Date.now() - 60_000).toISOString() })
+      .where(eq(idempotencyKeys.key, "old-owner-failure-key"));
+
+    let signalSecondStarted!: () => void;
+    const secondStarted = new Promise<void>((resolve) => {
+      signalSecondStarted = resolve;
+    });
+    let releaseSecond!: () => void;
+    const secondGate = new Promise<void>((resolve) => {
+      releaseSecond = resolve;
+    });
+    const second = secondStore.execute(
+      "old-owner-failure-key",
+      "hash-1",
+      async () => {
+        signalSecondStarted();
+        await secondGate;
+        return { id: "new-owner" };
+      }
+    );
+
+    await secondStarted;
+    const [newReservation] = await database
+      .select()
+      .from(idempotencyKeys)
+      .where(eq(idempotencyKeys.key, "old-owner-failure-key"));
+    expect(newReservation).toBeDefined();
+    if (!newReservation) {
+      throw new Error("Expected the new owner reservation");
+    }
+    expect(newReservation.status).toBe("processing");
+    expect(newReservation.leaseToken).toEqual(expect.any(String));
+    expect(newReservation.leaseToken).not.toBe("old-lease");
+
+    releaseFirst();
+    await expect(first).rejects.toThrow("old owner failed");
+
+    const [reservationAfterOldFailure] = await database
+      .select()
+      .from(idempotencyKeys)
+      .where(eq(idempotencyKeys.key, "old-owner-failure-key"));
+    expect(reservationAfterOldFailure).toBeDefined();
+    if (!reservationAfterOldFailure) {
+      throw new Error("Expected the new reservation to remain");
+    }
+    expect(reservationAfterOldFailure.status).toBe("processing");
+    expect(reservationAfterOldFailure.leaseToken).toBe(
+      newReservation.leaseToken
+    );
+    expect(reservationAfterOldFailure.response).toBeNull();
+
+    releaseSecond();
+    await expect(second).resolves.toEqual({
       status: "completed",
       response: { id: "new-owner" }
     });
