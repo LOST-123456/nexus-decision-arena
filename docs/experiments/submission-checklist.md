@@ -39,7 +39,7 @@ git push -u origin feature/decision-arena
 | `docs/ai-history/0003-workspace-bootstrap.md` | 初始化 TypeScript/pnpm 工作区与测试基线 | 使用 strict TypeScript、Vitest、Playwright 和独立 shared 包 | 固定 pnpm 10.6.5 与 Node 22 | workspace bootstrap tests | `b6a0673` |
 | `docs/ai-history/0005-state-machine.md` | 将质询流程转换成可验证状态机 | 分离领域 phase 与 operational status | 允许 HUMAN_REVIEW 直接进入 DECIDED | `packages/shared` workflow tests | `c05304f` |
 | `docs/ai-history/0013-human-checkpoint.md` | 增加 Inspector、Timeline、Human Checkpoint、Replay 和 Report | 用单事务持久化 HumanDecision 和 SESSION_STATE_CHANGED | 增加 compare-and-set 与 eligible conflict 约束 | DB/Core/Web tests | `70545c7` |
-| `docs/ai-history/0014-demo-delivery.md` | 固定 fixture、E2E、20 次稳定性和投稿材料 | 浏览器 fixture 模式与 offline Mock Provider 分离 | 明确标注未接入 live orchestration，不宣称未测量指标 | unit/integration/typecheck/build/E2E 输出 | Task 12 commit hash appended to the final report |
+| `docs/ai-history/0014-demo-delivery.md` | 固定 fixture、E2E、20 次稳定性和投稿材料 | 浏览器 fixture 模式与 offline Mock Provider 分离 | 明确标注未接入 live orchestration，不宣称未测量指标 | unit/integration/typecheck/build/E2E 输出 | `ff9793a` |
 
 ## 复现路径
 

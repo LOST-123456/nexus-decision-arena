@@ -93,4 +93,4 @@ artifacts/playwright/mobile-390x844-report.png
 ## Commit
 
 - Commit title: `feat: complete reproducible decision arena demo`
-- Commit hash: recorded by Git history and the final submission checklist.
+- Commit hash: `ff9793a`.
