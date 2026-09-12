@@ -71,3 +71,25 @@ corepack pnpm --filter @nexus/web test:e2e
 ## Commit
 
 `fix: resolve residual decision lifecycle issues`
+## Concurrency Follow-up
+
+Scoped review found that supplement execution was still outside an atomic single-flight guard. The fix adds a PostgreSQL advisory lock per session and an equivalent in-memory lock for tests. A concurrent double-start regression now proves the supplement executes only once, preserves the original Claim count, and returns to human review.
+
+Final verification after this follow-up:
+
+```text
+corepack pnpm typecheck
+PASS
+
+corepack pnpm test
+152 tests passed
+
+corepack pnpm --filter @nexus/web build
+PASS
+
+corepack pnpm --filter @nexus/web test:e2e
+4/4 passed
+
+corepack pnpm test:stability
+40/40 passed
+```

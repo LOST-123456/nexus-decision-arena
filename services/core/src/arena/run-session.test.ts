@@ -143,7 +143,7 @@ describe("run session service", () => {
     const firstRoundClaimCount = store.claims.length;
 
     store.beginSupplementRound();
-    await service.start(sessionId);
+    await Promise.all([service.start(sessionId), service.start(sessionId)]);
 
     expect(store.claims).toHaveLength(firstRoundClaimCount);
     expect(store.events.filter((event) => event.type === "HUMAN_REVIEW_REQUIRED"))

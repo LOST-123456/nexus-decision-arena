@@ -1,4 +1,4 @@
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import {
   AgentRoleSchema,
   type AgentRole,
@@ -283,6 +283,18 @@ export class ArenaRepository {
 
   async saveConflict(conflict: Conflict): Promise<void> {
     await this.database.insert(conflicts).values(conflict);
+  }
+
+  async withSupplementLock<T>(
+    sessionId: string,
+    operation: () => Promise<T>
+  ): Promise<T> {
+    return this.database.transaction(async (transaction) => {
+      await transaction.execute(
+        sql`SELECT pg_advisory_xact_lock(hashtext(${sessionId}))`
+      );
+      return operation();
+    });
   }
 
   async getSessionArtifacts(sessionId: string) {

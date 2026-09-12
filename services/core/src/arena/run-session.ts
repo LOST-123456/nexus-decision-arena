@@ -73,6 +73,10 @@ export type RunSessionStore = {
   updateChallenge(challenge: Challenge): Promise<void>;
   saveConflict(conflict: Conflict): Promise<void>;
   getSessionArtifacts(sessionId: string): Promise<SessionArtifacts | null>;
+  withSupplementLock<T>(
+    sessionId: string,
+    operation: () => Promise<T>
+  ): Promise<T>;
   getClaimValidationContext(claimId: string): Promise<{
     claim: Claim;
     evidence: Evidence[];
@@ -166,7 +170,7 @@ export class RunSessionService {
       );
     }
 
-    const context = await this.runtime.store.getRunContext(sessionId);
+    let context = await this.runtime!.store.getRunContext(sessionId);
     if (!context) {
       throw new Error(`Session not found: ${sessionId}`);
     }
@@ -177,7 +181,7 @@ export class RunSessionService {
       throw new SessionAlreadyStartedError(sessionId);
     }
 
-    const roles = await this.runtime.store.ensureAgentRoles(
+    const roles = await this.runtime!.store.ensureAgentRoles(
       this.runtime.roles.length > 0 ? this.runtime.roles : context.roles
     );
     if (roles.length === 0) {
@@ -210,15 +214,26 @@ export class RunSessionService {
       });
 
     if (isSupplementRound) {
-      const artifacts =
-        await this.runtime.store.getSessionArtifacts(sessionId);
+      await this.runtime!.store.withSupplementLock(sessionId, async () => {
+        const latestContext =
+          await this.runtime!.store.getRunContext(sessionId);
+        if (
+          !latestContext ||
+          latestContext.session.phase !== "REASSESSING"
+        ) {
+          return;
+        }
+        context = latestContext;
+
+        const artifacts =
+        await this.runtime!.store.getSessionArtifacts(sessionId);
       if (!artifacts || artifacts.claims.length === 0) {
         throw new Error(
           `Supplement round for ${sessionId} has no existing Claims`
         );
       }
 
-      await this.runtime.store.setSessionState({
+      await this.runtime!.store.setSessionState({
         sessionId,
         phase: "CHALLENGING",
         operationalStatus: "ACTIVE",
@@ -235,13 +250,13 @@ export class RunSessionService {
       });
 
       const crossExaminationService =
-        typeof this.runtime.crossExamination === "function"
-          ? this.runtime.crossExamination()
-          : this.runtime.crossExamination;
+        typeof this.runtime!.crossExamination === "function"
+          ? this.runtime!.crossExamination()
+          : this.runtime!.crossExamination;
       const runIdByRoleId = new Map(
         artifacts.claims.map((claim) => [claim.roleId, claim.agentRunId])
       );
-      const plans = this.runtime.createChallengePlans?.(
+      const plans = this.runtime!.createChallengePlans?.(
         roles,
         artifacts.claims,
         runIdByRoleId
@@ -281,7 +296,7 @@ export class RunSessionService {
         );
 
       if (humanReviewRequired) {
-        await this.runtime.store.setSessionState({
+        await this.runtime!.store.setSessionState({
           sessionId,
           phase: "CONFLICT_DETECTED",
           operationalStatus: "ACTIVE",
@@ -296,7 +311,7 @@ export class RunSessionService {
             currentConclusion: context.session.currentConclusion
           }
         });
-        await this.runtime.store.setSessionState({
+        await this.runtime!.store.setSessionState({
           sessionId,
           phase: "HUMAN_REVIEW",
           operationalStatus: "PAUSED",
@@ -313,7 +328,7 @@ export class RunSessionService {
         return;
       }
 
-      await this.runtime.store.setSessionState({
+      await this.runtime!.store.setSessionState({
         sessionId,
         phase: "DECIDED",
         operationalStatus: "COMPLETED",
@@ -328,10 +343,12 @@ export class RunSessionService {
           currentConclusion: context.session.currentConclusion
         }
       });
+        return;
+      });
       return;
     }
 
-    await this.runtime.store.setSessionState({
+    await this.runtime!.store.setSessionState({
       sessionId,
       phase: "PLANNING",
       operationalStatus: "ACTIVE",
@@ -347,7 +364,7 @@ export class RunSessionService {
       }
     });
 
-    await this.runtime.store.setSessionState({
+    await this.runtime!.store.setSessionState({
       sessionId,
       phase: "ANALYZING",
       operationalStatus: "ACTIVE",
@@ -377,7 +394,7 @@ export class RunSessionService {
           promptVersionId: entry.role.promptVersionId,
           status: "running",
           correlationId: entry.correlationId,
-          input: context.projectInput,
+          input: context!.projectInput,
           startedAt: new Date().toISOString()
         })
       )
@@ -401,7 +418,7 @@ export class RunSessionService {
         this.agentRunner.run(entry.role, {
           sessionId,
           agentRunId: entry.runId,
-          projectInput: context.projectInput
+          projectInput: context!.projectInput
         })
       )
     );
@@ -421,7 +438,7 @@ export class RunSessionService {
           result.reason instanceof Error
             ? result.reason.message
             : "Unknown agent failure";
-        await this.runtime.store.failAgentRun({
+        await this.runtime!.store.failAgentRun({
           runId: entry.runId,
           error: message
         });
@@ -445,7 +462,7 @@ export class RunSessionService {
           analysis.evidence.filter((item) => item.claimId === claim.id)
         );
       }
-      await this.runtime.store.saveClaimsAndEvidence({
+      await this.runtime!.store.saveClaimsAndEvidence({
         runId: entry.runId,
         output: analysis,
         claims: analysis.claims,
@@ -474,7 +491,7 @@ export class RunSessionService {
       });
     }
 
-    await this.runtime.store.setSessionState({
+    await this.runtime!.store.setSessionState({
       sessionId,
       phase: "CHALLENGING",
       operationalStatus: "ACTIVE",
@@ -490,15 +507,15 @@ export class RunSessionService {
       }
     });
 
-    const plans = this.runtime.createChallengePlans?.(
+    const plans = this.runtime!.createChallengePlans?.(
       roles,
       allClaims,
       runIdByRoleId
     );
     const crossExaminationService =
-      typeof this.runtime.crossExamination === "function"
-        ? this.runtime.crossExamination()
-        : this.runtime.crossExamination;
+      typeof this.runtime!.crossExamination === "function"
+        ? this.runtime!.crossExamination()
+        : this.runtime!.crossExamination;
     const crossExamination = await crossExaminationService.run({
       sessionId,
       claims: allClaims,
@@ -544,7 +561,7 @@ export class RunSessionService {
       (conflict) => conflict.humanDecisionRequired
     );
     if (humanReviewRequired) {
-      await this.runtime.store.setSessionState({
+      await this.runtime!.store.setSessionState({
         sessionId,
         phase: "CONFLICT_DETECTED",
         operationalStatus: "ACTIVE",
@@ -559,7 +576,7 @@ export class RunSessionService {
           currentConclusion: postChallengeConclusion
         }
       });
-      await this.runtime.store.setSessionState({
+      await this.runtime!.store.setSessionState({
         sessionId,
         phase: "HUMAN_REVIEW",
         operationalStatus: "PAUSED",
@@ -578,7 +595,7 @@ export class RunSessionService {
       return;
     }
 
-    await this.runtime.store.setSessionState({
+    await this.runtime!.store.setSessionState({
       sessionId,
       phase: "DECIDED",
       operationalStatus: "COMPLETED",

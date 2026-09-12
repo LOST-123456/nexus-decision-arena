@@ -16,6 +16,7 @@ export class MemoryRunSessionStore implements RunSessionStore {
   readonly challenges: Challenge[] = [];
   readonly conflicts: Conflict[] = [];
   readonly agentRuns = new Map<string, Record<string, unknown>>();
+  private supplementLock: Promise<void> = Promise.resolve();
 
   constructor(
     protected readonly session: {
@@ -118,6 +119,26 @@ export class MemoryRunSessionStore implements RunSessionStore {
 
   async saveConflict(conflict: Conflict): Promise<void> {
     this.conflicts.push(structuredClone(conflict));
+  }
+
+  async withSupplementLock<T>(
+    sessionId: string,
+    operation: () => Promise<T>
+  ): Promise<T> {
+    if (sessionId !== this.session.id) {
+      return operation();
+    }
+    const previous = this.supplementLock;
+    let release!: () => void;
+    this.supplementLock = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+    }
   }
 
   async getSessionArtifacts(sessionId: string) {
