@@ -182,3 +182,41 @@ mobile 390x844:
   disabled human-decision buttons: 3
   horizontal overflow: none
 ```
+## Round 2 Review Fix
+
+### Corrections
+
+- Replaced per-semantic color-only styling with one exported visual contract:
+  `DECISION_MAP_EDGE_VISUALS`, `DECISION_MAP_EDGE_LEGEND`, and
+  `getDecisionMapEdgeVisualSignature()`.
+- Every edge semantic now has a unique combination of color, stroke width,
+  dash pattern, and marker configuration. Running and supports differ in both
+  color and dash pattern.
+- The visible legend is generated from the same contract and includes all nine
+  semantics: neutral, running, supports, opposes, challenged, conflict,
+  resolved, failed, and rejected.
+- Edge `ariaLabel` values remain sourced from the same visual contract.
+- Added a focused adapter/legend test proving entries are complete, labels are
+  unique, visual signatures are unique, and supports differs visibly from
+  running.
+
+### Verification
+
+```text
+Test Files  4 passed (4)
+Tests  12 passed (12)
+
+tsc --noEmit completed with no diagnostics
+Next.js 15.2.4 compiled successfully
+```
+
+Runtime verification:
+
+```text
+desktop and mobile:
+  legend entries: 9
+  unique legend encodings: 9
+  rendered edges: 14
+  accessible edges: 14
+  horizontal overflow: none
+```

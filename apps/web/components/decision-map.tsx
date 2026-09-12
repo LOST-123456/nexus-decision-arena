@@ -14,6 +14,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import type { ReplayableSession } from "../features/arena/event-reducer";
 import {
+  DECISION_MAP_EDGE_LEGEND,
   toDecisionMap,
   type DecisionMapNode,
   type DecisionMapNodeData,
@@ -77,34 +78,40 @@ function DecisionNode({ data }: NodeProps<DecisionMapNode>) {
 function EdgeLegend() {
   return (
     <div className="edge-legend" aria-label="连线语义">
-      <span>
-        <i className="edge-dot edge-dot-running" />
-        执行流
-      </span>
-      <span>
-        <i className="edge-dot edge-dot-challenged" />
-        未解质询
-      </span>
-      <span>
-        <i className="edge-dot edge-dot-conflict" />
-        冲突
-      </span>
-      <span>
-        <i className="edge-dot edge-dot-supports" />
-        支持
-      </span>
-      <span>
-        <i className="edge-dot edge-dot-opposes" />
-        反对
-      </span>
-      <span>
-        <i className="edge-dot edge-dot-resolved" />
-        已接受
-      </span>
+      {DECISION_MAP_EDGE_LEGEND.map((entry) => (
+        <span
+          key={entry.semantic}
+          className="edge-legend-item"
+          data-semantic={entry.semantic}
+        >
+          <svg
+            className="edge-legend-line"
+            width="28"
+            height="10"
+            viewBox="0 0 28 10"
+            aria-hidden="true"
+          >
+            <line
+              x1="1"
+              y1="5"
+              x2="27"
+              y2="5"
+              stroke={entry.color}
+              strokeWidth={entry.strokeWidth}
+              {...(entry.dashArray === "none"
+                ? {}
+                : { strokeDasharray: entry.dashArray })}
+            />
+          </svg>
+          <span>{entry.label}</span>
+          <small className="edge-legend-marker">
+            {entry.legendMarker}
+          </small>
+        </span>
+      ))}
     </div>
   );
 }
-
 export function DecisionMap({
   session,
   compact = false

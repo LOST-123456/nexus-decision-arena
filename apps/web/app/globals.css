@@ -15,7 +15,10 @@
   --success: #3ad58c;
   --warning: #efb35f;
   --danger: #ee6d6d;
+  --supports: #69d6a5;
   --opposes: #e28a58;
+  --failed: #b94b5d;
+  --rejected: #d8749a;
   --focus: #8de1f4;
   color-scheme: dark;
 }
@@ -831,19 +834,32 @@ dd {
 
 .edge-legend {
   display: grid;
-  gap: 0.32rem;
+  width: 15.5rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.38rem 0.65rem;
   border: 1px solid var(--line);
   background: rgba(10, 16, 21, 0.94);
-  padding: 0.5rem 0.55rem;
+  padding: 0.55rem;
   color: var(--muted);
   font-size: 0.53rem;
   letter-spacing: 0.03em;
 }
 
-.edge-legend span {
-  display: flex;
+.edge-legend-item {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 1.75rem minmax(0, 1fr) auto;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.3rem;
+}
+
+.edge-legend-line {
+  overflow: visible;
+}
+
+.edge-legend-marker {
+  color: var(--muted-strong);
+  font-size: 0.55rem;
 }
 
 .edge-dot {

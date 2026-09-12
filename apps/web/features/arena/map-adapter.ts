@@ -31,17 +31,23 @@ export type DecisionMapNodeData = {
   checkpoint?: boolean;
 };
 
+export const DECISION_MAP_EDGE_SEMANTICS = [
+  "neutral",
+  "running",
+  "supports",
+  "opposes",
+  "challenged",
+  "conflict",
+  "resolved",
+  "failed",
+  "rejected"
+] as const;
+
+export type DecisionMapEdgeSemantic =
+  (typeof DECISION_MAP_EDGE_SEMANTICS)[number];
+
 export type DecisionMapEdgeData = {
-  semantic:
-    | "neutral"
-    | "running"
-    | "resolved"
-    | "challenged"
-    | "conflict"
-    | "failed"
-    | "supports"
-    | "opposes"
-    | "rejected";
+  semantic: DecisionMapEdgeSemantic;
 };
 
 export type DecisionMapNode = Node<
@@ -50,51 +56,140 @@ export type DecisionMapNode = Node<
 >;
 export type DecisionMapEdge = Edge<DecisionMapEdgeData>;
 
-const edgeColors = {
-  neutral: "var(--line-strong)",
-  running: "var(--running)",
-  resolved: "var(--success)",
-  challenged: "var(--danger)",
-  conflict: "var(--warning)",
-  failed: "var(--danger)",
-  supports: "var(--running)",
-  opposes: "var(--opposes)",
-  rejected: "var(--danger)"
-} as const;
-
-const edgeAriaLabels: Record<
-  DecisionMapEdgeData["semantic"],
-  string
-> = {
-  neutral: "关联",
-  running: "执行中",
-  resolved: "已接受",
-  challenged: "未解质询",
-  conflict: "冲突",
-  failed: "执行失败",
-  supports: "支持",
-  opposes: "反对",
-  rejected: "已否决"
+export type DecisionMapEdgeVisual = {
+  label: string;
+  color: string;
+  strokeWidth: number;
+  dashArray: string;
+  markerStart?: "arrow" | "arrowclosed";
+  markerEnd?: "arrow" | "arrowclosed";
+  legendMarker: string;
 };
+
+export const DECISION_MAP_EDGE_VISUALS: Record<
+  DecisionMapEdgeSemantic,
+  DecisionMapEdgeVisual
+> = {
+  neutral: {
+    label: "关联",
+    color: "var(--line-strong)",
+    strokeWidth: 1.4,
+    dashArray: "2 6",
+    legendMarker: "none"
+  },
+  running: {
+    label: "执行流",
+    color: "var(--running)",
+    strokeWidth: 2,
+    dashArray: "8 5",
+    markerEnd: "arrowclosed",
+    legendMarker: "→"
+  },
+  supports: {
+    label: "支持",
+    color: "var(--supports)",
+    strokeWidth: 2,
+    dashArray: "none",
+    markerEnd: "arrow",
+    legendMarker: "→"
+  },
+  opposes: {
+    label: "反对",
+    color: "var(--opposes)",
+    strokeWidth: 2,
+    dashArray: "12 4",
+    markerStart: "arrowclosed",
+    markerEnd: "arrowclosed",
+    legendMarker: "↔"
+  },
+  challenged: {
+    label: "未解质询",
+    color: "var(--danger)",
+    strokeWidth: 2.2,
+    dashArray: "4 4",
+    markerEnd: "arrowclosed",
+    legendMarker: "→"
+  },
+  conflict: {
+    label: "冲突",
+    color: "var(--warning)",
+    strokeWidth: 2.6,
+    dashArray: "10 3 2 3",
+    markerStart: "arrowclosed",
+    markerEnd: "arrowclosed",
+    legendMarker: "↔"
+  },
+  resolved: {
+    label: "已接受",
+    color: "var(--success)",
+    strokeWidth: 2,
+    dashArray: "14 3",
+    markerEnd: "arrow",
+    legendMarker: "→"
+  },
+  failed: {
+    label: "执行失败",
+    color: "var(--failed)",
+    strokeWidth: 2.4,
+    dashArray: "1 4",
+    markerEnd: "arrowclosed",
+    legendMarker: "→"
+  },
+  rejected: {
+    label: "已否决",
+    color: "var(--rejected)",
+    strokeWidth: 2.4,
+    dashArray: "6 2 1 2",
+    markerStart: "arrowclosed",
+    markerEnd: "arrowclosed",
+    legendMarker: "↔"
+  }
+};
+
+export const DECISION_MAP_EDGE_LEGEND = DECISION_MAP_EDGE_SEMANTICS.map(
+  (semantic) => ({
+    semantic,
+    ...DECISION_MAP_EDGE_VISUALS[semantic]
+  })
+);
+
+export function getDecisionMapEdgeVisualSignature(
+  semantic: DecisionMapEdgeSemantic
+): string {
+  const visual = DECISION_MAP_EDGE_VISUALS[semantic];
+  return [
+    visual.color,
+    visual.dashArray,
+    visual.strokeWidth,
+    visual.markerStart ?? "none",
+    visual.markerEnd ?? "none"
+  ].join("|");
+}
 
 function createEdge(input: {
   id: string;
   source: string;
   target: string;
-  semantic: DecisionMapEdgeData["semantic"];
+  semantic: DecisionMapEdgeSemantic;
   animated?: boolean;
   width?: number;
 }): DecisionMapEdge {
+  const visual = DECISION_MAP_EDGE_VISUALS[input.semantic];
+
   return {
     id: input.id,
     source: input.source,
     target: input.target,
     type: "smoothstep",
+    className: `decision-edge decision-edge-${input.semantic}`,
     animated: input.animated ?? false,
-    ariaLabel: edgeAriaLabels[input.semantic],
+    ariaLabel: visual.label,
+    ...(visual.markerStart ? { markerStart: visual.markerStart } : {}),
+    ...(visual.markerEnd ? { markerEnd: visual.markerEnd } : {}),
     style: {
-      stroke: edgeColors[input.semantic],
-      strokeWidth: input.width ?? 1.6
+      stroke: visual.color,
+      strokeWidth: input.width ?? visual.strokeWidth,
+      strokeDasharray: visual.dashArray
     },
     data: { semantic: input.semantic }
   };

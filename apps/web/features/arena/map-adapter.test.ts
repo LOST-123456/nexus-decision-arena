@@ -7,7 +7,12 @@ import type {
 } from "@nexus/shared";
 import { newId } from "@nexus/shared";
 import type { ReplayableSession } from "./event-reducer";
-import { toDecisionMap } from "./map-adapter";
+import {
+  DECISION_MAP_EDGE_LEGEND,
+  DECISION_MAP_EDGE_SEMANTICS,
+  getDecisionMapEdgeVisualSignature,
+  toDecisionMap
+} from "./map-adapter";
 
 const timestamp = new Date().toISOString();
 
@@ -148,6 +153,47 @@ describe("Decision Map adapter", () => {
     expect(edge?.ariaLabel).toBeTruthy();
   });
 
+  it("keeps every edge semantic legend entry unique and complete", () => {
+    const semantics = [...DECISION_MAP_EDGE_SEMANTICS];
+    const legendSemantics = DECISION_MAP_EDGE_LEGEND.map(
+      (entry) => entry.semantic
+    );
+
+    expect(legendSemantics).toEqual(semantics);
+    expect(new Set(legendSemantics).size).toBe(semantics.length);
+    expect(
+      new Set(DECISION_MAP_EDGE_LEGEND.map((entry) => entry.label)).size
+    ).toBe(semantics.length);
+    expect(
+      new Set(
+        semantics.map((semantic) =>
+          getDecisionMapEdgeVisualSignature(semantic)
+        )
+      ).size
+    ).toBe(semantics.length);
+    expect(
+      DECISION_MAP_EDGE_LEGEND.every(
+        (entry) => entry.color.length > 0 && entry.strokeWidth > 0
+      )
+    ).toBe(true);
+
+    const running = DECISION_MAP_EDGE_LEGEND.find(
+      (entry) => entry.semantic === "running"
+    );
+    const supports = DECISION_MAP_EDGE_LEGEND.find(
+      (entry) => entry.semantic === "supports"
+    );
+
+    expect({
+      color: running?.color,
+      dashArray: running?.dashArray,
+      markerEnd: running?.markerEnd
+    }).not.toEqual({
+      color: supports?.color,
+      dashArray: supports?.dashArray,
+      markerEnd: supports?.markerEnd
+    });
+  });
   it("maps every Claim status to its own semantic node status", () => {
     const statuses: Claim["status"][] = [
       "proposed",
