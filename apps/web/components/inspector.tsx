@@ -1,26 +1,6 @@
-export type InspectorData = {
-  claim: {
-    id: string;
-    statement: string;
-    status: string;
-  };
-  evidence: readonly unknown[];
-  challenges:
-    | readonly unknown[]
-    | readonly {
-        challenge: unknown;
-        responseClaim?: unknown;
-      }[];
-  conflicts: readonly unknown[];
-  decisionRationale: {
-    outcome: string;
-    summary: string;
-    decisiveChallengeIds: readonly string[];
-    evidenceIds: readonly string[];
-  };
-};
+import type { ClaimInspectorDTO } from "@nexus/shared";
 
-export function Inspector({ data }: { data: InspectorData }) {
+export function Inspector({ data }: { data: ClaimInspectorDTO }) {
   return (
     <section className="inspector-panel" aria-label="Claim Inspector">
       <div className="inspector-title">

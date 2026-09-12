@@ -14,7 +14,11 @@ import {
   projects,
   promptVersions
 } from "../schema";
-import { DecisionSessionRepository } from "./decision-session-repository";
+import {
+  DecisionSessionRepository,
+  HumanDecisionConflictNotEligibleError,
+  SessionNotInHumanReviewError
+} from "./decision-session-repository";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
@@ -34,7 +38,10 @@ afterAll(async () => {
   await database.end();
 });
 
-async function seedCheckpoint() {
+async function seedCheckpoint(options: {
+  phase?: string;
+  humanDecisionRequired?: boolean;
+} = {}) {
   const projectId = newId();
   const sessionId = newId();
   const promptVersionId = newId();
@@ -54,14 +61,14 @@ async function seedCheckpoint() {
     id: sessionId,
     projectId,
     locale: "zh-CN",
-    phase: "HUMAN_REVIEW",
+    phase: options.phase ?? "HUMAN_REVIEW",
     operationalStatus: "PAUSED",
     currentConclusion: "Hold scale-up"
   });
   await database.insert(promptVersions).values({
     id: promptVersionId,
     name: "analyst",
-    version: "1",
+    version: projectId,
     content: "Analyze the project."
   });
   await database.insert(agentRoles).values({
@@ -131,7 +138,7 @@ async function seedCheckpoint() {
     summary: "Procurement evidence is missing.",
     severity: 5,
     status: "human_review",
-    humanDecisionRequired: true,
+    humanDecisionRequired: options.humanDecisionRequired ?? true,
     resolutionSuggestion: "Adopt the challenge.",
     impactScope: {
       analysisAreas: ["market", "finance"],
@@ -147,7 +154,8 @@ async function seedCheckpoint() {
 function decision(
   sessionId: string,
   conflictId: string,
-  affectedClaimIds: string[]
+  affectedClaimIds: string[],
+  newConclusion = "Limited pilot"
 ): HumanDecision {
   return {
     id: newId(),
@@ -157,50 +165,62 @@ function decision(
     rationale: "Challenge evidence is sufficient",
     affectedClaimIds,
     affectedAgentRoleIds: [],
-    previousConclusion: "Hold scale-up",
-    newConclusion: "Limited pilot",
+    previousConclusion: "Forged client value",
+    newConclusion,
     operatorId: "operator-1",
     createdAt: new Date().toISOString()
   };
 }
 
-describe("DecisionSessionRepository.recordHumanDecision", () => {
-  it("commits the decision, session transition, and event together", async () => {
-    const { sessionId, conflictId, claimId } = await seedCheckpoint();
-    const record = decision(sessionId, conflictId, [claimId]);
-
-    const result = await repository.recordHumanDecision({
-      decision: record,
-      transition: {
+async function record(
+  sessionId: string,
+  record: HumanDecision
+) {
+  return repository.recordHumanDecision({
+    decision: record,
+    transition: {
+      phase: "DECIDED",
+      operationalStatus: "COMPLETED",
+      conclusion: record.newConclusion
+    },
+    event: {
+      correlationId: record.id,
+      type: "SESSION_STATE_CHANGED",
+      payload: {
         phase: "DECIDED",
         operationalStatus: "COMPLETED",
-        conclusion: record.newConclusion
-      },
-      event: {
-        correlationId: record.id,
-        type: "SESSION_STATE_CHANGED",
-        payload: {
-          phase: "DECIDED",
-          operationalStatus: "COMPLETED",
-          currentConclusion: record.newConclusion,
-          humanDecision: record
-        }
+        currentConclusion: record.newConclusion,
+        humanDecision: record
       }
-    });
+    }
+  });
+}
+
+describe("DecisionSessionRepository.recordHumanDecision", () => {
+  it("commits the decision, transition, and event with persisted history", async () => {
+    const { sessionId, conflictId, claimId } = await seedCheckpoint();
+    const recordInput = decision(sessionId, conflictId, [claimId]);
+
+    const result = await record(sessionId, recordInput);
 
     expect(result.event.sequence).toBe(1);
+    expect(result.decision.previousConclusion).toBe("Hold scale-up");
+    expect(
+      (result.event.payload as { humanDecision: HumanDecision }).humanDecision
+        .previousConclusion
+    ).toBe("Hold scale-up");
     expect(result.session).toMatchObject({
       id: sessionId,
       phase: "DECIDED",
       operationalStatus: "COMPLETED",
-      currentConclusion: "Limited pilot"
+      currentConclusion: "Limited pilot",
+      nextEventSequence: 2
     });
-    await expect(
-      database
-        .select()
-        .from(humanDecisions)
-        .where(eq(humanDecisions.id, record.id))
-    ).resolves.toHaveLength(1);
+    const [storedDecision] = await database
+      .select()
+      .from(humanDecisions)
+      .where(eq(humanDecisions.id, recordInput.id));
+    expect(storedDecision?.previousConclusion).toBe("Hold scale-up");
     await expect(
       database
         .select()
@@ -209,35 +229,98 @@ describe("DecisionSessionRepository.recordHumanDecision", () => {
     ).resolves.toHaveLength(1);
   });
 
-  it("rolls back the session transition when the decision cannot be stored", async () => {
-    const { sessionId, claimId } = await seedCheckpoint();
-    const invalid = decision(sessionId, newId(), [claimId]);
+  it("rejects a session that is not awaiting human review", async () => {
+    const { sessionId, conflictId, claimId } = await seedCheckpoint({
+      phase: "ANALYZING"
+    });
+    const recordInput = decision(sessionId, conflictId, [claimId]);
 
-    await expect(
-      repository.recordHumanDecision({
-        decision: invalid,
-        transition: {
-          phase: "DECIDED",
-          operationalStatus: "COMPLETED",
-          conclusion: invalid.newConclusion
-        },
-        event: {
-          correlationId: invalid.id,
-          type: "SESSION_STATE_CHANGED",
-          payload: { phase: "DECIDED" }
-        }
-      })
-    ).rejects.toThrow();
+    await expect(record(sessionId, recordInput)).rejects.toBeInstanceOf(
+      SessionNotInHumanReviewError
+    );
 
     const [session] = await database
       .select()
       .from(decisionSessions)
       .where(eq(decisionSessions.id, sessionId));
     expect(session).toMatchObject({
-      phase: "HUMAN_REVIEW",
-      operationalStatus: "PAUSED",
+      phase: "ANALYZING",
       currentConclusion: "Hold scale-up",
       nextEventSequence: 1
     });
+  });
+
+  it("rejects a conflict that is not eligible for human review", async () => {
+    const { sessionId, conflictId, claimId } = await seedCheckpoint({
+      humanDecisionRequired: false
+    });
+    const recordInput = decision(sessionId, conflictId, [claimId]);
+
+    await expect(record(sessionId, recordInput)).rejects.toBeInstanceOf(
+      HumanDecisionConflictNotEligibleError
+    );
+
+    await expect(
+      database
+        .select()
+        .from(humanDecisions)
+        .where(eq(humanDecisions.id, recordInput.id))
+    ).resolves.toHaveLength(0);
+  });
+
+  it("allows only one concurrent decision to win", async () => {
+    const { sessionId, conflictId, claimId } = await seedCheckpoint();
+    const first = decision(sessionId, conflictId, [claimId], "Limited pilot");
+    const second = decision(sessionId, conflictId, [claimId], "Reject proposal");
+
+    const results = await Promise.allSettled([
+      record(sessionId, first),
+      record(sessionId, second)
+    ]);
+
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    const rejected = results.find((result) => result.status === "rejected");
+    expect(rejected).toMatchObject({ status: "rejected" });
+    if (!rejected || rejected.status !== "rejected") {
+      throw new Error("Expected one rejected decision");
+    }
+    expect(rejected.reason).toBeInstanceOf(SessionNotInHumanReviewError);
+
+    await expect(
+      database
+        .select()
+        .from(humanDecisions)
+        .where(eq(humanDecisions.sessionId, sessionId))
+    ).resolves.toHaveLength(1);
+    await expect(
+      database
+        .select()
+        .from(executionEvents)
+        .where(eq(executionEvents.sessionId, sessionId))
+    ).resolves.toHaveLength(1);
+    const [session] = await database
+      .select()
+      .from(decisionSessions)
+      .where(eq(decisionSessions.id, sessionId));
+    expect(session).toMatchObject({
+      phase: "DECIDED",
+      nextEventSequence: 2
+    });
+  });
+  it("rejects a conflict that belongs to another session", async () => {
+    const target = await seedCheckpoint();
+    const other = await seedCheckpoint();
+    const recordInput = decision(target.sessionId, other.conflictId, []);
+
+    await expect(record(target.sessionId, recordInput)).rejects.toBeInstanceOf(
+      HumanDecisionConflictNotEligibleError
+    );
+
+    await expect(
+      database
+        .select()
+        .from(humanDecisions)
+        .where(eq(humanDecisions.id, recordInput.id))
+    ).resolves.toHaveLength(0);
   });
 });

@@ -1,9 +1,11 @@
 import type {
   Challenge,
   Claim,
+  ClaimInspectorDTO,
   Conflict,
   Evidence
 } from "@nexus/shared";
+export type { ClaimInspectorDTO } from "@nexus/shared";
 import { eq, sql } from "drizzle-orm";
 import type { Database } from "../client";
 import { agentRuns, claims, promptVersions } from "../schema";
@@ -18,29 +20,6 @@ type InspectorViewRow = {
     responseClaim?: JsonObject | null;
   }>;
   conflicts: JsonObject[];
-};
-
-type AgentRunRow = typeof agentRuns.$inferSelect;
-type PromptVersionRow = typeof promptVersions.$inferSelect;
-
-export type ClaimInspectorDTO = {
-  claim: Claim;
-  evidence: Evidence[];
-  challenges: Array<{
-    challenge: Challenge;
-    responseClaim?: Claim;
-  }>;
-  conflicts: Conflict[];
-  provenance: {
-    agentRun: AgentRunRow | undefined;
-    promptVersion: PromptVersionRow | undefined;
-  };
-  decisionRationale: {
-    outcome: "accepted" | "rejected" | "contested" | "needs_human";
-    summary: string;
-    decisiveChallengeIds: string[];
-    evidenceIds: string[];
-  };
 };
 
 function snakeToCamel(key: string): string {
@@ -126,8 +105,8 @@ export class InspectorRepository {
                 : "needs_human",
         summary:
           claim.status === "accepted"
-            ? "该 Claim 已通过证据与质询审查。"
-            : "该 Claim 仍需补充证据或由人工复核。",
+            ? "\u8be5 Claim \u5df2\u901a\u8fc7\u8bc1\u636e\u4e0e\u8d28\u8be2\u5ba1\u67e5\u3002"
+            : "\u8be5 Claim \u4ecd\u9700\u8865\u5145\u8bc1\u636e\u6216\u7531\u4eba\u5de5\u590d\u6838\u3002",
         decisiveChallengeIds: [],
         evidenceIds: claim.evidenceIds
       }

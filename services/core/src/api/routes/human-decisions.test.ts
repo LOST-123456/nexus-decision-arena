@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { newId, type HumanDecision } from "@nexus/shared";
+import { SessionNotInHumanReviewError } from "@nexus/db";
 import { createApp } from "../../app";
+import { EventBus } from "../../execution/event-bus";
 
 const decisionBody = {
   conflictId: "0198f3c0-0000-7000-8000-000000000003",
@@ -8,7 +10,6 @@ const decisionBody = {
   rationale: "Challenge evidence is sufficient",
   affectedClaimIds: [],
   affectedAgentRoleIds: [],
-  previousConclusion: "Hold scale-up",
   newConclusion: "Limited pilot",
   operatorId: "operator-1"
 } as const;
@@ -27,25 +28,29 @@ type CapturedInput = {
   };
 };
 
+function recordingRepository(sessionId: string) {
+  return vi.fn(async (input: CapturedInput) => ({
+    session: {
+      id: sessionId,
+      phase: input.transition.phase,
+      operationalStatus: input.transition.operationalStatus,
+      currentConclusion: input.transition.conclusion
+    },
+    decision: input.decision,
+    event: {
+      ...input.event,
+      id: newId(),
+      sessionId,
+      sequence: 7,
+      occurredAt: new Date().toISOString()
+    }
+  }));
+}
+
 describe("human decision route", () => {
-  it("persists a complete checkpoint transition idempotently", async () => {
+  it("loads previous conclusion and persists a complete transition idempotently", async () => {
     const sessionId = newId();
-    const recordHumanDecision = vi.fn(async (input: CapturedInput) => ({
-      session: {
-        id: sessionId,
-        phase: input.transition.phase,
-        operationalStatus: input.transition.operationalStatus,
-        currentConclusion: input.transition.conclusion
-      },
-      decision: input.decision,
-      event: {
-        ...input.event,
-        id: newId(),
-        sessionId,
-        sequence: 7,
-        occurredAt: new Date().toISOString()
-      }
-    }));
+    const recordHumanDecision = recordingRepository(sessionId);
     const app = createApp({
       sessions: {
         getById: vi.fn().mockResolvedValue({
@@ -64,7 +69,10 @@ describe("human decision route", () => {
       method: "POST",
       url: `/api/sessions/${sessionId}/human-decisions`,
       headers: { "idempotency-key": "decision-1" },
-      payload: decisionBody
+      payload: {
+        ...decisionBody,
+        previousConclusion: "Forged client value"
+      }
     });
     const replay = await app.inject({
       method: "POST",
@@ -82,6 +90,7 @@ describe("human decision route", () => {
         decision: expect.objectContaining({
           sessionId,
           ...decisionBody,
+          previousConclusion: "Hold scale-up",
           id: expect.any(String),
           createdAt: expect.any(String)
         }),
@@ -89,17 +98,37 @@ describe("human decision route", () => {
           phase: "DECIDED",
           operationalStatus: "COMPLETED",
           conclusion: "Limited pilot"
-        },
-        event: expect.objectContaining({
-          type: "SESSION_STATE_CHANGED",
-          payload: expect.objectContaining({
-            phase: "DECIDED",
-            operationalStatus: "COMPLETED",
-            currentConclusion: "Limited pilot"
-          })
-        })
+        }
       })
     );
+  });
+
+  it("rejects a session that is not awaiting human review", async () => {
+    const sessionId = newId();
+    const recordHumanDecision = vi.fn();
+    const app = createApp({
+      sessions: {
+        getById: vi.fn().mockResolvedValue({
+          id: sessionId,
+          phase: "ANALYZING",
+          currentConclusion: "Initial conclusion"
+        }),
+        recordHumanDecision
+      } as never,
+      inspector: {} as never,
+      events: {} as never,
+      runSession: {} as never
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/sessions/${sessionId}/human-decisions`,
+      headers: { "idempotency-key": "decision-not-review" },
+      payload: decisionBody
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(recordHumanDecision).not.toHaveBeenCalled();
   });
 
   it("requires an idempotency key and valid decision payload", async () => {
@@ -129,22 +158,7 @@ describe("human decision route", () => {
 
   it("returns reassessment decisions to the active phase", async () => {
     const sessionId = newId();
-    const recordHumanDecision = vi.fn(async (input: CapturedInput) => ({
-      session: {
-        id: sessionId,
-        phase: input.transition.phase,
-        operationalStatus: input.transition.operationalStatus,
-        currentConclusion: input.transition.conclusion
-      },
-      decision: input.decision,
-      event: {
-        ...input.event,
-        id: newId(),
-        sessionId,
-        sequence: 8,
-        occurredAt: new Date().toISOString()
-      }
-    }));
+    const recordHumanDecision = recordingRepository(sessionId);
     const app = createApp({
       sessions: {
         getById: vi.fn().mockResolvedValue({
@@ -177,5 +191,114 @@ describe("human decision route", () => {
       operationalStatus: "ACTIVE",
       currentConclusion: "Reassess procurement evidence"
     });
+  });
+
+  it("publishes the committed event to subscribers", async () => {
+    const sessionId = newId();
+    const eventBus = new EventBus();
+    const listener = vi.fn();
+    eventBus.subscribe(sessionId, listener);
+    const app = createApp(
+      {
+        sessions: {
+          getById: vi.fn().mockResolvedValue({
+            id: sessionId,
+            phase: "HUMAN_REVIEW",
+            currentConclusion: "Hold scale-up"
+          }),
+          recordHumanDecision: recordingRepository(sessionId)
+        } as never,
+        inspector: {} as never,
+        events: {} as never,
+        runSession: {} as never
+      },
+      undefined,
+      { eventBus }
+    );
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/sessions/${sessionId}/human-decisions`,
+      headers: { "idempotency-key": "decision-publish" },
+      payload: decisionBody
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId,
+        type: "SESSION_STATE_CHANGED"
+      })
+    );
+  });
+
+  it("keeps a committed response when event publication fails", async () => {
+    const sessionId = newId();
+    const eventBus = new EventBus();
+    eventBus.subscribe(sessionId, () => {
+      throw new Error("subscriber failed");
+    });
+    const recordHumanDecision = recordingRepository(sessionId);
+    const app = createApp(
+      {
+        sessions: {
+          getById: vi.fn().mockResolvedValue({
+            id: sessionId,
+            phase: "HUMAN_REVIEW",
+            currentConclusion: "Hold scale-up"
+          }),
+          recordHumanDecision
+        } as never,
+        inspector: {} as never,
+        events: {} as never,
+        runSession: {} as never
+      },
+      undefined,
+      { eventBus }
+    );
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/sessions/${sessionId}/human-decisions`,
+      headers: { "idempotency-key": "decision-publish-failure" },
+      payload: decisionBody
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json().session).toMatchObject({
+      phase: "DECIDED",
+      currentConclusion: "Limited pilot"
+    });
+    expect(recordHumanDecision).toHaveBeenCalledTimes(1);
+  });
+  it("maps a lost compare-and-set race to 409", async () => {
+    const sessionId = newId();
+    const recordHumanDecision = vi
+      .fn()
+      .mockRejectedValue(new SessionNotInHumanReviewError());
+    const app = createApp({
+      sessions: {
+        getById: vi.fn().mockResolvedValue({
+          id: sessionId,
+          phase: "HUMAN_REVIEW",
+          currentConclusion: "Hold scale-up"
+        }),
+        recordHumanDecision
+      } as never,
+      inspector: {} as never,
+      events: {} as never,
+      runSession: {} as never
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/sessions/${sessionId}/human-decisions`,
+      headers: { "idempotency-key": "decision-race" },
+      payload: decisionBody
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(recordHumanDecision).toHaveBeenCalledTimes(1);
   });
 });

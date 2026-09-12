@@ -1,6 +1,8 @@
 import {
   SESSION_PHASES,
+  type ClaimInspectorDTO,
   type ExecutionEvent,
+  type HumanDecision,
   type SessionPhase,
   type SessionView
 } from "@nexus/shared";
@@ -9,8 +11,26 @@ import type { ReplayableSession } from "./event-reducer";
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:4100";
 
 type SessionPayload = Partial<SessionView> & {
+  id?: string;
   nextEventSequence?: number;
   lastSequence?: number;
+};
+
+export type HumanDecisionCommand = Pick<
+  HumanDecision,
+  | "conflictId"
+  | "action"
+  | "rationale"
+  | "affectedClaimIds"
+  | "affectedAgentRoleIds"
+  | "newConclusion"
+  | "operatorId"
+>;
+
+export type HumanDecisionResponse = {
+  session: SessionPayload & { id: string };
+  decision: HumanDecision;
+  event: ExecutionEvent;
 };
 
 function isSessionPhase(value: unknown): value is SessionPhase {
@@ -31,7 +51,7 @@ function normalizeSession(
       : 0);
 
   return {
-    sessionId: payload.sessionId ?? fallbackSessionId,
+    sessionId: payload.sessionId ?? payload.id ?? fallbackSessionId,
     phase: isSessionPhase(payload.phase) ? payload.phase : "CREATED",
     operationalStatus:
       payload.operationalStatus === "PAUSED" ||
@@ -73,7 +93,7 @@ export async function getSession(
 export async function getInspector(
   sessionId: string,
   claimId: string
-): Promise<unknown> {
+): Promise<ClaimInspectorDTO> {
   const response = await fetch(
     `${apiUrl}/api/sessions/${encodeURIComponent(sessionId)}/claims/${encodeURIComponent(claimId)}/inspector`,
     { cache: "no-store" }
@@ -81,7 +101,36 @@ export async function getInspector(
   if (!response.ok) {
     throw new Error(`Inspector request failed: ${response.status}`);
   }
-  return response.json() as Promise<unknown>;
+  return response.json() as Promise<ClaimInspectorDTO>;
+}
+
+export async function submitHumanDecision(
+  sessionId: string,
+  command: HumanDecisionCommand,
+  idempotencyKey: string
+): Promise<HumanDecisionResponse> {
+  const response = await fetch(
+    `${apiUrl}/api/sessions/${encodeURIComponent(sessionId)}/human-decisions`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "idempotency-key": idempotencyKey
+      },
+      body: JSON.stringify(command)
+    }
+  );
+
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as
+      | { error?: string }
+      | null;
+    throw new Error(
+      payload?.error ?? `Human decision request failed: ${response.status}`
+    );
+  }
+
+  return response.json() as Promise<HumanDecisionResponse>;
 }
 
 export function subscribeToEvents(

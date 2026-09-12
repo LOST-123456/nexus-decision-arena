@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import {
   newId,
   type ExecutionEvent,
@@ -6,6 +6,7 @@ import {
 } from "@nexus/shared";
 import type { Database } from "../client";
 import {
+  conflicts,
   decisionSessions,
   executionEvents,
   humanDecisions,
@@ -40,6 +41,20 @@ type HumanDecisionEventInput = Pick<
   "correlationId" | "type" | "payload"
 > &
   Partial<Pick<ExecutionEvent, "traceId" | "promptVersionId">>;
+
+export class SessionNotInHumanReviewError extends Error {
+  constructor() {
+    super("Session is not awaiting human review");
+    this.name = "SessionNotInHumanReviewError";
+  }
+}
+
+export class HumanDecisionConflictNotEligibleError extends Error {
+  constructor() {
+    super("Conflict is not eligible for a human decision");
+    this.name = "HumanDecisionConflictNotEligibleError";
+  }
+}
 
 export class DecisionSessionRepository {
   constructor(private readonly database: Database) {}
@@ -83,6 +98,38 @@ export class DecisionSessionRepository {
     event: HumanDecisionEventInput;
   }) {
     return this.database.transaction(async (transaction) => {
+      const [currentSession] = await transaction
+        .select()
+        .from(decisionSessions)
+        .where(eq(decisionSessions.id, input.decision.sessionId))
+        .limit(1);
+
+      if (!currentSession || currentSession.phase !== "HUMAN_REVIEW") {
+        throw new SessionNotInHumanReviewError();
+      }
+
+      const [eligibleConflict] = await transaction
+        .select({ id: conflicts.id })
+        .from(conflicts)
+        .where(
+          and(
+            eq(conflicts.id, input.decision.conflictId),
+            eq(conflicts.sessionId, input.decision.sessionId),
+            eq(conflicts.humanDecisionRequired, true)
+          )
+        )
+        .limit(1);
+
+      if (!eligibleConflict) {
+        throw new HumanDecisionConflictNotEligibleError();
+      }
+
+      const persistedDecision: HumanDecision = {
+        ...input.decision,
+        previousConclusion:
+          currentSession.currentConclusion ?? "No prior conclusion"
+      };
+
       const [session] = await transaction
         .update(decisionSessions)
         .set({
@@ -92,35 +139,50 @@ export class DecisionSessionRepository {
           nextEventSequence: sql`${decisionSessions.nextEventSequence} + 1`,
           updatedAt: new Date().toISOString()
         })
-        .where(eq(decisionSessions.id, input.decision.sessionId))
+        .where(
+          and(
+            eq(decisionSessions.id, input.decision.sessionId),
+            eq(decisionSessions.phase, "HUMAN_REVIEW")
+          )
+        )
         .returning();
 
       if (!session) {
-        throw new Error(`Session not found: ${input.decision.sessionId}`);
+        throw new SessionNotInHumanReviewError();
       }
 
       await transaction.insert(humanDecisions).values({
-        id: input.decision.id,
-        sessionId: input.decision.sessionId,
-        conflictId: input.decision.conflictId,
-        action: input.decision.action,
-        rationale: input.decision.rationale,
-        affectedClaimIds: input.decision.affectedClaimIds,
-        affectedAgentRoleIds: input.decision.affectedAgentRoleIds,
-        previousConclusion: input.decision.previousConclusion,
-        newConclusion: input.decision.newConclusion,
-        operatorId: input.decision.operatorId,
-        createdAt: input.decision.createdAt
+        id: persistedDecision.id,
+        sessionId: persistedDecision.sessionId,
+        conflictId: persistedDecision.conflictId,
+        action: persistedDecision.action,
+        rationale: persistedDecision.rationale,
+        affectedClaimIds: persistedDecision.affectedClaimIds,
+        affectedAgentRoleIds: persistedDecision.affectedAgentRoleIds,
+        previousConclusion: persistedDecision.previousConclusion,
+        newConclusion: persistedDecision.newConclusion,
+        operatorId: persistedDecision.operatorId,
+        createdAt: persistedDecision.createdAt
       });
+
+      const eventPayload =
+        input.event.payload !== null &&
+        typeof input.event.payload === "object" &&
+        !Array.isArray(input.event.payload)
+          ? {
+              ...(input.event.payload as Record<string, unknown>),
+              humanDecision: persistedDecision
+            }
+          : input.event.payload;
 
       const event: ExecutionEvent = {
         id: newId(),
-        sessionId: input.decision.sessionId,
+        sessionId: persistedDecision.sessionId,
         sequence: session.nextEventSequence - 1,
         correlationId: input.event.correlationId,
         ...(input.event.traceId ? { traceId: input.event.traceId } : {}),
         type: input.event.type,
-        payload: input.event.payload,
+        payload: eventPayload,
         occurredAt: new Date().toISOString(),
         ...(input.event.promptVersionId
           ? { promptVersionId: input.event.promptVersionId }
@@ -141,7 +203,7 @@ export class DecisionSessionRepository {
 
       return {
         session,
-        decision: input.decision,
+        decision: persistedDecision,
         event
       };
     });

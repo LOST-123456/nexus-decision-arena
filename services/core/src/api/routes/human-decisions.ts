@@ -1,9 +1,11 @@
 import {
+  HumanDecisionConflictNotEligibleError,
+  SessionNotInHumanReviewError
+} from "@nexus/db";
+import {
   HumanDecisionSchema,
-  SESSION_PHASES,
   newId,
-  type HumanDecision,
-  type SessionPhase
+  type HumanDecision
 } from "@nexus/shared";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { AppDependencies } from "../../app";
@@ -20,7 +22,8 @@ import {
 export const CreateHumanDecisionSchema = HumanDecisionSchema.omit({
   id: true,
   sessionId: true,
-  createdAt: true
+  createdAt: true,
+  previousConclusion: true
 });
 
 class HumanDecisionSessionNotFoundError extends Error {
@@ -30,20 +33,9 @@ class HumanDecisionSessionNotFoundError extends Error {
   }
 }
 
-class InvalidSessionPhaseError extends Error {
-  constructor() {
-    super("Session phase is not recognized");
-    this.name = "InvalidSessionPhaseError";
-  }
-}
-
 function getIdempotencyKey(request: FastifyRequest): string | null {
   const key = request.headers["idempotency-key"];
   return typeof key === "string" && key.length > 0 ? key : null;
-}
-
-function isSessionPhase(value: string): value is SessionPhase {
-  return SESSION_PHASES.includes(value as SessionPhase);
 }
 
 export function registerHumanDecisionRoutes(
@@ -86,14 +78,16 @@ export function registerHumanDecisionRoutes(
             if (!current) {
               throw new HumanDecisionSessionNotFoundError();
             }
-            if (!isSessionPhase(current.phase)) {
-              throw new InvalidSessionPhaseError();
+            if (current.phase !== "HUMAN_REVIEW") {
+              throw new SessionNotInHumanReviewError();
             }
 
             const decision: HumanDecision = {
               id: newId(),
               sessionId,
               ...parsed.data,
+              previousConclusion:
+                current.currentConclusion ?? "No prior conclusion",
               createdAt: new Date().toISOString()
             };
             const decisionTransition = applyHumanDecision({
@@ -146,17 +140,15 @@ export function registerHumanDecisionRoutes(
         if (
           error instanceof IdempotencyConflictError ||
           error instanceof IdempotencyTimeoutError ||
-          error instanceof IdempotencyLeaseLostError
+          error instanceof IdempotencyLeaseLostError ||
+          error instanceof SessionNotInHumanReviewError ||
+          error instanceof HumanDecisionConflictNotEligibleError
         ) {
           return reply.code(409).send({ error: error.message });
         }
 
         if (error instanceof HumanDecisionSessionNotFoundError) {
           return reply.code(404).send({ error: error.message });
-        }
-
-        if (error instanceof InvalidSessionPhaseError) {
-          return reply.code(409).send({ error: error.message });
         }
 
         throw error;

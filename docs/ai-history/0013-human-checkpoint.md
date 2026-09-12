@@ -127,3 +127,61 @@ Routes:
 ## Commit Record
 
 - Commit title: `feat(web): add replay inspector and human checkpoint`
+
+## Task 11 Review Fix Round
+
+### Ruling
+
+`HUMAN_REVIEW -> DECIDED` is now a valid shared state-machine transition for
+`accept_challenge` and `uphold_claim`. `request_more_analysis` continues to use
+`HUMAN_REVIEW -> REASSESSING`.
+
+### P1 Fixes
+
+- `DecisionSessionRepository.recordHumanDecision()` now rejects sessions not in
+  `HUMAN_REVIEW`.
+- The repository verifies that `conflictId` belongs to the session and has
+  `humanDecisionRequired = true`.
+- The session update uses compare-and-set:
+  `WHERE id = sessionId AND phase = HUMAN_REVIEW`. A concurrent second decision
+  receives a deterministic `SessionNotInHumanReviewError`, mapped by the route
+  to HTTP 409.
+- `previousConclusion` is omitted from the request schema and loaded from the
+  persisted `DecisionSession`.
+- `ClaimInspectorDTO` now lives in `@nexus/shared`. The DB repository,
+  API client, and Inspector component all consume that shared type.
+- The preview workspace uses `toPreviewInspectorDTO()` as an explicitly named
+  fixture. The live UUID session path fetches the session and calls the
+  Inspector API.
+
+### P2 Fixes
+
+- UUID session IDs submit checkpoint actions through the durable POST endpoint.
+- Preview sessions are marked `PREVIEW / NOT PERSISTED`, update only local UI
+  state, and do not append synthetic durable events.
+- Added route integration tests proving EventBus publication occurs after the
+  transaction commits and publication failure does not corrupt persisted state.
+- Added repository tests for non-review rejection, ineligible and cross-session
+  conflicts, persisted previous-conclusion history, and one-winner concurrency.
+
+### Review RED/GREEN Evidence
+
+The new behavior was added with focused tests first for the state-machine
+transition, route conflict mapping, repository compare-and-set, and Inspector
+DTO contract.
+
+Final verification:
+
+```text
+Shared: 3 files passed, 47 tests passed
+Core:  13 files passed, 54 tests passed
+Web:    9 files passed, 19 tests passed
+DB:     4 files passed,  9 tests passed
+
+All four package typechecks completed with no diagnostics.
+Next.js 15.2.4 production build completed successfully.
+```
+
+## Review Commit Record
+
+- Commit title: `fix(core): enforce human checkpoint invariants`

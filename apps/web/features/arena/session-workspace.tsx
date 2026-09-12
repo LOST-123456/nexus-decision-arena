@@ -1,8 +1,11 @@
 "use client";
 
-import type { HumanDecision } from "@nexus/shared";
+import type {
+  ClaimInspectorDTO,
+  HumanDecision
+} from "@nexus/shared";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AgentPanel } from "../../components/agent-panel";
 import { DecisionMap } from "../../components/decision-map";
 import { HumanCheckpoint } from "../../components/human-checkpoint";
@@ -12,18 +15,47 @@ import {
   type TimelineEvent
 } from "../../components/timeline";
 import {
+  getInspector,
+  getSession,
+  submitHumanDecision,
+  type HumanDecisionCommand
+} from "./api-client";
+import type { ReplayableSession } from "./event-reducer";
+import { toPreviewInspectorDTO } from "./preview-inspector";
+import {
   previewSession,
   previewTimeline,
   type PreviewSession
 } from "./preview-session";
 
-const decisionSequence = 43;
+const uuidPattern =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isPersistedSessionId(sessionId: string): boolean {
+  return uuidPattern.test(sessionId);
+}
 
 function createPreviewId(prefix: string): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     return crypto.randomUUID();
   }
   return `${prefix}-${Date.now()}`;
+}
+
+function createEmptySession(sessionId: string): ReplayableSession {
+  return {
+    sessionId,
+    phase: "CREATED",
+    operationalStatus: "ACTIVE",
+    agents: [],
+    claims: [],
+    evidence: [],
+    challenges: [],
+    conflicts: [],
+    humanDecisions: [],
+    currentConclusion: null,
+    lastSequence: 0
+  };
 }
 
 export function previewSnapshotAt(
@@ -83,133 +115,192 @@ export function previewSnapshotAt(
   };
 }
 
-function decisionSummary(
-  action: HumanDecision["action"],
-  session: PreviewSession
-): string {
-  if (action === "request_more_analysis") {
-    return "\u8865\u5145\u91c7\u8d2d\u4e0e\u6210\u672c\u8bc1\u636e\u540e\u91cd\u65b0\u8bc4\u4f30\u3002";
+function decisionConclusion(action: HumanDecision["action"]): string {
+  if (action === "accept_challenge") {
+    return "\u6709\u9650\u7acb\u9879";
   }
   if (action === "uphold_claim") {
-    return "\u7ef4\u6301\u539f\u5224\u65ad\u3002";
+    return "\u7ef4\u6301\u5efa\u8bae\u7acb\u9879";
   }
-  if (session.phase === "DECIDED") {
-    return "\u91c7\u8d2d\u3001\u6280\u672f\u548c\u8d22\u52a1\u8d28\u8be2\u5df2\u88ab\u91c7\u7eb3\uff0c\u7ed3\u8bba\u8c03\u6574\u4e3a\u6709\u9650\u7acb\u9879\u3002";
-  }
-  return "\u91c7\u8d2d\u7ba1\u9053\u8bc1\u636e\u4e0d\u8db3\uff0c\u9700\u8981\u4eba\u5de5\u88c1\u51b3\u3002";
+  return "\u91cd\u65b0\u8bc4\u4f30\u91c7\u8d2d\u8bc1\u636e";
 }
 
 export function SessionWorkspace({ sessionId }: { sessionId: string }) {
+  const persisted = isPersistedSessionId(sessionId);
   const initialSession = useMemo(
-    () => previewSnapshotAt(42, sessionId),
-    [sessionId]
+    () =>
+      persisted
+        ? createEmptySession(sessionId)
+        : previewSnapshotAt(42, sessionId),
+    [persisted, sessionId]
   );
-  const [session, setSession] = useState(initialSession);
-  const [selectedSequence, setSelectedSequence] = useState(42);
-  const [decisionSnapshot, setDecisionSnapshot] =
-    useState<PreviewSession | null>(null);
+  const [session, setSession] = useState<ReplayableSession>(initialSession);
+  const [selectedSequence, setSelectedSequence] = useState(
+    persisted ? 0 : 42
+  );
   const [events, setEvents] = useState<TimelineEvent[]>(
-    previewTimeline.map((event) => ({ ...event }))
+    persisted ? [] : previewTimeline.map((event) => ({ ...event }))
   );
+  const [liveInspector, setLiveInspector] =
+    useState<ClaimInspectorDTO | null>(null);
+  const [loading, setLoading] = useState(persisted);
+  const [pending, setPending] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const checkpointActive = session.phase === "HUMAN_REVIEW";
-  const primaryConflict = session.conflicts[0];
+  const primaryConflict = session.conflicts.find(
+    (conflict) => conflict.humanDecisionRequired
+  );
   const primaryClaim = session.claims[0];
+  const previewInspector = persisted
+    ? null
+    : toPreviewInspectorDTO(session);
+  const inspectorData = persisted ? liveInspector : previewInspector;
+  const checkpointActive =
+    session.phase === "HUMAN_REVIEW" && primaryConflict !== undefined;
 
-  function handleDecision(
+  useEffect(() => {
+    if (!persisted) {
+      return;
+    }
+
+    let cancelled = false;
+    setLoading(true);
+    getSession(sessionId)
+      .then(async (loaded) => {
+        if (cancelled) {
+          return;
+        }
+        setSession(loaded);
+        setSelectedSequence(loaded.lastSequence);
+        const claim = loaded.claims[0];
+        if (!claim) {
+          setLiveInspector(null);
+          return;
+        }
+        const inspector = await getInspector(sessionId, claim.id);
+        if (!cancelled) {
+          setLiveInspector(inspector);
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setErrorMessage(
+            error instanceof Error ? error.message : "Session load failed"
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [persisted, sessionId]);
+
+  async function handleDecision(
     action: HumanDecision["action"],
     rationale: string
   ) {
-    const accepted = action === "accept_challenge";
-    const uphold = action === "uphold_claim";
-    const requestingMore = action === "request_more_analysis";
-    const conclusion = accepted
-      ? "\u6709\u9650\u7acb\u9879"
-      : uphold
-        ? "\u7ef4\u6301\u5efa\u8bae\u7acb\u9879"
-        : "\u91cd\u65b0\u8bc4\u4f30\u91c7\u8d2d\u8bc1\u636e";
-    const nextSequence =
-      (events.at(-1)?.sequence ?? previewSession.lastSequence) + 1;
-    const decision: HumanDecision = {
-      id: createPreviewId("human-decision"),
-      sessionId,
-      conflictId: primaryConflict?.id ?? "preview-conflict",
+    if (!primaryConflict) {
+      setErrorMessage("No eligible conflict is available for review.");
+      return;
+    }
+
+    const conclusion = decisionConclusion(action);
+
+    if (!persisted) {
+      const decision: HumanDecision = {
+        id: createPreviewId("human-decision"),
+        sessionId,
+        conflictId: primaryConflict.id,
+        action,
+        rationale,
+        affectedClaimIds: primaryClaim ? [primaryClaim.id] : [],
+        affectedAgentRoleIds: [],
+        previousConclusion: session.currentConclusion ?? "No prior conclusion",
+        newConclusion: conclusion,
+        operatorId: "preview-operator",
+        createdAt: new Date().toISOString()
+      };
+      setSession((current) => ({
+        ...current,
+        phase: action === "request_more_analysis" ? "REASSESSING" : "DECIDED",
+        operationalStatus:
+          action === "request_more_analysis" ? "ACTIVE" : "COMPLETED",
+        currentConclusion: conclusion,
+        humanDecisions: [...current.humanDecisions, decision]
+      }));
+      setErrorMessage(null);
+      return;
+    }
+
+    setPending(true);
+    setErrorMessage(null);
+    const command: HumanDecisionCommand = {
+      conflictId: primaryConflict.id,
       action,
       rationale,
       affectedClaimIds: primaryClaim ? [primaryClaim.id] : [],
-      affectedAgentRoleIds: primaryConflict
-        ? []
-        : previewSession.agents.map((agent) => agent.id),
-      previousConclusion: session.currentConclusion ?? "\u6682\u65e0\u7ed3\u8bba",
+      affectedAgentRoleIds: [],
       newConclusion: conclusion,
-      operatorId: "local-operator",
-      createdAt: new Date().toISOString()
-    };
-    const nextSession: PreviewSession = {
-      ...session,
-      phase: requestingMore ? "REASSESSING" : "DECIDED",
-      operationalStatus: requestingMore ? "ACTIVE" : "COMPLETED",
-      currentConclusion: conclusion,
-      humanDecisions: [...session.humanDecisions, decision],
-      lastSequence: nextSequence
+      operatorId: "operator-1"
     };
 
-    setSession(nextSession);
-    setDecisionSnapshot(nextSession);
-    setSelectedSequence(nextSequence);
-    setEvents((currentEvents) => [
-      ...currentEvents,
-      {
-        id: decision.id,
-        sequence: nextSequence,
-        type: "SESSION_STATE_CHANGED",
-        label: requestingMore
-          ? "\u8981\u6c42\u8865\u5145\u5206\u6790"
-          : "\u4eba\u5de5\u88c1\u5b9a"
+    try {
+      const response = await submitHumanDecision(
+        sessionId,
+        command,
+        `human-decision-${createPreviewId("request")}`
+      );
+      setSession((current) => ({
+        ...current,
+        phase: response.session.phase ?? current.phase,
+        operationalStatus:
+          response.session.operationalStatus ?? current.operationalStatus,
+        currentConclusion:
+          response.session.currentConclusion ?? current.currentConclusion,
+        humanDecisions: [...current.humanDecisions, response.decision],
+        lastSequence: response.event.sequence
+      }));
+      setEvents((current) => [
+        ...current,
+        {
+          id: response.event.id,
+          sequence: response.event.sequence,
+          type: response.event.type
+        }
+      ]);
+      setSelectedSequence(response.event.sequence);
+
+      if (primaryClaim) {
+        setLiveInspector(
+          await getInspector(sessionId, primaryClaim.id)
+        );
       }
-    ]);
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : "Human decision failed"
+      );
+    } finally {
+      setPending(false);
+    }
   }
 
   function handleTimelineSelect(sequence: number) {
     setSelectedSequence(sequence);
-    if (decisionSnapshot && sequence >= decisionSequence) {
-      setSession(decisionSnapshot);
-      return;
+    if (!persisted) {
+      setSession(previewSnapshotAt(sequence, sessionId));
     }
-    setSession(previewSnapshotAt(sequence, sessionId));
   }
 
-  const inspectorData = {
-    claim: {
-      id: primaryClaim?.id ?? "preview-claim",
-      statement:
-        primaryClaim?.statement ??
-        "\u7b49\u5f85 Claim \u8fdb\u5165\u51b3\u7b56\u5730\u56fe",
-      status: primaryClaim?.status ?? "proposed"
-    },
-    evidence: session.evidence,
-    challenges: session.challenges,
-    conflicts: session.conflicts,
-    decisionRationale: {
-      outcome:
-        session.phase === "DECIDED"
-          ? "accepted"
-          : checkpointActive
-            ? "needs_human"
-            : "contested",
-      summary: decisionSummary(
-        session.humanDecisions.at(-1)?.action ?? "accept_challenge",
-        session
-      ),
-      decisiveChallengeIds: session.challenges
-        .filter((challenge) => challenge.severity >= 4)
-        .map((challenge) => challenge.id),
-      evidenceIds: primaryClaim?.evidenceIds ?? []
-    }
-  };
-
   return (
-    <main className="workspace-shell" data-session-source="preview">
+    <main
+      className="workspace-shell"
+      data-session-source={persisted ? "live" : "preview-fixture"}
+    >
       <header className="workspace-header">
         <Link className="brand-lockup brand-lockup-compact" href="/">
           <span className="brand-mark" aria-hidden="true">
@@ -248,15 +339,29 @@ export function SessionWorkspace({ sessionId }: { sessionId: string }) {
         </section>
 
         <div className="inspector-column">
-          <Inspector data={inspectorData} />
+          {inspectorData ? (
+            <Inspector data={inspectorData} />
+          ) : (
+            <section className="inspector-panel" aria-label="Claim Inspector">
+              <p className="eyebrow">INSPECTOR</p>
+              <p className="empty-copy">
+                {loading
+                  ? "Loading Inspector data"
+                  : "No Claim inspector data is available."}
+              </p>
+            </section>
+          )}
+
           {checkpointActive ? (
             <HumanCheckpoint
-              conflictSummary={
-                primaryConflict?.summary ?? "\u7b49\u5f85\u4eba\u5de5\u88c1\u51b3"
-              }
+              conflictSummary={primaryConflict.summary}
               onDecision={handleDecision}
+              pending={pending}
+              previewOnly={!persisted}
+              {...(errorMessage ? { errorMessage } : {})}
             />
-          ) : (
+          ) : session.phase === "DECIDED" ||
+            session.phase === "REASSESSING" ? (
             <section className="decision-complete">
               <p className="eyebrow">DECISION COMPLETE</p>
               <h2>{session.currentConclusion}</h2>
@@ -268,7 +373,7 @@ export function SessionWorkspace({ sessionId }: { sessionId: string }) {
                 <span aria-hidden="true">{"\u2192"}</span>
               </Link>
             </section>
-          )}
+          ) : null}
         </div>
       </div>
 
