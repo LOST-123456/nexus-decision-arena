@@ -67,8 +67,8 @@ Stability:
 
 ```text
 corepack pnpm test:stability
-20/20 desktop runs passed
-duration: 86533 ms
+40/40 runs passed (desktop 20 + mobile 20)
+duration: 143135 ms
 exit_code: 0
 raw evidence: docs/experiments/stability-output.txt
 ```

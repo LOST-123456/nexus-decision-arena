@@ -12,8 +12,7 @@ const args = [
   "exec",
   "playwright",
   "test",
-  "--repeat-each=20",
-  "--project=desktop-1440x900"
+  "--repeat-each=20"
 ];
 const outputPath = resolve(
   repositoryRoot,
@@ -29,11 +28,15 @@ function stripAnsi(value: string): string {
 
 async function main(): Promise<void> {
   const started = performance.now();
+  const childEnv = { ...process.env, NODE_NO_WARNINGS: "1" };
+  delete childEnv.FORCE_COLOR;
+  delete childEnv.NO_COLOR;
   const result = spawnSync(command, args, {
     cwd: repositoryRoot,
     encoding: "utf8",
     maxBuffer: 64 * 1024 * 1024,
-    shell: process.platform === "win32"
+    env: childEnv,
+    shell: true
   });
   const durationMs = Math.round(performance.now() - started);
   const completedAt = new Date().toISOString();
@@ -41,9 +44,10 @@ async function main(): Promise<void> {
   const stderr = stripAnsi(
     `${result.error?.message ?? ""}${result.stderr ?? ""}`
   );
+  const commandLine = [command, ...args].join(" ");
   const output = [
     "Nexus Decision Arena 20-run stability output",
-    "command: corepack pnpm --filter @nexus/web exec playwright test --repeat-each=20 --project=desktop-1440x900",
+    `command: ${commandLine}`,
     `started_at: ${startedAt}`,
     `completed_at: ${completedAt}`,
     `duration_ms: ${durationMs}`,
@@ -66,7 +70,9 @@ async function main(): Promise<void> {
     throw new Error(`Stability run failed with exit ${result.status}`);
   }
 
-  console.log(`stability complete: 20 desktop runs passed in ${durationMs}ms`);
+  console.log(
+    `stability complete: 20 desktop and 20 mobile runs passed in ${durationMs}ms`
+  );
 }
 
 main().catch((error: unknown) => {

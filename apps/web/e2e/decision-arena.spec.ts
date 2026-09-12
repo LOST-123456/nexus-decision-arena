@@ -121,6 +121,8 @@ test("fixed demo reaches a limited-pilot decision", async ({
 
   await page.getByRole("link", { name: /查看决策报告/ }).click();
   await expect(page).toHaveURL(/\/sessions\/demo\/report$/);
+  await expect(page.locator("main[data-demo-fixture=\"true\"]")).toBeVisible();
+  await expect(page.getByText("DEMO FIXTURE").first()).toBeVisible();
   await expect(page.getByRole("heading", { name: "有限立项" })).toBeVisible();
   await expect(
     page.getByRole("heading", { name: "决策解释" })

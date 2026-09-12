@@ -33,9 +33,10 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm typecheck
-      - run: pnpm test
-      - run: pnpm --filter @nexus/web build
-      - run: pnpm --filter @nexus/web exec playwright install --with-deps chromium
-      - run: pnpm --filter @nexus/web test:e2e
+      - run: corepack pnpm install --frozen-lockfile
+      - run: corepack pnpm --filter @nexus/db db:migrate
+      - run: corepack pnpm typecheck
+      - run: corepack pnpm test
+      - run: corepack pnpm --filter @nexus/web build
+      - run: corepack pnpm --filter @nexus/web exec playwright install --with-deps chromium
+      - run: corepack pnpm --filter @nexus/web test:e2e

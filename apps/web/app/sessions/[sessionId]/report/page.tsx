@@ -8,7 +8,7 @@ export default async function ReportPage({
   const { sessionId } = await params;
 
   return (
-    <main className="report-shell">
+    <main data-demo-fixture="true" className="report-shell">
       <header className="report-header">
         <Link className="brand-lockup brand-lockup-compact" href={`/sessions/${sessionId}`}>
           <span className="brand-mark" aria-hidden="true">
@@ -19,7 +19,10 @@ export default async function ReportPage({
             <small>SESSION / {sessionId}</small>
           </span>
         </Link>
-        <span className="report-status">REPORT READY</span>
+        <div className="flex items-center gap-3">
+          <span className="report-status">DEMO FIXTURE</span>
+          <span className="report-status">REPORT READY</span>
+        </div>
       </header>
 
       <article className="report-document">
@@ -41,22 +44,10 @@ export default async function ReportPage({
           <p className="eyebrow">02 / NEXT ACTIONS</p>
           <h2>后续动作</h2>
           <ol>
-            <li>
-              <span>01</span>
-              取得 3 间实验室的试点确认
-            </li>
-            <li>
-              <span>02</span>
-              提交硬件兼容性原型报告
-            </li>
-            <li>
-              <span>03</span>
-              建立包含实施成本的单位经济模型
-            </li>
-            <li>
-              <span>04</span>
-              取得采购周期和合规责任的外部依据
-            </li>
+            <li><span>01</span>取得 3 间实验室的试点确认</li>
+            <li><span>02</span>提交硬件兼容性原型报告</li>
+            <li><span>03</span>建立包含实施成本的单位经济模型</li>
+            <li><span>04</span>取得采购周期和合规责任的外部依据</li>
           </ol>
         </section>
 
