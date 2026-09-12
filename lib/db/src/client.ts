@@ -4,7 +4,10 @@ import postgres from "postgres";
 import * as schema from "./schema";
 
 export function createDatabase(url: string) {
-  const client = postgres(url, { max: 10 });
+  const client = postgres(url, {
+    max: 10,
+    onnotice: () => undefined
+  });
   const database = drizzle(client, { schema });
   const execute = database.execute.bind(database);
 

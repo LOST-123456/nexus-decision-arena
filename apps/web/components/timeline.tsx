@@ -15,7 +15,11 @@ export function Timeline({
   onSelect(sequence: number): void;
 }) {
   return (
-    <footer className="timeline" aria-label="Decision Timeline">
+    <footer
+    className="timeline"
+    aria-label="Decision Timeline"
+    data-testid="timeline"
+  >
       <div className="timeline-title">
         <p className="eyebrow">DECISION TIMELINE</p>
         <span>

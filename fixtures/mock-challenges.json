@@ -1,0 +1,67 @@
+[
+  {
+    "targetIndex": 1,
+    "challengerRole": "review_moderator",
+    "type": "evidence_gap",
+    "question": "24 个月覆盖 200 间实验室的采购管道依据是什么？",
+    "context": {
+      "explanation": "扩张目标直接决定收入和实施资源。"
+    },
+    "requiredEvidence": ["采购名单、意向书或历史转化率"],
+    "severity": 5,
+    "resolutionStrategy": "provide_evidence",
+    "expectedStatus": "unresolved"
+  },
+  {
+    "targetIndex": 3,
+    "challengerRole": "risk_auditor",
+    "type": "feasibility",
+    "question": "6 个月完成多类硬件适配是否有原型验证依据？",
+    "context": {
+      "explanation": "开发周期决定试点成本和市场窗口。"
+    },
+    "requiredEvidence": ["硬件兼容性原型报告"],
+    "severity": 5,
+    "resolutionStrategy": "provide_evidence",
+    "expectedStatus": "unresolved"
+  },
+  {
+    "targetIndex": 4,
+    "challengerRole": "market_analyst",
+    "type": "evidence_gap",
+    "question": "65% 毛利率是否包含硬件、部署和售后成本？",
+    "context": {
+      "explanation": "缺少成本拆分会使财务模型无法验证。"
+    },
+    "requiredEvidence": ["单位经济模型和成本拆分表"],
+    "severity": 5,
+    "resolutionStrategy": "revise_claim",
+    "expectedStatus": "unresolved"
+  },
+  {
+    "targetIndex": 5,
+    "challengerRole": "finance_analyst",
+    "type": "logic_flaw",
+    "question": "安全责任风险是否与免费试点的责任边界一致？",
+    "context": {
+      "explanation": "试点阶段也需要明确事故责任和数据责任。"
+    },
+    "requiredEvidence": ["试点协议和责任边界说明"],
+    "severity": 5,
+    "resolutionStrategy": "human_decision",
+    "expectedStatus": "unresolved"
+  },
+  {
+    "targetIndex": 5,
+    "challengerRole": "technical_expert",
+    "type": "priority",
+    "question": "为什么不先用 3 间实验室验证再扩张？",
+    "context": {
+      "explanation": "有限试点可以降低采购、技术和合规风险。"
+    },
+    "requiredEvidence": ["阶段验收门槛和试点成功指标"],
+    "severity": 4,
+    "resolutionStrategy": "revise_claim",
+    "expectedStatus": "resolved"
+  }
+]

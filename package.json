@@ -4,13 +4,16 @@
   "packageManager": "pnpm@10.6.5",
   "engines": { "node": ">=22" },
   "scripts": {
-    "build": "pnpm -r --if-present build",
-    "dev": "pnpm --parallel --filter @nexus/core --filter @nexus/web dev",
-    "test": "pnpm -r --if-present test",
-    "test:e2e": "pnpm --filter @nexus/web test:e2e",
-    "typecheck": "pnpm -r --if-present typecheck"
+    "build": "corepack pnpm -r --if-present build",
+    "demo:fixture": "tsx scripts/run-demo.ts",
+    "dev": "corepack pnpm --parallel --filter @nexus/core --filter @nexus/web dev",
+    "test": "corepack pnpm -r --if-present test",
+    "test:e2e": "corepack pnpm --filter @nexus/web test:e2e",
+    "test:stability": "tsx scripts/test-stability.ts",
+    "typecheck": "corepack pnpm -r --if-present typecheck"
   },
   "devDependencies": {
+    "@nexus/llm": "workspace:*",
     "@types/node": "22.13.10",
     "tsx": "4.19.3",
     "typescript": "5.7.3",

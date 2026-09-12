@@ -1,0 +1,83 @@
+[
+  {
+    "role": "market_analyst",
+    "claims": [
+      {
+        "statement": "高校实验室安全数字化需求受到政策推动。",
+        "type": "prediction",
+        "stance": "support",
+        "importance": 5,
+        "confidence": 0.72,
+        "evidenceTitles": ["项目输入中的政策需求描述"]
+      },
+      {
+        "statement": "24 个月覆盖 200 间实验室缺少采购管道证据。",
+        "type": "assumption",
+        "stance": "oppose",
+        "importance": 5,
+        "confidence": 0.83,
+        "evidenceTitles": ["未提供采购名单或意向书"]
+      }
+    ]
+  },
+  {
+    "role": "technical_expert",
+    "claims": [
+      {
+        "statement": "软件盘点原型具备可行性。",
+        "type": "fact",
+        "stance": "support",
+        "importance": 4,
+        "confidence": 0.78,
+        "evidenceTitles": ["现有计算机视觉与二维码盘点方案"]
+      },
+      {
+        "statement": "6 个月完成多类硬件与算法适配缺乏实验依据。",
+        "type": "assumption",
+        "stance": "oppose",
+        "importance": 5,
+        "confidence": 0.86,
+        "evidenceTitles": ["未提供硬件兼容性测试"]
+      }
+    ]
+  },
+  {
+    "role": "finance_analyst",
+    "claims": [
+      {
+        "statement": "硬件交付与实施成本可能使毛利率低于 40%。",
+        "type": "prediction",
+        "stance": "oppose",
+        "importance": 5,
+        "confidence": 0.76,
+        "evidenceTitles": ["当前报价未拆分硬件、实施和售后成本"]
+      }
+    ]
+  },
+  {
+    "role": "risk_auditor",
+    "claims": [
+      {
+        "statement": "危化品数据、安全责任与采购合规风险较高。",
+        "type": "recommendation",
+        "stance": "oppose",
+        "importance": 5,
+        "confidence": 0.81,
+        "evidenceTitles": ["学校安全责任和数据处理边界尚未明确"]
+      }
+    ]
+  },
+  {
+    "role": "review_moderator",
+    "claims": [
+      {
+        "statement": "应先验证采购、技术和经济性假设，再决定是否规模化。",
+        "type": "recommendation",
+        "stance": "neutral",
+        "importance": 5,
+        "confidence": 0.88,
+        "evidenceTitles": ["四项关键假设均缺少已验证来源"]
+      }
+    ]
+  }
+]

@@ -1612,3 +1612,165 @@ dd {
   letter-spacing: 0.06em;
   white-space: nowrap;
 }
+
+/* Task 12 deterministic fixture */
+.demo-shell {
+  display: grid;
+  height: 100vh;
+  min-height: 43rem;
+  grid-template-rows: 4.5rem minmax(0, 1fr) 6rem;
+  overflow: hidden;
+  background: var(--canvas);
+}
+
+.demo-header {
+  display: flex;
+  min-width: 0;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-soft);
+  padding: 0 1rem;
+}
+
+.demo-header-brand {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.demo-fixture-badge {
+  flex: none;
+  border: 1px solid var(--warning);
+  padding: 0.25rem 0.4rem;
+  color: var(--warning);
+  font-size: 0.55rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+}
+
+.demo-vitals {
+  display: flex;
+  min-width: 0;
+  align-items: stretch;
+  margin: 0;
+}
+
+.demo-vitals > div {
+  display: grid;
+  min-width: 9rem;
+  align-content: center;
+  border-left: 1px solid var(--line);
+  padding: 0 0.8rem;
+}
+
+.demo-vitals dt {
+  color: var(--muted);
+  font-size: 0.6rem;
+  letter-spacing: 0.07em;
+}
+
+.demo-vitals dd {
+  overflow: hidden;
+  margin-top: 0.18rem;
+  font-size: 0.76rem;
+  font-weight: 680;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.demo-main {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-columns: 18rem minmax(0, 1fr) 20rem;
+}
+
+.demo-decision-column {
+  min-width: 0;
+  min-height: 0;
+  padding: 0.75rem;
+}
+
+.demo-inspector-column {
+  min-height: 0;
+  overflow-y: auto;
+  border-left: 1px solid var(--line);
+  background: var(--panel-soft);
+  padding: 0.9rem;
+}
+
+.decision-explanation > p:not(.eyebrow) {
+  color: var(--muted-strong);
+  font-size: 0.74rem;
+  line-height: 1.65;
+}
+
+@media (max-width: 1000px) {
+  .demo-shell {
+    height: auto;
+    min-height: 100vh;
+    grid-template-rows: auto auto auto;
+    overflow: visible;
+  }
+
+  .demo-header {
+    flex-wrap: wrap;
+    padding: 0.65rem 0.75rem;
+  }
+
+  .demo-header-brand {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .demo-vitals {
+    width: 100%;
+    overflow-x: auto;
+    border-top: 1px solid var(--line);
+  }
+
+  .demo-vitals > div {
+    min-width: 8rem;
+    min-height: 3rem;
+    padding: 0.45rem 0.6rem;
+  }
+
+  .demo-main {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .demo-decision-column {
+    order: 1;
+    padding: 0.55rem;
+  }
+
+  .demo-main > .agent-panel {
+    order: 2;
+    border-top: 1px solid var(--line);
+    border-right: 0;
+    padding: 0.75rem;
+  }
+
+  .demo-inspector-column {
+    order: 3;
+    border-top: 1px solid var(--line);
+    border-left: 0;
+    padding: 0.75rem;
+  }
+}
+
+@media (max-width: 430px) {
+  .demo-header-brand {
+    align-items: flex-start;
+  }
+
+  .demo-fixture-badge {
+    max-width: 7rem;
+    text-align: center;
+    white-space: normal;
+  }
+}

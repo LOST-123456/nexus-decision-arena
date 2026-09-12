@@ -59,6 +59,8 @@ export function createApp(
   const app = Fastify();
   const eventBus = options.eventBus ?? new EventBus();
 
+  app.get("/health", async () => ({ status: "ok" }));
+
   registerSessionRoutes(app, dependencies, idempotency);
   registerInspectorRoutes(app, dependencies);
   registerHumanDecisionRoutes(app, dependencies, idempotency, eventBus);
