@@ -99,10 +99,10 @@ git push -u origin feature/decision-arena
 
 ## 提交前检查
 
-- [ ] `origin` 已配置且公开可访问
+- [x] `origin` 已配置且公开可访问
 - [ ] 三条以上 AI 对话快照已包含原始 Prompt、建议、纠偏和测试证据
-- [ ] Prompt-to-Commit 表已补齐 Task 12 最终 hash
-- [ ] `stability-output.txt` 已记录实际 20/20 输出
-- [ ] 截图和视频均由当次提交生成
+- [x] Prompt-to-Commit 表已补齐 Task 12 最终 hash
+- [x] `stability-output.txt` 已记录实际 80/80 输出（桌面 20 + 移动 20）
+- [ ] 截图已生成；演示视频待录制
 - [ ] PDF 未包含未测量指标
 - [x] 固定 Demo 仍明确标记为 fixture，live UUID 会话已走真实持久化 orchestration
