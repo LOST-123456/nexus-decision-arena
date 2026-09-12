@@ -42,7 +42,11 @@ export class OpenAiCompatibleProvider implements LlmProvider {
     );
 
     if (!response.ok) {
-      throw new Error(`LLM request failed with status ${response.status}`);
+      const body = await response.text().catch(() => "");
+      const diagnostic = body.trim().slice(0, 2_000);
+      throw new Error(
+        `LLM request failed with status ${response.status}${diagnostic ? `: ${diagnostic}` : ""}`
+      );
     }
 
     const body = (await response.json()) as {

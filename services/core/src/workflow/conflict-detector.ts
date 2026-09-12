@@ -15,13 +15,24 @@ type ConflictInput = {
 export function detectConflicts(input: ConflictInput): Conflict[] {
   const conflicts: Conflict[] = [];
   const claimById = new Map(input.claims.map((claim) => [claim.id, claim]));
+  const contradictoryPairs = new Set<string>();
 
   for (const claim of input.claims) {
     for (const relation of claim.relations) {
       const target = claimById.get(relation.targetClaimId);
-      if (relation.type !== "contradicts" || !target) {
+      if (
+        relation.type !== "contradicts" ||
+        !target ||
+        claim.id === target.id
+      ) {
         continue;
       }
+
+      const pairKey = [claim.id, target.id].sort().join(":");
+      if (contradictoryPairs.has(pairKey)) {
+        continue;
+      }
+      contradictoryPairs.add(pairKey);
 
       const id = newId();
       conflicts.push(

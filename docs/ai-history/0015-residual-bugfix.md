@@ -93,3 +93,34 @@ corepack pnpm --filter @nexus/web test:e2e
 corepack pnpm test:stability
 40/40 passed
 ```
+
+## Optional Risk Hardening
+
+The remaining non-blocking risks were also addressed:
+
+- Migration runner now holds a PostgreSQL transaction advisory lock, and all migrations plus ledger updates commit or roll back as one transaction.
+- Concurrent migration execution and failed-migration rollback have real PostgreSQL regression tests.
+- Reciprocal and self contradictions are deduplicated by normalized Claim pair.
+- OpenAI-compatible provider includes a bounded response body in non-2xx diagnostics.
+- Session and HumanDecision IDs derive deterministically from the idempotency key and request hash.
+- Project/session creation is re-runnable with the same IDs; retrying an already-started session returns an idempotent 202 instead of duplicating work.
+- HumanDecision persistence returns the existing decision/event for a repeated deterministic decision ID.
+
+Final verification after these hardening changes:
+
+```text
+corepack pnpm typecheck
+PASS
+
+corepack pnpm test
+156 tests passed
+
+Shared: 48
+Core: 63
+DB: 15
+LLM: 7
+Web: 23
+
+corepack pnpm --filter @nexus/web test:e2e
+4/4 passed across desktop and mobile
+```

@@ -26,8 +26,6 @@ export async function runMigrations(
   database: Database,
   migrationDirectory = resolve("migrations")
 ): Promise<MigrationRunResult> {
-  await database.execute(migrationsTableSql);
-
   const files = (await readdir(migrationDirectory))
     .filter((file) => file.endsWith(".sql"))
     .sort();
@@ -45,34 +43,40 @@ export async function runMigrations(
     })
   );
 
-  const appliedRows = (await database.execute(
-    "SELECT filename, checksum FROM schema_migrations"
-  )) as unknown as MigrationRecord[];
-  const applied = new Map(
-    appliedRows.map((record) => [record.filename, record.checksum])
-  );
-
-  for (const migration of migrations) {
-    const recordedChecksum = applied.get(migration.filename);
-    if (
-      recordedChecksum !== undefined &&
-      recordedChecksum !== migration.checksum
-    ) {
-      throw new Error(
-        `Migration checksum drift for ${migration.filename}: expected ${recordedChecksum}, got ${migration.checksum}`
-      );
-    }
-  }
-
   const result: MigrationRunResult = { applied: [], skipped: [] };
-  for (const migration of migrations) {
-    if (applied.has(migration.filename)) {
-      result.skipped.push(migration.filename);
-      console.log(`skipped ${migration.filename}`);
-      continue;
+
+  await database.transaction(async (transaction) => {
+    await transaction.execute(
+      sql`SELECT pg_advisory_xact_lock(hashtext('nexus_schema_migrations'))`
+    );
+    await transaction.execute(migrationsTableSql);
+
+    const appliedRows = (await transaction.execute(
+      "SELECT filename, checksum FROM schema_migrations"
+    )) as unknown as MigrationRecord[];
+    const applied = new Map(
+      appliedRows.map((record) => [record.filename, record.checksum])
+    );
+
+    for (const migration of migrations) {
+      const recordedChecksum = applied.get(migration.filename);
+      if (
+        recordedChecksum !== undefined &&
+        recordedChecksum !== migration.checksum
+      ) {
+        throw new Error(
+          `Migration checksum drift for ${migration.filename}: expected ${recordedChecksum}, got ${migration.checksum}`
+        );
+      }
     }
 
-    await database.transaction(async (transaction) => {
+    for (const migration of migrations) {
+      if (applied.has(migration.filename)) {
+        result.skipped.push(migration.filename);
+        console.log(`skipped ${migration.filename}`);
+        continue;
+      }
+
       const statements = migration.contents
         .split("--> statement-breakpoint")
         .map((statement) => statement.trim())
@@ -85,11 +89,11 @@ export async function runMigrations(
       await transaction.execute(
         sql`INSERT INTO schema_migrations (filename, checksum) VALUES (${migration.filename}, ${migration.checksum})`
       );
-    });
 
-    result.applied.push(migration.filename);
-    console.log(`applied ${migration.filename}`);
-  }
+      result.applied.push(migration.filename);
+      console.log(`applied ${migration.filename}`);
+    }
+  });
 
   return result;
 }

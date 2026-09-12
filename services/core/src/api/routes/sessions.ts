@@ -1,4 +1,4 @@
-import { newId } from "@nexus/shared";
+import { deriveUuidV7 } from "../plugins/deterministic-id";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { AppDependencies } from "../../app";
@@ -61,8 +61,8 @@ export function registerSessionRoutes(
 
     try {
       const result = await idempotency.execute(key, requestHash, async () => {
-        const projectId = newId();
-        const sessionId = newId();
+        const projectId = deriveUuidV7("project", key, requestHash);
+        const sessionId = deriveUuidV7("session", key, requestHash);
         const created = await dependencies.sessions.createWithProject(
           parsed.data.project,
           {
@@ -136,6 +136,12 @@ export function registerSessionRoutes(
         }
 
         if (error instanceof SessionAlreadyStartedError) {
+          const session = await dependencies.sessions.getById(sessionId);
+          if (session && session.phase !== "CREATED") {
+            return reply
+              .code(202)
+              .send({ id: sessionId, status: "ALREADY_STARTED" });
+          }
           return reply.code(409).send({ error: error.message });
         }
 

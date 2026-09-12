@@ -81,17 +81,30 @@ export class DecisionSessionRepository {
 
   async createWithProject(project: ProjectInput, session: SessionInput) {
     return this.database.transaction(async (transaction) => {
-      await transaction.insert(projects).values({
-        id: session.projectId,
-        name: project.name,
-        input: project,
-        locale: session.locale
-      });
+      await transaction
+        .insert(projects)
+        .values({
+          id: session.projectId,
+          name: project.name,
+          input: project,
+          locale: session.locale
+        })
+        .onConflictDoNothing({ target: projects.id });
       const [created] = await transaction
         .insert(decisionSessions)
         .values(session)
+        .onConflictDoNothing({ target: decisionSessions.id })
         .returning();
-      return created ?? null;
+      if (created) {
+        return created;
+      }
+
+      const [existing] = await transaction
+        .select()
+        .from(decisionSessions)
+        .where(eq(decisionSessions.id, session.id))
+        .limit(1);
+      return existing ?? null;
     });
   }
 
@@ -165,6 +178,51 @@ export class DecisionSessionRepository {
     event: HumanDecisionEventInput;
   }) {
     return this.database.transaction(async (transaction) => {
+      const [existingDecision] = await transaction
+        .select()
+        .from(humanDecisions)
+        .where(eq(humanDecisions.id, input.decision.id))
+        .limit(1);
+      if (existingDecision) {
+        const [existingSession] = await transaction
+          .select()
+          .from(decisionSessions)
+          .where(eq(decisionSessions.id, input.decision.sessionId))
+          .limit(1);
+        const [existingEvent] = await transaction
+          .select()
+          .from(executionEvents)
+          .where(
+            and(
+              eq(executionEvents.sessionId, input.decision.sessionId),
+              eq(executionEvents.correlationId, input.decision.id)
+            )
+          )
+          .limit(1);
+        const parsedDecision = parseHumanDecisions([existingDecision])[0];
+        if (existingSession && existingEvent && parsedDecision) {
+          return {
+            session: existingSession,
+            decision: parsedDecision,
+            event: {
+              id: existingEvent.id,
+              sessionId: existingEvent.sessionId,
+              sequence: existingEvent.sequence,
+              correlationId: existingEvent.correlationId,
+              ...(existingEvent.traceId
+                ? { traceId: existingEvent.traceId }
+                : {}),
+              type: existingEvent.type as ExecutionEvent["type"],
+              payload: existingEvent.payload,
+              occurredAt: new Date(existingEvent.occurredAt).toISOString(),
+              ...(existingEvent.promptVersionId
+                ? { promptVersionId: existingEvent.promptVersionId }
+                : {})
+            }
+          };
+        }
+      }
+
       const [currentSession] = await transaction
         .select()
         .from(decisionSessions)

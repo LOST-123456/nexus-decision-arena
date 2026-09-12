@@ -57,4 +57,32 @@ describe("provider deadline enforcement", () => {
     expect(passedSignal).toBeInstanceOf(AbortSignal);
     expect(passedSignal).not.toBe(parent);
   });
+  it("includes a bounded response body in non-2xx diagnostics", async () => {
+    const fetchImpl = (async () =>
+      new Response(
+        JSON.stringify({ error: "rate limit exceeded", request_id: "req_1" }),
+        {
+          status: 429,
+          headers: { "content-type": "application/json" }
+        }
+      )) as unknown as typeof fetch;
+    const provider = new OpenAiCompatibleProvider({
+      baseUrl: "https://example.test/v1",
+      apiKey: "test-key",
+      model: "test-model",
+      fetchImpl
+    });
+
+    await expect(
+      provider.generate(
+        {
+          schemaName: "verdict",
+          system: "System.",
+          user: "Answer.",
+          correlationId: "correlation-error"
+        },
+        new AbortController().signal
+      )
+    ).rejects.toThrow(/status 429.*rate limit exceeded/);
+  });
 });

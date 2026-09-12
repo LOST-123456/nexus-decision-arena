@@ -164,4 +164,27 @@ describe("conflict detection", () => {
 
     expect(conflicts).toHaveLength(0);
   });
+  it("deduplicates reciprocal and self contradictions", () => {
+    const left = claim("left", 5, 0.4, 0);
+    const right = claim("right", 5, 0.4, 0);
+    right.sessionId = left.sessionId;
+    right.relations = [
+      { targetClaimId: left.id, type: "contradicts" },
+      { targetClaimId: right.id, type: "contradicts" }
+    ];
+    left.relations = [
+      { targetClaimId: right.id, type: "contradicts" }
+    ];
+
+    const conflicts = detectConflicts({
+      sessionId: left.sessionId,
+      claims: [left, right],
+      challenges: []
+    });
+
+    expect(conflicts).toHaveLength(1);
+    expect(new Set(conflicts[0]?.claimIds)).toEqual(
+      new Set([left.id, right.id])
+    );
+  });
 });

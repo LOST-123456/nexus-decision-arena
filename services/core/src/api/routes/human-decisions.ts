@@ -5,12 +5,12 @@ import {
 } from "@nexus/db";
 import {
   HumanDecisionSchema,
-  newId,
   type HumanDecision
 } from "@nexus/shared";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { AppDependencies } from "../../app";
 import { applyHumanDecision } from "../../checkpoints/human-checkpoint";
+import { deriveUuidV7 } from "../plugins/deterministic-id";
 import type { EventBus } from "../../execution/event-bus";
 import {
   hashIdempotencyRequest,
@@ -84,7 +84,11 @@ export function registerHumanDecisionRoutes(
             }
 
             const decision: HumanDecision = {
-              id: newId(),
+              id: deriveUuidV7(
+                "human-decision",
+                key,
+                requestHash
+              ),
               sessionId,
               ...parsed.data,
               previousConclusion:
