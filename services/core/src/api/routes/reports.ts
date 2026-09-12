@@ -16,6 +16,11 @@ export function registerReportRoutes(
       if (!session) {
         return reply.code(404).send({ error: "Session not found" });
       }
+      if (session.phase !== "DECIDED" && session.phase !== "REPORT_READY") {
+        return reply
+          .code(409)
+          .send({ error: "Final report is not ready for this session phase" });
+      }
       try {
         const report =
           (await dependencies.reports.getBySessionId(request.params.id)) ??

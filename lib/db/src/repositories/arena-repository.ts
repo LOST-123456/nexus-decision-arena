@@ -23,6 +23,7 @@ import {
 import {
   parseChallenges,
   parseClaims,
+  parseConflicts,
   parseEvidence
 } from "./domain-mapper";
 
@@ -282,6 +283,35 @@ export class ArenaRepository {
 
   async saveConflict(conflict: Conflict): Promise<void> {
     await this.database.insert(conflicts).values(conflict);
+  }
+
+  async getSessionArtifacts(sessionId: string) {
+    const [
+      sessionClaims,
+      sessionEvidence,
+      sessionChallenges,
+      sessionConflicts
+    ] = await Promise.all([
+      this.database.select().from(claims).where(eq(claims.sessionId, sessionId)),
+      this.database
+        .select()
+        .from(evidence)
+        .where(eq(evidence.sessionId, sessionId)),
+      this.database
+        .select()
+        .from(challenges)
+        .where(eq(challenges.sessionId, sessionId)),
+      this.database
+        .select()
+        .from(conflicts)
+        .where(eq(conflicts.sessionId, sessionId))
+    ]);
+    return {
+      claims: parseClaims(sessionClaims),
+      evidence: parseEvidence(sessionEvidence),
+      challenges: parseChallenges(sessionChallenges),
+      conflicts: parseConflicts(sessionConflicts)
+    };
   }
 
   async getClaimValidationContext(claimId: string): Promise<{

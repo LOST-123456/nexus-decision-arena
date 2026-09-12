@@ -13,7 +13,7 @@ import {
   promptVersions
 } from "../schema";
 import { DecisionSessionRepository } from "./decision-session-repository";
-import { FinalReportRepository } from "./final-report-repository";
+import { FinalReportRepository, ReportNotReadyError } from "./final-report-repository";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
@@ -201,5 +201,97 @@ describe("FinalReportRepository", () => {
       requiredNextActions: ["Signed procurement pipeline"]
     });
     await expect(reports.getBySessionId(sessionId)).resolves.toEqual(report);
+  });
+  it("refuses to generate a report while a supplement round is still reassessing", async () => {
+    const projectId = newId();
+    const sessionId = newId();
+    const conflictId = newId();
+    const timestamp = new Date().toISOString();
+
+    await sessions.createWithProject(
+      { name: "Reassessing", summary: "S", targetUsers: "T", businessModel: "B", expectedData: "E" },
+      {
+        id: sessionId,
+        projectId,
+        locale: "zh-CN",
+        phase: "REASSESSING",
+        operationalStatus: "ACTIVE",
+        currentConclusion: "重新评估采购证据"
+      }
+    );
+    await database.execute(
+      `UPDATE decision_sessions SET supplement_round = 1 WHERE id = '${sessionId}'`
+    );
+    await database.insert(conflicts).values({
+      id: conflictId,
+      sessionId,
+      claimIds: [],
+      challengeIds: [],
+      type: "evidence",
+      summary: "Supplement required",
+      severity: 4,
+      status: "human_review",
+      humanDecisionRequired: true,
+      resolutionSuggestion: "Run one supplement round",
+      impactScope: { analysisAreas: ["market"], stakeholders: [] },
+      createdAt: timestamp,
+      updatedAt: timestamp
+    });
+    await database.insert(humanDecisions).values({
+      id: newId(),
+      sessionId,
+      conflictId,
+      action: "request_more_analysis",
+      rationale: "Need more evidence",
+      affectedClaimIds: [],
+      affectedAgentRoleIds: [],
+      previousConclusion: "暂缓规模化扩张",
+      newConclusion: "重新评估采购证据",
+      operatorId: "operator-1",
+      createdAt: timestamp
+    });
+
+    await expect(reports.generateAndPersist(sessionId)).rejects.toBeInstanceOf(
+      ReportNotReadyError
+    );
+  });
+
+  it("generates a report for an automatically decided session without a human decision", async () => {
+    const projectId = newId();
+    const sessionId = newId();
+    const timestamp = new Date().toISOString();
+
+    await sessions.createWithProject(
+      { name: "Auto report", summary: "S", targetUsers: "T", businessModel: "B", expectedData: "E" },
+      {
+        id: sessionId,
+        projectId,
+        locale: "zh-CN",
+        phase: "DECIDED",
+        operationalStatus: "COMPLETED",
+        currentConclusion: "建议立项"
+      }
+    );
+    await database.insert(executionEvents).values({
+      id: newId(),
+      sessionId,
+      sequence: 1,
+      correlationId: newId(),
+      type: "SESSION_STATE_CHANGED",
+      payload: { currentConclusion: "建议立项" },
+      occurredAt: timestamp
+    });
+    await database.execute(
+      `UPDATE decision_sessions SET next_event_sequence = 2 WHERE id = '${sessionId}'`
+    );
+
+    const report = await reports.generateAndPersist(sessionId);
+    expect(report).toMatchObject({
+      sessionId,
+      projectName: "Auto report",
+      finalConclusion: "建议立项",
+      humanAction: "No human intervention required"
+    });
+    expect(report.humanDecisionId).toBeUndefined();
   });
 });

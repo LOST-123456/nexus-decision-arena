@@ -18,7 +18,7 @@ export class MemoryRunSessionStore implements RunSessionStore {
   readonly agentRuns = new Map<string, Record<string, unknown>>();
 
   constructor(
-    private readonly session: {
+    protected readonly session: {
       id: string;
       phase: string;
       operationalStatus: string;
@@ -118,6 +118,18 @@ export class MemoryRunSessionStore implements RunSessionStore {
 
   async saveConflict(conflict: Conflict): Promise<void> {
     this.conflicts.push(structuredClone(conflict));
+  }
+
+  async getSessionArtifacts(sessionId: string) {
+    if (sessionId !== this.session.id) {
+      return null;
+    }
+    return {
+      claims: structuredClone(this.claims),
+      evidence: structuredClone(this.evidence),
+      challenges: structuredClone(this.challenges),
+      conflicts: structuredClone(this.conflicts)
+    };
   }
 
   async getClaimValidationContext(claimId: string) {

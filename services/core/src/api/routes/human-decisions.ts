@@ -41,7 +41,7 @@ function getIdempotencyKey(request: FastifyRequest): string | null {
 
 export function registerHumanDecisionRoutes(
   app: FastifyInstance,
-  dependencies: Pick<AppDependencies, "sessions">,
+  dependencies: Pick<AppDependencies, "sessions" | "runSession">,
   idempotency: IdempotencyStore,
   eventBus: EventBus
 ): void {
@@ -136,7 +136,23 @@ export function registerHumanDecisionRoutes(
           }
         );
 
-        return reply.code(201).send(result.response);
+        if (result.response.decision.action !== "request_more_analysis") {
+          return reply.code(201).send(result.response);
+        }
+
+        const currentAfterDecision = await dependencies.sessions.getById(
+          sessionId
+        );
+        if (currentAfterDecision?.phase === "REASSESSING") {
+          await dependencies.runSession.start(sessionId);
+        }
+        const finalSession =
+          (await dependencies.sessions.getById(sessionId)) ??
+          currentAfterDecision ??
+          result.response.session;
+        return reply
+          .code(201)
+          .send({ ...result.response, session: finalSession });
       } catch (error) {
         if (
           error instanceof IdempotencyConflictError ||

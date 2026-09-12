@@ -159,21 +159,39 @@ describe("human decision route", () => {
     expect(invalid.statusCode).toBe(400);
   });
 
-  it("returns reassessment decisions to the active phase", async () => {
+  it("runs one supplement round after a reassessment decision", async () => {
     const sessionId = newId();
-    const recordHumanDecision = recordingRepository(sessionId);
+    let currentSession = {
+      id: sessionId,
+      phase: "HUMAN_REVIEW",
+      operationalStatus: "PAUSED",
+      currentConclusion: "Hold scale-up"
+    };
+    const baseRecord = recordingRepository(sessionId);
+    const recordHumanDecision = vi.fn(async (input: CapturedInput) => {
+      currentSession = {
+        ...currentSession,
+        phase: input.transition.phase,
+        operationalStatus: input.transition.operationalStatus,
+        currentConclusion: input.transition.conclusion
+      };
+      return baseRecord(input);
+    });
+    const start = vi.fn(async () => {
+      currentSession = {
+        ...currentSession,
+        phase: "HUMAN_REVIEW",
+        operationalStatus: "PAUSED"
+      };
+    });
     const app = createApp({
       sessions: {
-        getById: vi.fn().mockResolvedValue({
-          id: sessionId,
-          phase: "HUMAN_REVIEW",
-          currentConclusion: "Hold scale-up"
-        }),
+        getById: vi.fn(async () => ({ ...currentSession })),
         recordHumanDecision
       } as never,
       inspector: {} as never,
       events: {} as never,
-      runSession: {} as never
+      runSession: { start } as never
     });
 
     const response = await app.inject({
@@ -189,9 +207,10 @@ describe("human decision route", () => {
     });
 
     expect(response.statusCode).toBe(201);
+    expect(start).toHaveBeenCalledTimes(1);
     expect(response.json().session).toMatchObject({
-      phase: "REASSESSING",
-      operationalStatus: "ACTIVE",
+      phase: "HUMAN_REVIEW",
+      operationalStatus: "PAUSED",
       currentConclusion: "Reassess procurement evidence"
     });
   });

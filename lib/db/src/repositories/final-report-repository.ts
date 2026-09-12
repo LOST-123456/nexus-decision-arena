@@ -88,6 +88,9 @@ export class FinalReportRepository {
     if (!session) {
       throw new Error(`Session not found: ${sessionId}`);
     }
+    if (session.phase !== "DECIDED" && session.phase !== "REPORT_READY") {
+      throw new ReportNotReadyError();
+    }
 
     const [project] = await this.database
       .select()
@@ -130,18 +133,13 @@ export class FinalReportRepository {
       .where(eq(executionEvents.sessionId, sessionId))
       .orderBy(asc(executionEvents.sequence));
 
-    if (!latestDecisionRow) {
-      throw new ReportNotReadyError();
-    }
-    const latestDecision = parseHumanDecisions([latestDecisionRow])[0];
-    if (!latestDecision) {
-      throw new ReportNotReadyError();
-    }
+    const latestDecision = latestDecisionRow
+      ? parseHumanDecisions([latestDecisionRow])[0]
+      : undefined;
 
+    const affectedClaimIds = latestDecision?.affectedClaimIds ?? [];
     const decisiveConflicts = sessionConflicts.filter((conflict) =>
-      conflict.claimIds.some((claimId) =>
-        latestDecision.affectedClaimIds.includes(claimId)
-      )
+      conflict.claimIds.some((claimId) => affectedClaimIds.includes(claimId))
     );
     const relevantConflicts =
       decisiveConflicts.length > 0 ? decisiveConflicts : sessionConflicts;
@@ -152,7 +150,7 @@ export class FinalReportRepository {
       decisiveChallengeIds.includes(challenge.id)
     );
     const relevantClaimIds = new Set([
-      ...latestDecision.affectedClaimIds,
+      ...affectedClaimIds,
       ...decisiveChallenges.map((challenge) => challenge.targetClaimId)
     ]);
     const relevantEvidence =
@@ -175,27 +173,45 @@ export class FinalReportRepository {
       sessionEvents
         .map((event) => conclusionFromEvent(event.payload))
         .find((conclusion): conclusion is string => Boolean(conclusion)) ??
-      latestDecision.previousConclusion;
+      session.currentConclusion ?? "Decision pending";
+    const postChallengeConclusion =
+      latestDecision?.previousConclusion ??
+      session.currentConclusion ??
+      "Decision pending";
+    const finalConclusion =
+      session.currentConclusion ??
+      latestDecision?.newConclusion ??
+      postChallengeConclusion;
+    const humanAction = latestDecision
+      ? humanActionLabel(latestDecision.action)
+      : "No human intervention required";
+    const decisionExplanation = latestDecision
+      ? [
+          latestDecision.rationale,
+          ...relevantConflicts.map(
+            (conflict) => conflict.resolutionSuggestion
+          )
+        ].join(" ")
+      : relevantConflicts.length > 0
+        ? relevantConflicts
+            .map((conflict) => conflict.resolutionSuggestion)
+            .join(" ")
+        : "No high-severity conflict required human intervention.";
     const now = new Date().toISOString();
     const report = FinalReportSchema.parse({
       id: newId(),
       sessionId,
       projectName: project?.name ?? "Decision session",
-      executiveSummary: `${firstConclusion} -> ${latestDecision.previousConclusion}; ${humanActionLabel(latestDecision.action)}; final: ${session.currentConclusion ?? latestDecision.newConclusion}.`,
+      executiveSummary: `${firstConclusion} -> ${postChallengeConclusion}; ${humanAction}; final: ${finalConclusion}.`,
       initialConclusion: firstConclusion,
-      postChallengeConclusion: latestDecision.previousConclusion,
-      humanAction: humanActionLabel(latestDecision.action),
-      finalConclusion: session.currentConclusion ?? latestDecision.newConclusion,
-      decisionExplanation: [
-        latestDecision.rationale,
-        ...relevantConflicts.map(
-          (conflict) => conflict.resolutionSuggestion
-        )
-      ].join(" "),
+      postChallengeConclusion,
+      humanAction,
+      finalConclusion,
+      decisionExplanation,
       requiredNextActions,
       decisiveChallengeIds,
       evidenceIds: relevantEvidence.map((item) => item.id),
-      humanDecisionId: latestDecision.id,
+      ...(latestDecision ? { humanDecisionId: latestDecision.id } : {}),
       createdAt: now,
       updatedAt: now
     });
@@ -215,7 +231,7 @@ export class FinalReportRepository {
         requiredNextActions: report.requiredNextActions,
         decisiveChallengeIds: report.decisiveChallengeIds,
         evidenceIds: report.evidenceIds,
-        humanDecisionId: report.humanDecisionId,
+        humanDecisionId: report.humanDecisionId ?? null,
         createdAt: report.createdAt,
         updatedAt: report.updatedAt
       })
@@ -232,7 +248,7 @@ export class FinalReportRepository {
           requiredNextActions: report.requiredNextActions,
           decisiveChallengeIds: report.decisiveChallengeIds,
           evidenceIds: report.evidenceIds,
-          humanDecisionId: report.humanDecisionId,
+          humanDecisionId: report.humanDecisionId ?? null,
           updatedAt: report.updatedAt
         }
       })

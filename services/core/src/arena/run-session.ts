@@ -19,6 +19,13 @@ export type RunSessionEmit = (
   event: Partial<ExecutionEvent> & { type: ExecutionEvent["type"] }
 ) => void;
 
+export type SessionArtifacts = {
+  claims: Claim[];
+  evidence: Evidence[];
+  challenges: Challenge[];
+  conflicts: Conflict[];
+};
+
 export type RunAnalysisResult = {
   analyses: AgentAnalysis[];
   failures: Array<{ role: AgentRole; reason: unknown }>;
@@ -65,6 +72,7 @@ export type RunSessionStore = {
   saveChallenge(challenge: Challenge): Promise<void>;
   updateChallenge(challenge: Challenge): Promise<void>;
   saveConflict(conflict: Conflict): Promise<void>;
+  getSessionArtifacts(sessionId: string): Promise<SessionArtifacts | null>;
   getClaimValidationContext(claimId: string): Promise<{
     claim: Claim;
     evidence: Evidence[];
@@ -162,7 +170,10 @@ export class RunSessionService {
     if (!context) {
       throw new Error(`Session not found: ${sessionId}`);
     }
-    if (context.session.phase !== "CREATED") {
+    const isSupplementRound =
+      context.session.phase === "REASSESSING" &&
+      context.session.supplementRound >= 1;
+    if (context.session.phase !== "CREATED" && !isSupplementRound) {
       throw new SessionAlreadyStartedError(sessionId);
     }
 
@@ -197,6 +208,128 @@ export class RunSessionService {
               : {})
           })
       });
+
+    if (isSupplementRound) {
+      const artifacts =
+        await this.runtime.store.getSessionArtifacts(sessionId);
+      if (!artifacts || artifacts.claims.length === 0) {
+        throw new Error(
+          `Supplement round for ${sessionId} has no existing Claims`
+        );
+      }
+
+      await this.runtime.store.setSessionState({
+        sessionId,
+        phase: "CHALLENGING",
+        operationalStatus: "ACTIVE",
+        currentConclusion: context.session.currentConclusion
+      });
+      await emitEvent({
+        correlationId: newId(),
+        type: "SESSION_STATE_CHANGED",
+        payload: {
+          phase: "CHALLENGING",
+          operationalStatus: "ACTIVE",
+          currentConclusion: context.session.currentConclusion
+        }
+      });
+
+      const crossExaminationService =
+        typeof this.runtime.crossExamination === "function"
+          ? this.runtime.crossExamination()
+          : this.runtime.crossExamination;
+      const runIdByRoleId = new Map(
+        artifacts.claims.map((claim) => [claim.roleId, claim.agentRunId])
+      );
+      const plans = this.runtime.createChallengePlans?.(
+        roles,
+        artifacts.claims,
+        runIdByRoleId
+      );
+      const supplement = await crossExaminationService.run({
+        sessionId,
+        claims: artifacts.claims,
+        roles,
+        ...(plans ? { plans } : {}),
+        persistChallenge: async (challenge) => {
+          await this.runtime!.store.saveChallenge(challenge);
+        },
+        persistResponseClaim: async (claim) => {
+          await this.runtime!.store.saveClaim(claim);
+        },
+        persistChallengeUpdate: (challenge) =>
+          this.runtime!.store.updateChallenge(challenge),
+        persistConflict: (conflict) =>
+          this.runtime!.store.saveConflict(conflict),
+        emit: async (event) => {
+          await emitEvent({
+            correlationId: event.correlationId ?? newId(),
+            type: event.type,
+            payload: event.payload
+          });
+        }
+      });
+
+      const existingUnresolved = artifacts.conflicts.some(
+        (conflict) =>
+          conflict.humanDecisionRequired && conflict.status !== "resolved"
+      );
+      const humanReviewRequired =
+        existingUnresolved ||
+        supplement.conflicts.some(
+          (conflict) => conflict.humanDecisionRequired
+        );
+
+      if (humanReviewRequired) {
+        await this.runtime.store.setSessionState({
+          sessionId,
+          phase: "CONFLICT_DETECTED",
+          operationalStatus: "ACTIVE",
+          currentConclusion: context.session.currentConclusion
+        });
+        await emitEvent({
+          correlationId: newId(),
+          type: "SESSION_STATE_CHANGED",
+          payload: {
+            phase: "CONFLICT_DETECTED",
+            operationalStatus: "ACTIVE",
+            currentConclusion: context.session.currentConclusion
+          }
+        });
+        await this.runtime.store.setSessionState({
+          sessionId,
+          phase: "HUMAN_REVIEW",
+          operationalStatus: "PAUSED",
+          currentConclusion: context.session.currentConclusion
+        });
+        await emitEvent({
+          correlationId: newId(),
+          type: "HUMAN_REVIEW_REQUIRED",
+          payload: {
+            reason: "Supplement round still requires human review",
+            conflictIds: supplement.conflicts.map((conflict) => conflict.id)
+          }
+        });
+        return;
+      }
+
+      await this.runtime.store.setSessionState({
+        sessionId,
+        phase: "DECIDED",
+        operationalStatus: "COMPLETED",
+        currentConclusion: context.session.currentConclusion
+      });
+      await emitEvent({
+        correlationId: newId(),
+        type: "SESSION_COMPLETED",
+        payload: {
+          phase: "DECIDED",
+          operationalStatus: "COMPLETED",
+          currentConclusion: context.session.currentConclusion
+        }
+      });
+      return;
+    }
 
     await this.runtime.store.setSessionState({
       sessionId,

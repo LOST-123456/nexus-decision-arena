@@ -105,4 +105,51 @@ describe("run session service", () => {
       session: { phase: "HUMAN_REVIEW", operationalStatus: "PAUSED" }
     });
   });
+  it("executes the single allowed supplement round without re-running agent analysis", async () => {
+    class SupplementStore extends MemoryRunSessionStore {
+      beginSupplementRound(): void {
+        this.session.phase = "REASSESSING";
+        this.session.supplementRound = 1;
+      }
+    }
+
+    const fixtures = await loadDeterministicFixtures();
+    const sessionId = newId();
+    const store = new SupplementStore(
+      {
+        id: sessionId,
+        phase: "CREATED",
+        operationalStatus: "ACTIVE",
+        currentConclusion: null,
+        supplementRound: 0
+      },
+      { name: "Fixture project" },
+      DEFAULT_AGENT_ROLES
+    );
+    const runner = new DeterministicAgentRunner(fixtures);
+    const service = new RunSessionService(runner, {
+      store,
+      roles: DEFAULT_AGENT_ROLES,
+      crossExamination: new CrossExaminationService(
+        runner.createChallengeDependencies()
+      ),
+      createChallengePlans: (roles, claims, runIdByRoleId) =>
+        runner.createChallengePlans(roles, claims, runIdByRoleId),
+      appendEvent: (input) => store.appendEvent(input),
+      eventBus: new EventBus()
+    });
+
+    await service.start(sessionId);
+    const firstRoundClaimCount = store.claims.length;
+
+    store.beginSupplementRound();
+    await service.start(sessionId);
+
+    expect(store.claims).toHaveLength(firstRoundClaimCount);
+    expect(store.events.filter((event) => event.type === "HUMAN_REVIEW_REQUIRED"))
+      .toHaveLength(2);
+    await expect(store.getRunContext(sessionId)).resolves.toMatchObject({
+      session: { phase: "HUMAN_REVIEW", supplementRound: 1 }
+    });
+  });
 });

@@ -26,6 +26,7 @@ import {
 } from "./api-client";
 import type { ReplayableSession } from "./event-reducer";
 import { reduceSessionEvent } from "./event-reducer";
+import { applyHumanDecisionResponse } from "./human-decision-sync";
 import { toPreviewInspectorDTO } from "./preview-inspector";
 import {
   previewSession,
@@ -45,6 +46,12 @@ function createPreviewId(prefix: string): string {
     return crypto.randomUUID();
   }
   return `${prefix}-${Date.now()}`;
+}
+
+export function isReportAvailable(
+  phase: ReplayableSession["phase"]
+): boolean {
+  return phase === "DECIDED" || phase === "REPORT_READY";
 }
 
 function createEmptySession(sessionId: string): ReplayableSession {
@@ -299,25 +306,28 @@ export function SessionWorkspace({ sessionId }: { sessionId: string }) {
         command,
         `human-decision-${createPreviewId("request")}`
       );
-      setSession((current) => ({
-        ...current,
-        phase: response.session.phase ?? current.phase,
-        operationalStatus:
-          response.session.operationalStatus ?? current.operationalStatus,
-        currentConclusion:
-          response.session.currentConclusion ?? current.currentConclusion,
-        humanDecisions: [...current.humanDecisions, response.decision],
-        lastSequence: response.event.sequence
-      }));
-      setEvents((current) => [
-        ...current,
-        {
-          id: response.event.id,
-          sequence: response.event.sequence,
-          type: response.event.type
-        }
-      ]);
-      setRawEvents((current) => [...current, response.event]);
+      setSession((current) =>
+        applyHumanDecisionResponse(current, response)
+      );
+      setEvents((current) =>
+        current.some((event) => event.id === response.event.id)
+          ? current
+          : [
+              ...current,
+              {
+                id: response.event.id,
+                sequence: response.event.sequence,
+                type: response.event.type
+              }
+            ].sort((left, right) => left.sequence - right.sequence)
+      );
+      setRawEvents((current) =>
+        current.some((event) => event.id === response.event.id)
+          ? current
+          : [...current, response.event].sort(
+              (left, right) => left.sequence - right.sequence
+            )
+      );
       setSelectedSequence(response.event.sequence);
 
       if (primaryClaim) {
@@ -414,8 +424,7 @@ export function SessionWorkspace({ sessionId }: { sessionId: string }) {
               previewOnly={!persisted}
               {...(errorMessage ? { errorMessage } : {})}
             />
-          ) : session.phase === "DECIDED" ||
-            session.phase === "REASSESSING" ? (
+          ) : isReportAvailable(session.phase) ? (
             <section className="decision-complete">
               <p className="eyebrow">DECISION COMPLETE</p>
               <h2>{session.currentConclusion}</h2>

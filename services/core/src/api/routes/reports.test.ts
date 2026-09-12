@@ -26,12 +26,16 @@ function reportFixture(sessionId: string): FinalReport {
 
 function createTestApp(input: {
   sessionId: string;
+  phase?: string;
   getBySessionId: ReturnType<typeof vi.fn>;
   generateAndPersist: ReturnType<typeof vi.fn>;
 }) {
   return createApp({
     sessions: {
-      getById: vi.fn().mockResolvedValue({ id: input.sessionId })
+      getById: vi.fn().mockResolvedValue({
+        id: input.sessionId,
+        phase: input.phase ?? "DECIDED"
+      })
     } as never,
     inspector: {} as never,
     events: {} as never,
@@ -89,6 +93,7 @@ describe("report route", () => {
     const sessionId = newId();
     const app = createTestApp({
       sessionId,
+      phase: "REASSESSING",
       getBySessionId: vi.fn().mockResolvedValue(null),
       generateAndPersist: vi
         .fn()
