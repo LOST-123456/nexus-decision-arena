@@ -154,11 +154,22 @@ describe("Decision Map adapter", () => {
   });
 
   it("keeps every edge semantic legend entry unique and complete", () => {
-    const semantics = [...DECISION_MAP_EDGE_SEMANTICS];
+    const semantics = [
+      "neutral",
+      "running",
+      "supports",
+      "opposes",
+      "challenged",
+      "conflict",
+      "resolved",
+      "failed",
+      "rejected"
+    ] as const;
     const legendSemantics = DECISION_MAP_EDGE_LEGEND.map(
       (entry) => entry.semantic
     );
 
+    expect([...DECISION_MAP_EDGE_SEMANTICS]).toEqual([...semantics]);
     expect(legendSemantics).toEqual(semantics);
     expect(new Set(legendSemantics).size).toBe(semantics.length);
     expect(
