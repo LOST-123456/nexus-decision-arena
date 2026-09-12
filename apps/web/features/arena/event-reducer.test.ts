@@ -126,3 +126,47 @@ describe("session event reducer", () => {
     expect(next.lastSequence).toBe(5);
   });
 });
+
+  it("projects the human decision carried by a state-change event", () => {
+    const sessionId = newId();
+    const initial = {
+      ...initialSession(sessionId),
+      phase: "HUMAN_REVIEW" as const,
+      operationalStatus: "PAUSED" as const,
+      currentConclusion: "Hold scale-up",
+      lastSequence: 4
+    };
+    const humanDecision = {
+      id: newId(),
+      sessionId,
+      conflictId: newId(),
+      action: "accept_challenge" as const,
+      rationale: "Challenge evidence is sufficient",
+      affectedClaimIds: [],
+      affectedAgentRoleIds: [],
+      previousConclusion: "Hold scale-up",
+      newConclusion: "Limited pilot",
+      operatorId: "operator-1",
+      createdAt: new Date().toISOString()
+    };
+
+    const next = reduceSessionEvent(initial, {
+      id: newId(),
+      sessionId,
+      sequence: 5,
+      correlationId: humanDecision.id,
+      type: "SESSION_STATE_CHANGED",
+      payload: {
+        phase: "DECIDED",
+        operationalStatus: "COMPLETED",
+        currentConclusion: "Limited pilot",
+        humanDecision
+      },
+      occurredAt: new Date().toISOString()
+    });
+
+    expect(next.phase).toBe("DECIDED");
+    expect(next.operationalStatus).toBe("COMPLETED");
+    expect(next.currentConclusion).toBe("Limited pilot");
+    expect(next.humanDecisions).toEqual([humanDecision]);
+  });

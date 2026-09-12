@@ -38,7 +38,7 @@ export type SessionRecord = NonNullable<
 export type AppDependencies = {
   sessions: Pick<
     DecisionSessionRepository,
-    "createWithProject" | "getById"
+    "createWithProject" | "getById" | "recordHumanDecision"
   >;
   inspector: Pick<InspectorRepository, "getInspector">;
   events: Pick<EventRepository, "append" | "listAfter">;
@@ -57,11 +57,11 @@ export function createApp(
   options: AppOptions = {}
 ): FastifyInstance {
   const app = Fastify();
+  const eventBus = options.eventBus ?? new EventBus();
 
   registerSessionRoutes(app, dependencies, idempotency);
   registerInspectorRoutes(app, dependencies);
-  registerHumanDecisionRoutes(app);
-  const eventBus = options.eventBus ?? new EventBus();
+  registerHumanDecisionRoutes(app, dependencies, idempotency, eventBus);
   registerEventRoutes(app, {
     bus: eventBus,
     repository: dependencies.events

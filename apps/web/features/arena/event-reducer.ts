@@ -1,5 +1,6 @@
 import type {
   Claim,
+  HumanDecision,
   Conflict,
   ExecutionEvent,
   SessionPhase,
@@ -15,6 +16,7 @@ type SessionStatePayload = {
   phase?: SessionPhase;
   operationalStatus?: ReplayableSession["operationalStatus"];
   currentConclusion?: string | null | undefined;
+  humanDecision?: HumanDecision;
 };
 
 function putById<T extends { id: string }>(items: T[], next: T): T[] {
@@ -38,7 +40,10 @@ function applySessionState(
     currentConclusion:
       payload.currentConclusion === undefined
         ? current.currentConclusion
-        : payload.currentConclusion
+        : payload.currentConclusion,
+    humanDecisions: payload.humanDecision
+      ? putById(current.humanDecisions, payload.humanDecision)
+      : current.humanDecisions
   };
 }
 

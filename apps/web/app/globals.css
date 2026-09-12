@@ -1246,3 +1246,352 @@ dd {
     animation: none;
   }
 }
+
+/* Task 11 command-room panels */
+.inspector-panel {
+  min-width: 0;
+}
+
+.inspector-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 0.7rem;
+}
+
+.inspector-panel > h2 {
+  margin-top: 0.8rem;
+  font-size: 0.9rem;
+  font-weight: 680;
+  line-height: 1.45;
+}
+
+.inspector-rationale {
+  margin-top: 0.75rem;
+  border-left: 2px solid var(--warning);
+  background: rgba(239, 179, 95, 0.05);
+  padding: 0.65rem 0.75rem;
+}
+
+.inspector-rationale strong {
+  display: block;
+  margin-top: 0.28rem;
+  color: var(--warning);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.inspector-rationale > p:last-child {
+  margin-top: 0.35rem;
+  color: var(--muted-strong);
+  font-size: 0.72rem;
+  line-height: 1.55;
+}
+
+.inspector-trace dt,
+.inspector-trace dd {
+  margin: 0;
+}
+
+.inspector-trace dd {
+  color: var(--text);
+  font-weight: 650;
+}
+
+.human-checkpoint {
+  margin-top: 0.75rem;
+  border: 1px solid var(--warning);
+  background: rgba(239, 179, 95, 0.075);
+  padding: 0.8rem;
+}
+
+.human-checkpoint .eyebrow {
+  color: var(--warning);
+}
+
+.human-checkpoint h2 {
+  margin-top: 0.55rem;
+  font-size: 0.8rem;
+  font-weight: 680;
+  line-height: 1.45;
+}
+
+.human-checkpoint-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.3rem;
+  margin-top: 0.75rem;
+}
+
+.checkpoint-action {
+  min-height: 2.5rem;
+  border: 1px solid var(--line-strong);
+  background: var(--panel-strong);
+  padding: 0.45rem 0.35rem;
+  color: var(--text);
+  font-size: 0.62rem;
+  font-weight: 650;
+  line-height: 1.3;
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease,
+    color 150ms ease;
+}
+
+.checkpoint-action:hover:not(:disabled) {
+  border-color: var(--focus);
+  background: #1b2b36;
+}
+
+.checkpoint-action:disabled {
+  cursor: wait;
+  opacity: 0.58;
+}
+
+.checkpoint-action-accept {
+  border-color: var(--success);
+}
+
+.checkpoint-action-uphold {
+  border-color: var(--warning);
+}
+
+.checkpoint-action-more {
+  border-color: var(--running);
+}
+
+.checkpoint-error {
+  margin-top: 0.55rem;
+  color: var(--danger);
+  font-size: 0.65rem;
+  line-height: 1.45;
+}
+
+.decision-complete {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 0.75rem;
+  border: 1px solid var(--success);
+  background: rgba(58, 213, 140, 0.055);
+  padding: 0.8rem;
+}
+
+.decision-complete h2 {
+  font-size: 0.92rem;
+  font-weight: 680;
+}
+
+.decision-complete .primary-link {
+  width: 100%;
+  justify-content: space-between;
+}
+
+.timeline .timeline-list {
+  display: flex;
+  min-width: 0;
+  align-items: stretch;
+  gap: 0.4rem;
+  overflow-x: auto;
+  margin: 0;
+  list-style: none;
+  padding: 0;
+}
+
+.timeline .timeline-list li {
+  min-width: 9rem;
+  padding: 0;
+}
+
+.timeline-event {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  min-height: 4.1rem;
+  align-content: center;
+  border: 0;
+  background: transparent;
+  padding: 0.45rem 0.55rem 0.45rem 0.8rem;
+  color: var(--text);
+  text-align: left;
+}
+
+.timeline-event:hover {
+  background: var(--panel-strong);
+}
+
+.timeline-event-selected {
+  background: rgba(82, 199, 232, 0.07);
+}
+
+.timeline-event > span {
+  color: var(--running);
+  font-size: 0.55rem;
+}
+
+.timeline-event strong {
+  margin-top: 0.2rem;
+  overflow: hidden;
+  font-size: 0.66rem;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.timeline-event small {
+  overflow: hidden;
+  margin-top: 0.12rem;
+  color: var(--muted);
+  font-size: 0.5rem;
+  letter-spacing: 0.03em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.timeline .timeline-list li:last-child .timeline-event > span {
+  color: var(--warning);
+}
+
+.report-shell {
+  min-height: 100vh;
+  background: var(--canvas);
+}
+
+.report-header {
+  display: flex;
+  min-height: 4rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-soft);
+  padding: 0.75rem 1.25rem;
+}
+
+.report-status {
+  border: 1px solid var(--success);
+  padding: 0.3rem 0.45rem;
+  color: var(--success);
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+
+.report-document {
+  width: min(100%, 56rem);
+  margin: 0 auto;
+  padding: 2.5rem 1.25rem 4rem;
+}
+
+.report-hero {
+  border-bottom: 1px solid var(--line-strong);
+  padding-bottom: 1.5rem;
+}
+
+.report-hero .eyebrow {
+  color: var(--running);
+}
+
+.report-hero h1 {
+  margin-top: 0.7rem;
+  font-size: clamp(2rem, 6vw, 4rem);
+  font-weight: 720;
+  letter-spacing: -0.035em;
+  line-height: 1;
+}
+
+.report-hero > p:last-child {
+  max-width: 40rem;
+  margin-top: 1rem;
+  color: var(--muted-strong);
+  font-size: 1rem;
+  line-height: 1.7;
+}
+
+.report-section {
+  display: grid;
+  grid-template-columns: 9rem minmax(0, 1fr);
+  gap: 1.25rem;
+  border-bottom: 1px solid var(--line);
+  padding: 1.5rem 0;
+}
+
+.report-section h2 {
+  font-size: 1.05rem;
+  font-weight: 680;
+}
+
+.report-section > p:last-child {
+  color: var(--muted-strong);
+  line-height: 1.85;
+}
+
+.report-section ol {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.report-section li {
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr);
+  gap: 0.6rem;
+  border-top: 1px solid var(--line);
+  padding: 0.65rem 0;
+  color: var(--muted-strong);
+  font-size: 0.82rem;
+}
+
+.report-section li:first-child {
+  border-top: 0;
+}
+
+.report-section li span {
+  color: var(--running);
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+}
+
+.report-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  padding-top: 1rem;
+  color: var(--muted);
+  font-size: 0.62rem;
+}
+
+.report-footer span {
+  border: 1px solid var(--line);
+  padding: 0.3rem 0.45rem;
+}
+
+@media (max-width: 767px) {
+  .human-checkpoint-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .checkpoint-action {
+    min-height: 2.75rem;
+  }
+
+  .report-header {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    padding: 0.75rem;
+  }
+
+  .report-document {
+    padding: 1.5rem 0.9rem 3rem;
+  }
+
+  .report-section {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+}
