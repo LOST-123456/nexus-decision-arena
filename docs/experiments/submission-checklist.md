@@ -40,6 +40,7 @@ git push -u origin feature/decision-arena
 | `docs/ai-history/0005-state-machine.md` | 将质询流程转换成可验证状态机 | 分离领域 phase 与 operational status | 允许 HUMAN_REVIEW 直接进入 DECIDED | `packages/shared` workflow tests | `c05304f` |
 | `docs/ai-history/0013-human-checkpoint.md` | 增加 Inspector、Timeline、Human Checkpoint、Replay 和 Report | 用单事务持久化 HumanDecision 和 SESSION_STATE_CHANGED | 增加 compare-and-set 与 eligible conflict 约束 | DB/Core/Web tests | `70545c7` |
 | `docs/ai-history/0014-demo-delivery.md` | 固定 fixture、E2E、20 次稳定性和投稿材料 | 浏览器 fixture 模式与 offline Mock Provider 分离 | 明确标注未接入 live orchestration，不宣称未测量指标 | unit/integration/typecheck/build/E2E 输出 | `ff9793a` |
+| `docs/ai-history/0015-final-fix-wave.md` | 修复最终评审的 live orchestration、SSE、FinalReport、Claim 不变量和 Next 安全版本 | 以确定性 Mock AgentRunner 和持久化运行时连接浏览器与 Core | 每个会话创建独立 Cross Examination 依赖，并标准化数据库行 | 146 tests、Next build、4 E2E、80/80 stability、live smoke | `c3d4dcc` |
 
 ## 复现路径
 
@@ -104,4 +105,4 @@ git push -u origin feature/decision-arena
 - [ ] `stability-output.txt` 已记录实际 20/20 输出
 - [ ] 截图和视频均由当次提交生成
 - [ ] PDF 未包含未测量指标
-- [ ] 固定 Demo 未伪装成 live orchestration
+- [x] 固定 Demo 仍明确标记为 fixture，live UUID 会话已走真实持久化 orchestration
