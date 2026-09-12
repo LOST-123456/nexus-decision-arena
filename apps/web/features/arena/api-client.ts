@@ -1,0 +1,103 @@
+import {
+  SESSION_PHASES,
+  type ExecutionEvent,
+  type SessionPhase,
+  type SessionView
+} from "@nexus/shared";
+import type { ReplayableSession } from "./event-reducer";
+
+const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:4100";
+
+type SessionPayload = Partial<SessionView> & {
+  nextEventSequence?: number;
+  lastSequence?: number;
+};
+
+function isSessionPhase(value: unknown): value is SessionPhase {
+  return (
+    typeof value === "string" &&
+    SESSION_PHASES.includes(value as SessionPhase)
+  );
+}
+
+function normalizeSession(
+  payload: SessionPayload,
+  fallbackSessionId: string
+): ReplayableSession {
+  const persistedSequence =
+    payload.lastSequence ??
+    (typeof payload.nextEventSequence === "number"
+      ? Math.max(0, payload.nextEventSequence - 1)
+      : 0);
+
+  return {
+    sessionId: payload.sessionId ?? fallbackSessionId,
+    phase: isSessionPhase(payload.phase) ? payload.phase : "CREATED",
+    operationalStatus:
+      payload.operationalStatus === "PAUSED" ||
+      payload.operationalStatus === "FAILED" ||
+      payload.operationalStatus === "COMPLETED"
+        ? payload.operationalStatus
+        : "ACTIVE",
+    agents: payload.agents ?? [],
+    claims: payload.claims ?? [],
+    evidence: payload.evidence ?? [],
+    challenges: payload.challenges ?? [],
+    conflicts: payload.conflicts ?? [],
+    humanDecisions: payload.humanDecisions ?? [],
+    currentConclusion:
+      typeof payload.currentConclusion === "string"
+        ? payload.currentConclusion
+        : null,
+    lastSequence: persistedSequence
+  };
+}
+
+export async function getSession(
+  sessionId: string
+): Promise<ReplayableSession> {
+  const response = await fetch(
+    `${apiUrl}/api/sessions/${encodeURIComponent(sessionId)}`,
+    {
+      cache: "no-store"
+    }
+  );
+  if (!response.ok) {
+    throw new Error(`Session request failed: ${response.status}`);
+  }
+
+  const payload = (await response.json()) as SessionPayload;
+  return normalizeSession(payload, sessionId);
+}
+
+export async function getInspector(
+  sessionId: string,
+  claimId: string
+): Promise<unknown> {
+  const response = await fetch(
+    `${apiUrl}/api/sessions/${encodeURIComponent(sessionId)}/claims/${encodeURIComponent(claimId)}/inspector`,
+    { cache: "no-store" }
+  );
+  if (!response.ok) {
+    throw new Error(`Inspector request failed: ${response.status}`);
+  }
+  return response.json() as Promise<unknown>;
+}
+
+export function subscribeToEvents(
+  sessionId: string,
+  lastEventId: number,
+  onEvent: (event: ExecutionEvent) => void
+): () => void {
+  const url = new URL(
+    `${apiUrl}/api/sessions/${encodeURIComponent(sessionId)}/events/stream`
+  );
+  if (lastEventId > 0) {
+    url.searchParams.set("after", String(lastEventId));
+  }
+
+  const source = new EventSource(url);
+  source.onmessage = (message) =>
+    onEvent(JSON.parse(message.data) as ExecutionEvent);
+  return () => source.close();
+}
