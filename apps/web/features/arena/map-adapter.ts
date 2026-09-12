@@ -4,11 +4,14 @@ import type { ReplayableSession } from "./event-reducer";
 
 export type DecisionMapStatus =
   | "idle"
+  | "proposed"
   | "running"
+  | "supported"
   | "completed"
   | "challenged"
   | "paused"
   | "conflict"
+  | "rejected"
   | "failed";
 
 export type DecisionMapNodeKind =
@@ -35,7 +38,10 @@ export type DecisionMapEdgeData = {
     | "resolved"
     | "challenged"
     | "conflict"
-    | "failed";
+    | "failed"
+    | "supports"
+    | "opposes"
+    | "rejected";
 };
 
 export type DecisionMapNode = Node<
@@ -50,8 +56,26 @@ const edgeColors = {
   resolved: "var(--success)",
   challenged: "var(--danger)",
   conflict: "var(--warning)",
-  failed: "var(--danger)"
+  failed: "var(--danger)",
+  supports: "var(--running)",
+  opposes: "var(--opposes)",
+  rejected: "var(--danger)"
 } as const;
+
+const edgeAriaLabels: Record<
+  DecisionMapEdgeData["semantic"],
+  string
+> = {
+  neutral: "关联",
+  running: "执行中",
+  resolved: "已接受",
+  challenged: "未解质询",
+  conflict: "冲突",
+  failed: "执行失败",
+  supports: "支持",
+  opposes: "反对",
+  rejected: "已否决"
+};
 
 function createEdge(input: {
   id: string;
@@ -67,6 +91,7 @@ function createEdge(input: {
     target: input.target,
     type: "smoothstep",
     animated: input.animated ?? false,
+    ariaLabel: edgeAriaLabels[input.semantic],
     style: {
       stroke: edgeColors[input.semantic],
       strokeWidth: input.width ?? 1.6
@@ -75,36 +100,19 @@ function createEdge(input: {
   };
 }
 
-function claimStatus(
-  claim: Claim,
-  challenges: Challenge[]
-): DecisionMapStatus {
-  if (claim.status === "rejected") {
-    return "failed";
+function claimStatus(claim: Claim): DecisionMapStatus {
+  switch (claim.status) {
+    case "proposed":
+      return "proposed";
+    case "supported":
+      return "supported";
+    case "accepted":
+      return "completed";
+    case "contested":
+      return "challenged";
+    case "rejected":
+      return "rejected";
   }
-  if (claim.status === "accepted") {
-    return "completed";
-  }
-
-  const relatedChallenges = challenges.filter(
-    (challenge) => challenge.targetClaimId === claim.id
-  );
-  if (
-    claim.status === "contested" ||
-    relatedChallenges.some((challenge) =>
-      ["open", "unresolved"].includes(challenge.status)
-    )
-  ) {
-    return "challenged";
-  }
-  if (
-    relatedChallenges.some((challenge) =>
-      ["answered", "validating"].includes(challenge.status)
-    )
-  ) {
-    return "running";
-  }
-  return "idle";
 }
 
 function challengeStatus(challenge: Challenge): DecisionMapStatus {
@@ -114,34 +122,23 @@ function challengeStatus(challenge: Challenge): DecisionMapStatus {
     case "answered":
     case "validating":
       return "running";
-    case "unresolved":
-      return "failed";
     case "open":
+    case "unresolved":
       return "challenged";
   }
 }
 
 function conflictStatus(conflict: Conflict): DecisionMapStatus {
-  if (conflict.status === "resolved") {
-    return "completed";
-  }
-  return "conflict";
+  return conflict.status === "resolved" ? "completed" : "conflict";
 }
 
 function edgeForChallenge(
-  challengeId: string,
   status: DecisionMapStatus
 ): DecisionMapEdgeData["semantic"] {
   if (status === "completed") {
     return "resolved";
   }
-  if (status === "failed") {
-    return "failed";
-  }
-  if (status === "running") {
-    return "running";
-  }
-  return "challenged";
+  return status === "running" ? "running" : "challenged";
 }
 
 function conclusionStatus(
@@ -167,24 +164,52 @@ function conclusionStatus(
   return "running";
 }
 
+function runtimeAgentStatus(
+  agent: ReplayableSession["agents"][number]
+): DecisionMapStatus | null {
+  const runtimeStatus = (agent as { status?: unknown }).status;
+  return runtimeStatus === "idle" ||
+    runtimeStatus === "running" ||
+    runtimeStatus === "completed" ||
+    runtimeStatus === "paused" ||
+    runtimeStatus === "failed"
+    ? runtimeStatus
+    : null;
+}
+
 function agentStatus(
   session: ReplayableSession,
+  agent: ReplayableSession["agents"][number],
   checkpoint: boolean
 ): DecisionMapStatus {
-  if (session.operationalStatus === "FAILED") {
+  const runtimeStatus = runtimeAgentStatus(agent);
+  if (runtimeStatus === "failed") {
     return "failed";
   }
   if (checkpoint || session.operationalStatus === "PAUSED") {
-    return "paused";
+    return runtimeStatus === "running" || runtimeStatus === null
+      ? "paused"
+      : runtimeStatus;
+  }
+  if (runtimeStatus) {
+    return runtimeStatus;
+  }
+  if (session.operationalStatus === "FAILED") {
+    return "failed";
   }
   if (
     session.operationalStatus === "COMPLETED" ||
-    session.phase === "DECIDED" ||
-    session.phase === "REPORT_READY"
+    ["DECIDED", "REPORT_READY"].includes(session.phase)
   ) {
     return "completed";
   }
-  return session.phase === "CREATED" ? "idle" : "running";
+  if (["CREATED", "PLANNING"].includes(session.phase)) {
+    return "idle";
+  }
+  if (session.phase === "ANALYZING") {
+    return "running";
+  }
+  return "completed";
 }
 
 export function toDecisionMap(session: ReplayableSession): {
@@ -210,7 +235,7 @@ export function toDecisionMap(session: ReplayableSession): {
       position: { x: 0, y: 40 + index * 118 },
       data: {
         label: agent.name,
-        status: agentStatus(session, humanCheckpoint),
+        status: agentStatus(session, agent, humanCheckpoint),
         detail: agent.perspective,
         entityId: agent.id,
         kind: "agent",
@@ -226,7 +251,7 @@ export function toDecisionMap(session: ReplayableSession): {
       position: { x: 300, y: 40 + index * 128 },
       data: {
         label: claim.statement,
-        status: claimStatus(claim, session.challenges),
+        status: claimStatus(claim),
         detail: `${Math.round(claim.confidence * 100)}% confidence`,
         entityId: claim.id,
         kind: "claim",
@@ -243,7 +268,7 @@ export function toDecisionMap(session: ReplayableSession): {
       data: {
         label: challenge.question,
         status: challengeStatus(challenge),
-        detail: challenge.requiredEvidence.join(" · "),
+        detail: challenge.requiredEvidence.join(" / "),
         entityId: challenge.id,
         kind: "challenge",
         meta: `CHALLENGE ${challenge.severity}/5`
@@ -284,23 +309,30 @@ export function toDecisionMap(session: ReplayableSession): {
   });
 
   for (const claim of visibleClaims) {
-    const status = claimStatus(claim, session.challenges);
+    const status = claimStatus(claim);
     const relatedAgents = session.agents.filter(
       (agent) => agent.id === claim.roleId
     );
 
     for (const agent of relatedAgents) {
+      const currentAgentStatus = agentStatus(
+        session,
+        agent,
+        humanCheckpoint
+      );
       edges.push(
         createEdge({
           id: `agent-claim:${agent.id}:${claim.id}`,
           source: `agent:${agent.id}`,
           target: `claim:${claim.id}`,
           semantic:
-            claim.stance === "oppose"
-              ? "challenged"
-              : claim.stance === "support"
-                ? "resolved"
-                : "neutral"
+            currentAgentStatus === "failed"
+              ? "failed"
+              : claim.stance === "oppose"
+                ? "opposes"
+                : claim.stance === "support"
+                  ? "supports"
+                  : "neutral"
         })
       );
     }
@@ -313,11 +345,13 @@ export function toDecisionMap(session: ReplayableSession): {
         semantic:
           status === "completed"
             ? "resolved"
-            : status === "failed"
-              ? "failed"
+            : status === "rejected"
+              ? "rejected"
               : status === "challenged"
                 ? "challenged"
-                : "neutral"
+                : status === "supported"
+                  ? "supports"
+                  : "neutral"
       })
     );
   }
@@ -328,13 +362,12 @@ export function toDecisionMap(session: ReplayableSession): {
     }
 
     const status = challengeStatus(challenge);
-    const semantic = edgeForChallenge(challenge.id, status);
     edges.push(
       createEdge({
         id: `challenge-edge:${challenge.id}`,
         source: `challenge:${challenge.id}`,
         target: `claim:${challenge.targetClaimId}`,
-        semantic,
+        semantic: edgeForChallenge(status),
         animated: status === "challenged" || status === "running",
         width: challenge.severity >= 4 ? 2.4 : 1.6
       })

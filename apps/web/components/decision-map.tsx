@@ -1,11 +1,13 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Background,
   BackgroundVariant,
   Controls,
+  Handle,
   Panel,
+  Position,
   ReactFlow,
   type NodeProps
 } from "@xyflow/react";
@@ -17,14 +19,18 @@ import {
   type DecisionMapNodeData,
   type DecisionMapStatus
 } from "../features/arena/map-adapter";
+import { getDecisionMapSizingPolicy } from "../features/arena/map-layout";
 
 const statusLabels: Record<DecisionMapStatus, string> = {
   idle: "待命",
+  proposed: "已提出",
   running: "执行中",
+  supported: "已支持",
   completed: "已完成",
   challenged: "被质询",
   paused: "已暂停",
   conflict: "冲突待裁",
+  rejected: "已否决",
   failed: "失败"
 };
 
@@ -45,6 +51,16 @@ function DecisionNode({ data }: NodeProps<DecisionMapNode>) {
       data-status={data.status}
       data-kind={data.kind}
     >
+      <Handle
+        type="target"
+        position={Position.Left}
+        className="decision-handle"
+      />
+      <Handle
+        type="source"
+        position={Position.Right}
+        className="decision-handle"
+      />
       <header>
         <span className="node-kind">{data.meta ?? data.kind.toUpperCase()}</span>
         <span className="node-status">
@@ -74,6 +90,14 @@ function EdgeLegend() {
         冲突
       </span>
       <span>
+        <i className="edge-dot edge-dot-supports" />
+        支持
+      </span>
+      <span>
+        <i className="edge-dot edge-dot-opposes" />
+        反对
+      </span>
+      <span>
         <i className="edge-dot edge-dot-resolved" />
         已接受
       </span>
@@ -88,7 +112,12 @@ export function DecisionMap({
   session: ReplayableSession;
   compact?: boolean;
 }) {
+  const [viewportWidth, setViewportWidth] = useState(1440);
   const graph = useMemo(() => toDecisionMap(session), [session]);
+  const sizing = useMemo(
+    () => getDecisionMapSizingPolicy(viewportWidth),
+    [viewportWidth]
+  );
   const humanCheckpoint =
     session.phase === "HUMAN_REVIEW" ||
     session.conflicts.some(
@@ -96,6 +125,13 @@ export function DecisionMap({
         conflict.humanDecisionRequired || conflict.status === "human_review"
     );
   const hasClaims = session.claims.length > 0;
+
+  useEffect(() => {
+    const updateViewportWidth = () => setViewportWidth(window.innerWidth);
+    updateViewportWidth();
+    window.addEventListener("resize", updateViewportWidth);
+    return () => window.removeEventListener("resize", updateViewportWidth);
+  }, []);
 
   return (
     <section
@@ -138,13 +174,17 @@ export function DecisionMap({
           edges={graph.edges}
           nodeTypes={nodeTypes}
           fitView
-          fitViewOptions={{ padding: 0.18, minZoom: 0.2, maxZoom: 1 }}
-          minZoom={0.18}
+          fitViewOptions={{
+            padding: sizing.fitViewPadding,
+            minZoom: sizing.fitViewMinZoom,
+            maxZoom: sizing.fitViewMaxZoom
+          }}
+          minZoom={sizing.minZoom}
           maxZoom={1.5}
           nodesDraggable={false}
           nodesConnectable={false}
           elementsSelectable={false}
-          panOnScroll
+          panOnScroll={sizing.panOnScroll}
           proOptions={{ hideAttribution: true }}
           colorMode="dark"
         >

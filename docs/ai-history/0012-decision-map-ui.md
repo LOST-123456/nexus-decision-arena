@@ -114,3 +114,71 @@ no horizontal overflow, and the Agent and Inspector columns flowed below it.
 ## Commit Record
 
 - Commit title: `feat(web): add decision map workspace`
+
+## Review Fixes
+
+### Review Corrections
+
+1. `ReplayableSession` now carries an optional sequence-keyed
+   `pendingEvents` map. Non-consecutive events are buffered, and every
+   contiguous run is applied in order when the missing sequence arrives.
+   Duplicate contiguous and pending events are ignored.
+2. Claim nodes now derive status only from the Claim status: `proposed`,
+   `supported`, `accepted`, `contested`, and `rejected` map to distinct node
+   states. Agent stance is represented only as `supports`/`opposes`
+   provenance edges.
+3. Agent node status reads the runtime Agent status when present and otherwise
+   falls back to session execution phase. Unresolved Challenges map to
+   `challenged`; `failed` is reserved for execution failures.
+4. Edge semantics now include `ariaLabel` values and visible legend labels, so
+   meaning is not carried by color alone.
+5. Agent rows use list-item semantics, while human-decision choices are real
+   disabled buttons until their command wiring is added.
+6. Map sizing is governed by the pure
+   `getDecisionMapSizingPolicy(viewportWidth)` function with an 0.85 readable
+   zoom floor. Pan/scroll remains enabled when the complete graph does not fit.
+7. XYFlow source and target handles were added to the custom nodes so the
+   semantic edges actually render and expose their accessibility labels.
+
+### Review RED Evidence
+
+Runtime inspection before the XYFlow handle fix:
+
+```text
+renderedEdges: 0
+[React Flow]: Couldn't create edge for source handle id: "null"
+```
+
+### Review GREEN Evidence
+
+```text
+Test Files  4 passed (4)
+Tests  11 passed (11)
+```
+
+```text
+tsc --noEmit completed with no diagnostics
+Next.js production build compiled successfully
+```
+
+Runtime verification after the fixes:
+
+```text
+desktop 1440x900:
+  zoom: 0.85
+  scaled primary node heading: 11.05px
+  rendered edges: 14
+  accessible edges: 14
+  agent buttons: 0
+  disabled human-decision buttons: 3
+  horizontal overflow: none
+
+mobile 390x844:
+  zoom: 0.85
+  scaled primary node heading: 11.05px
+  rendered edges: 14
+  accessible edges: 14
+  agent buttons: 0
+  disabled human-decision buttons: 3
+  horizontal overflow: none
+```

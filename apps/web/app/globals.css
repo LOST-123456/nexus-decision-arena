@@ -15,6 +15,7 @@
   --success: #3ad58c;
   --warning: #efb35f;
   --danger: #ee6d6d;
+  --opposes: #e28a58;
   --focus: #8de1f4;
   color-scheme: dark;
 }
@@ -264,7 +265,7 @@ dd {
 
 .workspace-vitals small {
   color: var(--muted);
-  font-size: 0.58rem;
+  font-size: 0.62rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -272,7 +273,7 @@ dd {
 .workspace-vitals strong {
   overflow: hidden;
   margin-top: 0.16rem;
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -336,6 +337,9 @@ dd {
 .agent-list {
   display: grid;
   gap: 0.45rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 .agent-row {
@@ -377,10 +381,23 @@ dd {
   background: var(--success);
   color: var(--success);
 }
+.status-marker.status-supported {
+  background: var(--running);
+  color: var(--running);
+}
 
 .status-marker.status-paused {
   background: var(--warning);
   color: var(--warning);
+}
+.status-marker.status-proposed {
+  background: var(--muted);
+  color: var(--muted);
+}
+
+.status-marker.status-rejected {
+  background: var(--danger);
+  color: var(--danger);
 }
 
 .status-marker.status-failed {
@@ -430,9 +447,19 @@ dd {
 .status-label.status-completed {
   color: var(--success);
 }
+.status-label.status-supported {
+  color: var(--running);
+}
 
 .status-label.status-paused {
   color: var(--warning);
+}
+.status-label.status-proposed {
+  color: var(--muted);
+}
+
+.status-label.status-rejected {
+  color: var(--danger);
 }
 
 .status-label.status-failed {
@@ -445,7 +472,7 @@ dd {
 
 .agent-lenses {
   color: #718791;
-  font-size: 0.58rem;
+  font-size: 0.62rem;
 }
 
 .panel-footnote {
@@ -620,6 +647,13 @@ dd {
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.16);
 }
 
+.decision-handle {
+  width: 0.4rem;
+  height: 0.4rem;
+  border: 1px solid var(--line-strong);
+  background: var(--panel);
+}
+
 .decision-node header {
   display: flex;
   align-items: center;
@@ -656,7 +690,7 @@ dd {
   display: -webkit-box;
   overflow: hidden;
   margin-top: 0.45rem;
-  font-size: 0.7rem;
+  font-size: 0.8125rem;
   font-weight: 650;
   line-height: 1.35;
   -webkit-box-orient: vertical;
@@ -668,7 +702,7 @@ dd {
   overflow: hidden;
   margin-top: 0.35rem;
   color: var(--muted);
-  font-size: 0.58rem;
+  font-size: 0.68rem;
   line-height: 1.35;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -715,6 +749,11 @@ dd {
   border-right-color: var(--success);
   border-bottom-color: var(--success);
 }
+.decision-node.status-supported {
+  border-top-color: var(--running);
+  border-right-color: var(--running);
+  border-bottom-color: var(--running);
+}
 
 .decision-node.status-challenged {
   border-top-color: var(--danger);
@@ -734,6 +773,17 @@ dd {
   border-right-color: var(--danger);
   border-bottom-color: var(--danger);
 }
+.decision-node.status-proposed {
+  border-top-color: var(--line-strong);
+  border-right-color: var(--line-strong);
+  border-bottom-color: var(--line-strong);
+}
+
+.decision-node.status-rejected {
+  border-top-color: var(--danger);
+  border-right-color: var(--danger);
+  border-bottom-color: var(--danger);
+}
 
 .decision-node .node-status.status-idle {
   color: var(--muted);
@@ -746,6 +796,9 @@ dd {
 .decision-node .node-status.status-completed {
   color: var(--success);
 }
+.decision-node .node-status.status-supported {
+  color: var(--running);
+}
 
 .decision-node .node-status.status-challenged,
 .decision-node .node-status.status-failed {
@@ -755,6 +808,13 @@ dd {
 .decision-node .node-status.status-paused,
 .decision-node .node-status.status-conflict {
   color: var(--warning);
+}
+.decision-node .node-status.status-proposed {
+  color: var(--muted);
+}
+
+.decision-node .node-status.status-rejected {
+  color: var(--danger);
 }
 
 .decision-node-checkpoint {
@@ -804,6 +864,13 @@ dd {
 .edge-dot-conflict {
   background: var(--warning);
 }
+.edge-dot-supports {
+  background: var(--running);
+}
+
+.edge-dot-opposes {
+  background: var(--opposes);
+}
 
 .edge-dot-resolved {
   background: var(--success);
@@ -852,12 +919,18 @@ dd {
   margin-top: 0.7rem;
 }
 
-.decision-actions span {
+.decision-actions button {
   border: 1px solid var(--line-strong);
+  background: transparent;
   padding: 0.38rem 0.25rem;
   color: var(--text);
   font-size: 0.55rem;
   text-align: center;
+}
+
+.decision-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.72;
 }
 
 .inspector-facts {
@@ -935,7 +1008,7 @@ dd {
 
 .timeline-title > span {
   color: var(--running);
-  font-size: 0.58rem;
+  font-size: 0.62rem;
   letter-spacing: 0.08em;
 }
 

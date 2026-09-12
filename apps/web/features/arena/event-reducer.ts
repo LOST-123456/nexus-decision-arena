@@ -6,7 +6,10 @@ import type {
   SessionView
 } from "@nexus/shared";
 
-export type ReplayableSession = SessionView & { lastSequence: number };
+export type ReplayableSession = SessionView & {
+  lastSequence: number;
+  pendingEvents?: Record<number, ExecutionEvent>;
+};
 
 type SessionStatePayload = {
   phase?: SessionPhase;
@@ -39,24 +42,10 @@ function applySessionState(
   };
 }
 
-export function reduceSessionEvent(
+function applyContiguousEvent(
   current: ReplayableSession,
   event: ExecutionEvent
 ): ReplayableSession {
-  if (event.sessionId !== current.sessionId) {
-    return current;
-  }
-
-  if (event.sequence <= current.lastSequence) {
-    return current;
-  }
-
-  // SSE delivery is ordered. Reject gaps here so a late event can not make the
-  // projected session state contradict the durable event log.
-  if (event.sequence !== current.lastSequence + 1) {
-    return current;
-  }
-
   switch (event.type) {
     case "SESSION_STATE_CHANGED": {
       return {
@@ -124,4 +113,35 @@ export function reduceSessionEvent(
       return { ...current, lastSequence: event.sequence };
     }
   }
+}
+
+export function reduceSessionEvent(
+  current: ReplayableSession,
+  event: ExecutionEvent
+): ReplayableSession {
+  if (event.sessionId !== current.sessionId) {
+    return current;
+  }
+
+  if (event.sequence <= current.lastSequence) {
+    return current;
+  }
+
+  const pendingEvents = { ...(current.pendingEvents ?? {}) };
+  if (pendingEvents[event.sequence]) {
+    return current;
+  }
+
+  pendingEvents[event.sequence] = event;
+  let next = current;
+  let expectedSequence = current.lastSequence + 1;
+
+  while (pendingEvents[expectedSequence]) {
+    const pendingEvent = pendingEvents[expectedSequence]!;
+    delete pendingEvents[expectedSequence];
+    next = applyContiguousEvent(next, pendingEvent);
+    expectedSequence += 1;
+  }
+
+  return { ...next, pendingEvents };
 }

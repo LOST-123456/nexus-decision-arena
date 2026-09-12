@@ -1,6 +1,42 @@
 import { describe, expect, it } from "vitest";
+import type { ExecutionEvent } from "@nexus/shared";
 import { newId } from "@nexus/shared";
-import { reduceSessionEvent } from "./event-reducer";
+import {
+  reduceSessionEvent,
+  type ReplayableSession
+} from "./event-reducer";
+
+function sessionStateEvent(
+  sessionId: string,
+  sequence: number,
+  phase: ReplayableSession["phase"]
+): ExecutionEvent {
+  return {
+    id: newId(),
+    sessionId,
+    sequence,
+    correlationId: newId(),
+    type: "SESSION_STATE_CHANGED",
+    payload: { phase },
+    occurredAt: new Date().toISOString()
+  };
+}
+
+function initialSession(sessionId: string): ReplayableSession {
+  return {
+    sessionId,
+    phase: "CREATED",
+    operationalStatus: "ACTIVE",
+    agents: [],
+    claims: [],
+    evidence: [],
+    challenges: [],
+    conflicts: [],
+    humanDecisions: [],
+    currentConclusion: null,
+    lastSequence: 0
+  };
+}
 
 describe("session event reducer", () => {
   it("applies an event exactly once", () => {
@@ -13,19 +49,7 @@ describe("session event reducer", () => {
       payload: { phase: "PLANNING" as const },
       occurredAt: new Date().toISOString()
     };
-    const initial = {
-      sessionId: event.sessionId,
-      phase: "CREATED" as const,
-      operationalStatus: "ACTIVE" as const,
-      agents: [],
-      claims: [],
-      evidence: [],
-      challenges: [],
-      conflicts: [],
-      humanDecisions: [],
-      currentConclusion: null,
-      lastSequence: 0
-    };
+    const initial = initialSession(event.sessionId);
 
     const once = reduceSessionEvent(initial, event);
     const twice = reduceSessionEvent(once, event);
@@ -34,57 +58,56 @@ describe("session event reducer", () => {
     expect(twice).toEqual(once);
   });
 
-  it("does not skip over a missing event sequence", () => {
+  it("buffers 3 then 1 then 2 into the same state as 1 then 2 then 3", () => {
     const sessionId = newId();
-    const initial = {
-      sessionId,
-      phase: "CREATED" as const,
-      operationalStatus: "ACTIVE" as const,
-      agents: [],
-      claims: [],
-      evidence: [],
-      challenges: [],
-      conflicts: [],
-      humanDecisions: [],
-      currentConclusion: null,
-      lastSequence: 0
-    };
-    const outOfOrder = {
-      id: newId(),
-      sessionId,
-      sequence: 3,
-      correlationId: newId(),
-      type: "SESSION_STATE_CHANGED" as const,
-      payload: { phase: "ANALYZING" as const },
-      occurredAt: new Date().toISOString()
-    };
+    const initial = initialSession(sessionId);
+    const events = [
+      sessionStateEvent(sessionId, 1, "PLANNING"),
+      sessionStateEvent(sessionId, 2, "ANALYZING"),
+      sessionStateEvent(sessionId, 3, "CHALLENGING")
+    ];
 
-    const ignored = reduceSessionEvent(initial, outOfOrder);
-    const recovered = reduceSessionEvent(ignored, {
-      ...outOfOrder,
-      id: newId(),
-      sequence: 1,
-      payload: { phase: "PLANNING" }
-    });
+    const sequential = events.reduce(reduceSessionEvent, initial);
+    const buffered = [events[2]!, events[0]!, events[1]!].reduce(
+      reduceSessionEvent,
+      initial
+    );
 
-    expect(ignored).toBe(initial);
-    expect(recovered.phase).toBe("PLANNING");
-    expect(recovered.lastSequence).toBe(1);
+    expect(buffered).toEqual(sequential);
+    expect(buffered.phase).toBe("CHALLENGING");
+    expect(buffered.lastSequence).toBe(3);
+    expect(buffered.pendingEvents).toEqual({});
+  });
+
+  it("does not reapply duplicate contiguous or pending events", () => {
+    const sessionId = newId();
+    const initial = initialSession(sessionId);
+    const first = sessionStateEvent(sessionId, 1, "PLANNING");
+    const third = sessionStateEvent(sessionId, 3, "CHALLENGING");
+
+    const applied = reduceSessionEvent(initial, first);
+    expect(reduceSessionEvent(applied, first)).toBe(applied);
+
+    const pending = reduceSessionEvent(initial, third);
+    expect(reduceSessionEvent(pending, third)).toBe(pending);
+    expect(pending.lastSequence).toBe(0);
+    expect(pending.pendingEvents?.[3]).toEqual(third);
+
+    const recovered = [
+      sessionStateEvent(sessionId, 2, "ANALYZING"),
+      sessionStateEvent(sessionId, 1, "PLANNING")
+    ].reduce(reduceSessionEvent, pending);
+
+    expect(recovered.lastSequence).toBe(3);
+    expect(recovered.phase).toBe("CHALLENGING");
+    expect(recovered.pendingEvents).toEqual({});
   });
 
   it("moves a human review event into a paused checkpoint", () => {
     const sessionId = newId();
     const initial = {
-      sessionId,
+      ...initialSession(sessionId),
       phase: "CONFLICT_DETECTED" as const,
-      operationalStatus: "ACTIVE" as const,
-      agents: [],
-      claims: [],
-      evidence: [],
-      challenges: [],
-      conflicts: [],
-      humanDecisions: [],
-      currentConclusion: null,
       lastSequence: 4
     };
 

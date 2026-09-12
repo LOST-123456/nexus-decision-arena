@@ -75,9 +75,15 @@ export default async function SessionPage({
                   "需要人工确认后继续执行。"}
               </p>
               <div className="decision-actions" aria-label="待审批动作">
-                <span>采纳质询</span>
-                <span>维持判断</span>
-                <span>补充分析</span>
+                <button type="button" disabled>
+                  采纳质询
+                </button>
+                <button type="button" disabled>
+                  维持判断
+                </button>
+                <button type="button" disabled>
+                  补充分析
+                </button>
               </div>
             </section>
           ) : null}

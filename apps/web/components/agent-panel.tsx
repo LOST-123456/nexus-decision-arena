@@ -32,14 +32,13 @@ export function AgentPanel({ roles }: { roles: AgentPanelRole[] }) {
         <span className="count-chip">{roles.length} AGENTS</span>
       </div>
 
-      <div className="agent-list">
+      <ul className="agent-list">
         {roles.length === 0 ? (
-          <p className="empty-copy">尚无 Agent 角色。</p>
+          <li className="empty-copy">尚无 Agent 角色。</li>
         ) : (
           roles.map((role) => (
-            <button
+            <li
               key={role.id}
-              type="button"
               className="agent-row"
               aria-label={`${role.name}：${statusLabel[role.status]}`}
             >
@@ -59,10 +58,10 @@ export function AgentPanel({ roles }: { roles: AgentPanelRole[] }) {
                   {role.lenses.slice(0, 3).join(" · ")}
                 </span>
               </span>
-            </button>
+            </li>
           ))
         )}
-      </div>
+      </ul>
 
       <div className="panel-footnote">
         <span>独立审议</span>
