@@ -361,6 +361,9 @@ export function DemoArena() {
             </span>
           </Link>
           <span className="demo-fixture-badge">DEMO FIXTURE</span>
+          <Link className="header-secondary-link" href="/sessions/new">
+            新建评审
+          </Link>
         </div>
 
         <dl className="demo-vitals">

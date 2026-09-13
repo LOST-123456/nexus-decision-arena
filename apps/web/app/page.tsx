@@ -15,10 +15,15 @@ export default function HomePage() {
             <h1>Nexus Decision Arena</h1>
           </div>
         </div>
-        <Link className="primary-link" href="/sessions/demo">
-          进入固定演示
-          <span aria-hidden="true">→</span>
-        </Link>
+        <div className="entry-actions">
+          <Link className="header-secondary-link" href="/sessions/new">
+            新建评审
+          </Link>
+          <Link className="primary-link" href="/sessions/demo">
+            进入固定演示
+            <span aria-hidden="true">→</span>
+          </Link>
+        </div>
       </header>
 
       <section className="entry-stage" aria-label="Decision workspace preview">

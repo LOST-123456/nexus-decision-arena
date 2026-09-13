@@ -2065,6 +2065,13 @@ corepack pnpm dev</pre>
     <pre>corepack pnpm demo:fixture</pre>
     <p class="small">使用 fixtures 与 MockLlmProvider，不需要数据库、外网或模型 API。</p>
 
+    <h3>4.5 新建自己的评审</h3>
+    <p class="small">
+      打开 <code>/sessions/new</code>，填写项目名称、简介、目标用户、商业模式和预期数据，
+      点击“开始评审”。前端创建 DecisionSession 并调用 start 接口，随后跳转到
+      <code>/sessions/:id</code>，通过 SSE 查看实时分析与人工检查点。
+    </p>
+
     <div class="callout">
       <strong>常见故障：</strong>
       PostgreSQL 5432 被占用时修改 compose 与 DATABASE_URL；Playwright 浏览器缺失时安装 Chromium；

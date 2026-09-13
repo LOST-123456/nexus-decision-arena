@@ -11,6 +11,21 @@ import type { ReplayableSession } from "./event-reducer";
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:4100";
 
+export type CreateSessionCommand = {
+  project: {
+    name: string;
+    summary: string;
+    targetUsers: string;
+    businessModel: string;
+    expectedData: string;
+  };
+  locale: "zh-CN" | "en-US";
+};
+
+export type CreatedSession = {
+  id: string;
+};
+
 type SessionPayload = Partial<SessionView> & {
   id?: string;
   nextEventSequence?: number;
@@ -72,6 +87,63 @@ function normalizeSession(
         : null,
     lastSequence: persistedSequence
   };
+}
+
+async function responseError(
+  response: Response,
+  fallback: string
+): Promise<Error> {
+  const payload = (await response.json().catch(() => null)) as
+    | { error?: string }
+    | null;
+  return new Error(payload?.error ?? `${fallback}: ${response.status}`);
+}
+
+export async function createSession(
+  command: CreateSessionCommand,
+  idempotencyKey: string
+): Promise<CreatedSession> {
+  const response = await fetch(`${apiUrl}/api/sessions`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "idempotency-key": idempotencyKey
+    },
+    body: JSON.stringify(command)
+  });
+
+  if (!response.ok) {
+    throw await responseError(response, "Create session request failed");
+  }
+
+  const payload = (await response.json()) as CreatedSession;
+  if (!payload.id) {
+    throw new Error("Create session response did not contain an id");
+  }
+  return payload;
+}
+
+export async function startSession(
+  sessionId: string,
+  idempotencyKey: string
+): Promise<{ id: string; status: string }> {
+  const response = await fetch(
+    `${apiUrl}/api/sessions/${encodeURIComponent(sessionId)}/start`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "idempotency-key": idempotencyKey
+      },
+      body: "{}"
+    }
+  );
+
+  if (!response.ok) {
+    throw await responseError(response, "Start session request failed");
+  }
+
+  return response.json() as Promise<{ id: string; status: string }>;
 }
 
 export async function getSession(

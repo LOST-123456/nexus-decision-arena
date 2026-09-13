@@ -66,7 +66,7 @@
 - 渲染脚本：`scripts/render-technical-pdf.ps1`
 - PDF：`artifacts/submission/Nexus-Decision-Arena-Technical-Document.pdf`
 - 当前页数：28 页 A4
-- 当前 SHA-256：`979D9E88E7F6B1F1F47B81C039FAC5D89835D422B076EFF5FE925297CDFA59D5`
+- 当前 SHA-256：`26FF0A935DAEBDB5B28050E3CE05970EE67187EF7784E3C9FFC6BEE1336D275B`
 
 PDF 重新渲染后必须更新哈希；正文不得超过 30 页，且只可引用已执行的测试或已保存的原始输出。
 
@@ -120,3 +120,4 @@ PDF 重新渲染后必须更新哈希；正文不得超过 30 页，且只可引
 - [x] 演示视频已生成，7 分 54 秒、1080p，并包含中文硬字幕和独立 SRT
 - [x] PDF 已生成，28 页且未包含未测量指标
 - [x] 固定 Demo 仍明确标记为 fixture，live UUID 会话已走真实持久化 orchestration
+- [x] 已提供 `/sessions/new` 项目录入入口，可创建并启动新的 live 评审

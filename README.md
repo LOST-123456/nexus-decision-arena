@@ -82,6 +82,20 @@ corepack pnpm demo:fixture
 
 该命令读取 `fixtures/`，使用 `MockLlmProvider`，不需要数据库、外网或模型 API。
 
+### 新建自己的评审
+
+启动完整服务后打开：
+
+```text
+http://127.0.0.1:3000/sessions/new
+```
+
+填写项目名称、项目简介、目标用户、商业模式和预期数据，点击“开始评审”。前端会依次执行：
+
+1. `POST /api/sessions` 创建项目与 DecisionSession。
+2. `POST /api/sessions/:id/start` 启动五角色分析和 Cross Examination。
+3. 跳转到 `/sessions/:id`，通过 SSE 查看实时状态、Conflict 和 Human Checkpoint。
+
 Live Mock Mode：
 
 1. 使用 `POST /api/sessions` 创建会话。
