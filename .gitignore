@@ -7,8 +7,10 @@ node_modules/
 dist/
 coverage/
 playwright-report/
+artifacts/playwright/*-repeat-*
 test-results/
 artifacts/submission/video-build/
+.data/
 .env
 .env.local
 *.log

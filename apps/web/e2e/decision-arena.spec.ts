@@ -63,18 +63,29 @@ async function expectNoRegionOverlap(page: Page): Promise<void> {
   }
 }
 
+async function loginAsOwner(page: Page): Promise<void> {
+  await page.goto("/login");
+  await page.getByLabel("用户名").fill("owner");
+  await page.getByLabel("密码").fill("nexus-owner");
+  await page.getByRole("button", { name: /^登录/ }).click();
+  await expect(page).toHaveURL(/\/$/);
+}
+
 async function captureViewport(
   page: Page,
   projectName: string,
-  name: string
+  name: string,
+  repeatIndex: number
 ): Promise<void> {
   const outputDirectory = resolve(
     process.cwd(),
     "../../artifacts/playwright"
   );
   await mkdir(outputDirectory, { recursive: true });
+  const repeatSuffix =
+    repeatIndex > 0 ? `-repeat-${String(repeatIndex + 1).padStart(2, "0")}` : "";
   await page.screenshot({
-    path: resolve(outputDirectory, `${projectName}-${name}.png`),
+    path: resolve(outputDirectory, `${projectName}-${name}${repeatSuffix}.png`),
     fullPage: false
   });
 }
@@ -109,13 +120,14 @@ test("fixed demo reaches a limited-pilot decision", async ({
   await expect(page.getByTestId("opposing-claim-count")).toHaveText("3");
   await expect(page.getByTestId("challenge-count")).toHaveText("5");
   await expect(page.getByTestId("conflict-count")).toHaveText("3");
-  await expect(page.getByText(conflictSummary).first()).toBeVisible();
+  const visibleConflict = page.locator("h3:visible", { hasText: conflictSummary }).first();
+  await expect(visibleConflict).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await expectNoRegionOverlap(page);
-  await captureViewport(page, testInfo.project.name, "initial");
+  await captureViewport(page, testInfo.project.name, "initial", testInfo.repeatEachIndex);
 
-  await page.getByText(conflictSummary).first().scrollIntoViewIfNeeded();
-  await captureViewport(page, testInfo.project.name, "conflict");
+  await visibleConflict.scrollIntoViewIfNeeded();
+  await captureViewport(page, testInfo.project.name, "conflict", testInfo.repeatEachIndex);
 
   await page.getByRole("button", { name: "采纳质询" }).click();
 
@@ -143,7 +155,7 @@ test("fixed demo reaches a limited-pilot decision", async ({
   await page
     .getByTestId("decision-explanation")
     .scrollIntoViewIfNeeded();
-  await captureViewport(page, testInfo.project.name, "final");
+  await captureViewport(page, testInfo.project.name, "final", testInfo.repeatEachIndex);
 
   await page.getByRole("link", { name: /查看决策报告/ }).click();
   await expect(page).toHaveURL(/\/sessions\/demo\/report$/);
@@ -154,15 +166,15 @@ test("fixed demo reaches a limited-pilot decision", async ({
     page.getByRole("heading", { name: "决策解释" })
   ).toBeVisible();
   await expectNoHorizontalOverflow(page);
-  await captureViewport(page, testInfo.project.name, "report");
+  await captureViewport(page, testInfo.project.name, "report", testInfo.repeatEachIndex);
 });
 
 test("live session streams into the workspace and produces a persisted report", async ({
-  page,
-  request
+  page
 }, testInfo) => {
+  await loginAsOwner(page);
   const createKey = `e2e-live-create-${randomUUID()}`;
-  const created = await request.post("http://127.0.0.1:4100/api/sessions", {
+  const created = await page.context().request.post("/api/sessions", {
     headers: { "idempotency-key": createKey },
     data: {
       project: {
@@ -177,8 +189,8 @@ test("live session streams into the workspace and produces a persisted report", 
   });
   expect(created.status()).toBe(201);
   const { id: sessionId } = (await created.json()) as { id: string };
-  const started = await request.post(
-    `http://127.0.0.1:4100/api/sessions/${sessionId}/start`,
+  const started = await page.context().request.post(
+    `/api/sessions/${sessionId}/start`,
     {
       headers: { "idempotency-key": `e2e-live-start-${randomUUID()}` },
       data: {}
@@ -202,5 +214,8 @@ test("live session streams into the workspace and produces a persisted report", 
   await expect(page.locator('main[data-report-source="live"]')).toBeVisible();
   await expect(page.getByRole("heading", { name: "有限立项" })).toBeVisible();
   await expectNoHorizontalOverflow(page);
-  await captureViewport(page, testInfo.project.name, "live-report");
+  await captureViewport(page, testInfo.project.name, "live-report", testInfo.repeatEachIndex);
+
+  const deleted = await page.context().request.delete(`/api/sessions/${sessionId}`);
+  expect(deleted.status()).toBe(204);
 });

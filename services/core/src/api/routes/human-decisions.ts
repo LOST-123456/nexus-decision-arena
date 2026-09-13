@@ -41,13 +41,20 @@ function getIdempotencyKey(request: FastifyRequest): string | null {
 
 export function registerHumanDecisionRoutes(
   app: FastifyInstance,
-  dependencies: Pick<AppDependencies, "sessions" | "runSession">,
+  dependencies: Pick<AppDependencies, "sessions" | "runSession" | "auth">,
   idempotency: IdempotencyStore,
   eventBus: EventBus
 ): void {
   app.post<{ Params: { id: string } }>(
     "/api/sessions/:id/human-decisions",
     async (request, reply) => {
+      const authUser = dependencies.auth?.userFromRequest(request);
+      if (dependencies.auth && !authUser) {
+        return reply.code(401).send({ error: "Authentication required" });
+      }
+      if (authUser?.role === "viewer") {
+        return reply.code(403).send({ error: "Reviewer role required" });
+      }
       const key = getIdempotencyKey(request);
       if (!key) {
         return reply
@@ -64,12 +71,12 @@ export function registerHumanDecisionRoutes(
       }
 
       const sessionId = request.params.id;
+      const operatorId = authUser?.id ?? parsed.data.operatorId;
       const requestHash = hashIdempotencyRequest({
         operation: "record-human-decision",
         sessionId,
-        body: parsed.data
+        body: { ...parsed.data, operatorId }
       });
-
       try {
         const result = await idempotency.execute(
           key,
@@ -91,6 +98,7 @@ export function registerHumanDecisionRoutes(
               ),
               sessionId,
               ...parsed.data,
+              operatorId,
               previousConclusion:
                 current.currentConclusion ?? "No prior conclusion",
               createdAt: new Date().toISOString()

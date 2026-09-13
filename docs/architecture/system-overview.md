@@ -8,6 +8,8 @@ flowchart LR
   Web -->|REST commands + Idempotency-Key| Core[Fastify Core Service]
   Core --> Shared["@nexus/shared<br/>Domain schemas + state machine"]
   Core --> LLM["@nexus/llm<br/>Mock or OpenAI-compatible provider"]
+  Core --> Auth["AuthService<br/>scrypt + signed HttpOnly session"]
+  Auth --> Users[(.data/users.json)]
   Core --> DB[(PostgreSQL)]
   DB --> InspectorView[claim_inspector_view]
   InspectorView --> Core
@@ -18,7 +20,7 @@ flowchart LR
   Web --> Timeline[Decision Timeline]
 ```
 
-固定 Demo 是浏览器内的确定性 fixture 投影。真实 live session 通过 Core REST 命令、数据库事务和 SSE 事件更新同一套 Decision Map、Inspector、Timeline 和 Human Checkpoint 组件。
+固定 Demo 是浏览器内的确定性 fixture 投影。登录后的新建评审通过 Core REST 命令、数据库事务和 SSE 事件更新同一套 Decision Map、Inspector、Timeline 和 Human Checkpoint 组件；Owner / Reviewer / Viewer 的角色边界在服务端执行。
 
 ## 2. 分析、质询、冲突与人工裁决
 

@@ -1,5 +1,7 @@
 import { defineConfig } from "@playwright/test";
 
+process.env.LLM_MODE ??= "mock";
+
 export default defineConfig({
   testDir: "./e2e",
   timeout: 30_000,
@@ -16,7 +18,7 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: "corepack pnpm --filter @nexus/core dev",
+      command: "corepack pnpm --filter @nexus/core exec tsx src/server.ts",
       url: "http://127.0.0.1:4100/health",
       reuseExistingServer: true,
       timeout: 60_000

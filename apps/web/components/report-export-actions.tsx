@@ -2,7 +2,7 @@
 
 import type { FinalReport } from "@nexus/shared";
 
-const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:4100";
+const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 function downloadText(filename: string, content: string, type: string): void {
   const blob = new Blob([content], { type });

@@ -9,6 +9,7 @@ import {
   InMemoryIdempotencyStore,
   type IdempotencyStore
 } from "./api/plugins/idempotency";
+import { registerAuthRoutes } from "./api/routes/auth";
 import { registerEventRoutes } from "./api/routes/events";
 import { registerHumanDecisionRoutes } from "./api/routes/human-decisions";
 import { registerInspectorRoutes } from "./api/routes/inspector";
@@ -37,7 +38,9 @@ export type SessionRecord = NonNullable<
   Awaited<ReturnType<DecisionSessionRepository["createWithProject"]>>
 >;
 
+import type { AuthService } from "./auth";
 export type AppDependencies = {
+  auth?: AuthService;
   sessions: Pick<
     DecisionSessionRepository,
     | "createWithProject"
@@ -45,6 +48,10 @@ export type AppDependencies = {
     | "getView"
     | "recordHumanDecision"
     | "getProjectBySessionId"
+  >;
+  sessionHistory?: Pick<
+    DecisionSessionRepository,
+    "listSummaries" | "deleteById"
   >;
   inspector: Pick<InspectorRepository, "getInspector">;
   reports?: Pick<
@@ -95,7 +102,7 @@ export function createApp(
       );
       reply.header(
         "access-control-allow-methods",
-        "GET, POST, OPTIONS"
+        "GET, POST, DELETE, OPTIONS"
       );
     }
     if (request.method === "OPTIONS") {
@@ -113,6 +120,9 @@ export function createApp(
     }
   );
 
+  if (dependencies.auth) {
+    registerAuthRoutes(app, dependencies.auth);
+  }
   registerSessionRoutes(app, dependencies, idempotency);
   registerInspectorRoutes(app, dependencies);
   registerReportRoutes(app, dependencies);

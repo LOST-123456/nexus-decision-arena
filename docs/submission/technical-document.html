@@ -706,7 +706,7 @@
     <div class="grid-4">
       <div class="metric"><b>5</b><span>一级 Agent<br />职责与立场明确</span></div>
       <div class="metric"><b>3</b><span>核心创新<br />结构化分歧 / 质询 / 决策轨迹</span></div>
-      <div class="metric"><b>156</b><span>单元与集成测试<br />2f91a71 基线</span></div>
+      <div class="metric"><b>157</b><span>单元与集成测试<br />2f91a71 基线</span></div>
       <div class="metric"><b>80/80</b><span>重复 Playwright 用例<br />桌面 + 移动</span></div>
     </div>
 
@@ -941,7 +941,7 @@
     <div class="callout warn">
       <strong>真实性边界：</strong>
       浏览器固定 Demo 明确标注 <code>DEMO FIXTURE</code>。它用于稳定演示与测评，不伪装成真实模型调用；
-      live UUID 会话才走 Mock Mode orchestration 或真实模型 Provider。
+      固定 Demo 始终使用离线 fixture；登录后的新评审在界面层要求真实模型 Provider。自动化 E2E 单独使用 Mock AgentRunner，确保浏览器回归与模型网络解耦。
     </div>
   </section>
 
@@ -1675,6 +1675,15 @@ ClaimInspectorDTO {
           <li>最终报告保留人工裁决与决策解释。</li>
         </ul>
       </div>
+      <div class="card">
+        <h4>账户与数据治理</h4>
+        <ul class="small">
+          <li>密码使用 scrypt 加盐哈希，不保存明文密码。</li>
+          <li>会话 Cookie 使用 HMAC 签名、HttpOnly 和 7 天过期时间。</li>
+          <li>Owner / Reviewer / Viewer 在服务端执行角色校验。</li>
+          <li>历史记录支持继续评审，Owner 才能删除会话及关联数据。</li>
+        </ul>
+      </div>
     </div>
   </section>
 
@@ -1686,6 +1695,7 @@ ClaimInspectorDTO {
       <thead><tr><th>验证项</th><th>命令</th><th>结果</th></tr></thead>
       <tbody>
         <tr><td>类型检查</td><td class="mono">corepack pnpm typecheck</td><td>Shared / Web / DB / LLM / Core 全部通过</td></tr>
+        <tr><td>角色边界实测</td><td class="mono">HTTP owner / viewer smoke</td><td>未登录创建 401；Viewer 创建、启动、删除 403；Owner 删除 204</td></tr>
         <tr><td>单元与集成测试</td><td class="mono">corepack pnpm test</td><td>157/157 通过</td></tr>
         <tr><td>E2E</td><td class="mono">corepack pnpm --filter @nexus/web test:e2e</td><td>桌面与移动 4/4 通过</td></tr>
         <tr><td>生产构建</td><td class="mono">corepack pnpm --filter @nexus/web build</td><td>Next.js 15.5.25 通过</td></tr>
@@ -2040,6 +2050,9 @@ corepack pnpm dev</pre>
         <tr><td>固定 Demo</td><td class="mono">http://127.0.0.1:3000/sessions/demo</td></tr>
         <tr><td>Core API</td><td class="mono">http://127.0.0.1:4100</td></tr>
         <tr><td>Health</td><td class="mono">http://127.0.0.1:4100/health</td></tr>
+        <tr><td>登录与团队</td><td class="mono">http://127.0.0.1:3000/login</td></tr>
+        <tr><td>历史记录</td><td class="mono">http://127.0.0.1:3000/history</td></tr>
+        <tr><td>安全治理</td><td class="mono">http://127.0.0.1:3000/security</td></tr>
       </tbody>
     </table>
 
@@ -2058,13 +2071,13 @@ corepack pnpm dev</pre>
         </ol>
       </div>
       <div class="card wash">
-        <h4>live Mock Mode</h4>
+        <h4>登录后新建评审（真实模型）</h4>
         <ol class="small">
-          <li>POST /api/sessions 创建会话。</li>
-          <li>POST /api/sessions/:id/start，带 Idempotency-Key。</li>
+          <li>在 /login 使用 Owner 或 Reviewer 登录。</li>
+          <li>POST /api/sessions 与 /start，服务端验证角色与 Idempotency-Key。</li>
           <li>打开 /sessions/:id 观察 SSE 更新。</li>
           <li>完成 HumanDecision。</li>
-          <li>打开 /sessions/:id/report。</li>
+          <li>打开 /sessions/:id/report，并在 /history 继续评审。</li>
         </ol>
       </div>
     </div>
@@ -2165,7 +2178,7 @@ corepack pnpm dev</pre>
       <thead><tr><th>要求</th><th>文件 / 地址</th><th>状态</th></tr></thead>
       <tbody>
         <tr><td>公开代码仓库</td><td>GitHub + Gitee，main / feature 分支同步</td><td>完成</td></tr>
-        <tr><td>细粒度 Git 历史</td><td>40 个提交，首个为设计冻结</td><td>完成</td></tr>
+        <tr><td>细粒度 Git 历史</td><td>47 个提交，首个为设计冻结</td><td>完成</td></tr>
         <tr><td>AI 对话导出</td><td>0016 可读导出 + JSONL 结构化快照</td><td>完成</td></tr>
         <tr><td>3 条核心 Prompt 链</td><td>0017-core-prompt-chains.md</td><td>完成</td></tr>
         <tr><td>10 分钟复现指南</td><td>README.md</td><td>完成</td></tr>

@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, count, desc, eq, sql } from "drizzle-orm";
 import {
   newId,
   type ExecutionEvent,
@@ -8,12 +8,14 @@ import {
 import type { Database } from "../client";
 import {
   conflicts,
+  agentRuns,
   agentRoles,
   challenges,
   claims,
   decisionSessions,
   evidence,
   executionEvents,
+  finalReports,
   humanDecisions,
   projects
 } from "../schema";
@@ -120,6 +122,58 @@ export class DecisionSessionRepository {
       .where(eq(decisionSessions.id, sessionId))
       .limit(1);
     return row ?? null;
+  }
+  async listSummaries(limit = 50) {
+    const rows = await this.database
+      .select({
+        id: decisionSessions.id,
+        projectId: projects.id,
+        projectName: projects.name,
+        phase: decisionSessions.phase,
+        operationalStatus: decisionSessions.operationalStatus,
+        currentConclusion: decisionSessions.currentConclusion,
+        createdAt: decisionSessions.createdAt,
+        updatedAt: decisionSessions.updatedAt
+      })
+      .from(decisionSessions)
+      .innerJoin(projects, eq(decisionSessions.projectId, projects.id))
+      .orderBy(desc(decisionSessions.updatedAt))
+      .limit(Math.max(1, Math.min(limit, 100)));
+    const counts = await this.database
+      .select({ sessionId: conflicts.sessionId, total: count(conflicts.id) })
+      .from(conflicts)
+      .groupBy(conflicts.sessionId);
+    const bySession = new Map(counts.map((row) => [row.sessionId, Number(row.total)]));
+    return rows.map((row) => ({
+      id: row.id,
+      projectId: row.projectId,
+      projectName: row.projectName,
+      phase: row.phase,
+      operationalStatus: row.operationalStatus,
+      currentConclusion: row.currentConclusion,
+      conflictCount: bySession.get(row.id) ?? 0,
+      createdAt: new Date(row.createdAt).toISOString(),
+      updatedAt: new Date(row.updatedAt).toISOString()
+    }));
+  }
+
+  async deleteById(sessionId: string): Promise<boolean> {
+    return this.database.transaction(async (transaction) => {
+      const [session] = await transaction.select().from(decisionSessions).where(eq(decisionSessions.id, sessionId)).limit(1);
+      if (!session) return false;
+      await transaction.update(claims).set({ respondsToChallengeId: null }).where(eq(claims.sessionId, sessionId));
+      await transaction.delete(finalReports).where(eq(finalReports.sessionId, sessionId));
+      await transaction.delete(executionEvents).where(eq(executionEvents.sessionId, sessionId));
+      await transaction.delete(humanDecisions).where(eq(humanDecisions.sessionId, sessionId));
+      await transaction.delete(conflicts).where(eq(conflicts.sessionId, sessionId));
+      await transaction.delete(evidence).where(eq(evidence.sessionId, sessionId));
+      await transaction.delete(challenges).where(eq(challenges.sessionId, sessionId));
+      await transaction.delete(claims).where(eq(claims.sessionId, sessionId));
+      await transaction.delete(agentRuns).where(eq(agentRuns.sessionId, sessionId));
+      await transaction.delete(decisionSessions).where(eq(decisionSessions.id, sessionId));
+      await transaction.delete(projects).where(eq(projects.id, session.projectId));
+      return true;
+    });
   }
   async create(input: SessionInput) {
     const [created] = await this.database

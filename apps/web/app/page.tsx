@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { AuthUserBadge } from "../components/auth-user-badge";
 import { DecisionMap } from "../components/decision-map";
 import { previewSession } from "../features/arena/preview-session";
 
@@ -16,6 +17,13 @@ export default function HomePage() {
           </div>
         </div>
         <div className="entry-actions">
+          <AuthUserBadge />
+          <Link className="header-secondary-link" href="/history">
+            历史记录
+          </Link>
+          <Link className="header-secondary-link" href="/security">
+            安全治理
+          </Link>
           <Link className="header-secondary-link" href="/sessions/new">
             新建评审
           </Link>

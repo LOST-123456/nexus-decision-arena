@@ -12,6 +12,7 @@ import { AgentPanel } from "../../components/agent-panel";
 import { DecisionMap } from "../../components/decision-map";
 import { HumanCheckpoint } from "../../components/human-checkpoint";
 import { Inspector } from "../../components/inspector";
+import { AuthUserBadge } from "../../components/auth-user-badge";
 import { RuntimeModeBadge } from "../../components/runtime-mode-badge";
 import {
   Timeline,
@@ -381,6 +382,7 @@ export function SessionWorkspace({ sessionId }: { sessionId: string }) {
 
         <div className="workspace-runtime-cluster">
           <RuntimeModeBadge />
+          <AuthUserBadge />
           {rawEvents.at(-1)?.correlationId ? (
             <span
               className="correlation-chip"

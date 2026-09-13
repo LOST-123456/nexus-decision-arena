@@ -29,7 +29,7 @@
 | `docs/ai-history/0013-human-checkpoint.md` | 增加 Inspector、Timeline、Human Checkpoint、Replay 和 Report | 用单事务持久化 HumanDecision 和 SESSION_STATE_CHANGED | 增加 compare-and-set 与 eligible conflict 约束 | DB/Core/Web tests | `70545c7` |
 | `docs/ai-history/0014-demo-delivery.md` | 固定 fixture、E2E、20 次稳定性和投稿材料 | 浏览器 fixture 模式与 offline Mock Provider 分离 | 明确标注未接入 live orchestration，不宣称未测量指标 | unit/integration/typecheck/build/E2E 输出 | `ff9793a` |
 | `docs/ai-history/0015-final-fix-wave.md` | 修复最终评审的 live orchestration、SSE、FinalReport、Claim 不变量和 Next 安全版本 | 以确定性 Mock AgentRunner 和持久化运行时连接浏览器与 Core | 每个会话创建独立 Cross Examination 依赖，并标准化数据库行 | 146 tests、Next build、4 E2E、80/80 stability、live smoke | `c3d4dcc` |
-| `docs/ai-history/0017-core-prompt-chains.md` | 汇总 Decision Graph、并行 Agent 竞态、SSE 事件丢失三条核心 Prompt 链 | 用结构化契约、不可变对象、单飞锁和连续序号恢复约束实现 | 接受独立复审发现的 UUIDv7、事件快照、lease fencing 和可重入问题 | 156 tests、4 E2E、80/80 stability、正式对话导出 | `edd873a` |
+| `docs/ai-history/0017-core-prompt-chains.md` | 汇总 Decision Graph、并行 Agent 竞态、SSE 事件丢失三条核心 Prompt 链 | 用结构化契约、不可变对象、单飞锁和连续序号恢复约束实现 | 接受独立复审发现的 UUIDv7、事件快照、lease fencing 和可重入问题 | 157 tests、4 E2E、80/80 stability、正式对话导出 | `edd873a` |
 | `docs/ai-history/0017-core-prompt-chains.md` | 在最终三项范围内接入真实模型、人工理由与报告导出 | 使用本机 Ollama、严格模式标识、Cross Examination 回退和审计导出 | 删除公网在线演示、历史记录和单/五 Agent 对照实验，清理无用代码 | 157 tests、真实模型 E2E、Next build、人工裁决与导出验证 | `e9822d2` |
 
 ## 复现路径
@@ -59,7 +59,7 @@
 - 原始记录：`docs/experiments/stability-output.txt`
 - 未完成 20/20 前不得填写通过率、平均耗时或稳定性百分比。
 
-当前结果为 80/80 个 Playwright 用例通过：桌面 20 次重复、移动 20 次重复，每个重复包含 2 个 E2E。
+当前结果为 80/80 个 Playwright 用例通过：桌面 20 次重复、移动 20 次重复，每个重复包含 2 个 E2E。另有 Owner / Reviewer / Viewer 权限边界 HTTP 实测。
 
 ## 技术文档 PDF
 

@@ -22,6 +22,7 @@ import {
 import type { AgentRunner } from "./arena/agent-runner";
 import { ProviderAgentRunner } from "./arena/provider-agent-runner";
 import { EventBus } from "./execution/event-bus";
+import { AuthService } from "./auth";
 
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -46,6 +47,15 @@ const events = new EventRepository(database);
 const arena = new ArenaRepository(database);
 const reports = new FinalReportRepository(database);
 
+const auth = new AuthService({
+  usersPath:
+    process.env.AUTH_USERS_PATH ??
+    resolve(dirname(fileURLToPath(import.meta.url)), "../../..", ".data", "users.json"),
+  secret: process.env.AUTH_SECRET ?? "nexus-local-demo-secret",
+  defaultOwnerPassword: process.env.AUTH_DEFAULT_OWNER_PASSWORD ?? "nexus-owner",
+  defaultViewerPassword: process.env.AUTH_DEFAULT_VIEWER_PASSWORD ?? "nexus-viewer"
+});
+await auth.initialize();
 const mode = process.env.LLM_MODE ?? "mock";
 let agentRunner: AgentRunner;
 let createCrossExamination: () => CrossExaminationService;
@@ -104,10 +114,12 @@ const runSession = new RunSessionService(agentRunner, {
 const app = createApp(
   {
     sessions,
+    auth,
+    sessionHistory: sessions,
     inspector: new InspectorRepository(database),
     reports,
     events,
-    runSession
+    runSession,
   },
   new PostgresIdempotencyStore(database),
   {

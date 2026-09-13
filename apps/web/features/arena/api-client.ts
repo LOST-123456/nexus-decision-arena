@@ -9,7 +9,7 @@ import {
 } from "@nexus/shared";
 import type { ReplayableSession } from "./event-reducer";
 
-const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:4100";
+const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 export type CreateSessionCommand = {
   project: {
@@ -31,6 +31,26 @@ export type RuntimeInfo = {
   provider: string;
   model: string;
 };
+
+export type SessionSummary = {
+  id: string;
+  projectId: string;
+  projectName: string;
+  phase: string;
+  operationalStatus: string;
+  currentConclusion: string | null;
+  conflictCount: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AuthUser = {
+  id: string;
+  username: string;
+  displayName: string;
+  role: "owner" | "reviewer" | "viewer";
+};
+
 
 type SessionPayload = Partial<SessionView> & {
   id?: string;
@@ -162,6 +182,47 @@ export async function getRuntimeInfo(): Promise<RuntimeInfo> {
   return response.json() as Promise<RuntimeInfo>;
 }
 
+export async function getCurrentUser(): Promise<AuthUser | null> {
+  const response = await fetch(`${apiUrl}/api/auth/me`, { cache: "no-store" });
+  if (response.status === 401) return null;
+  if (!response.ok) throw await responseError(response, "Auth request failed");
+  return response.json() as Promise<AuthUser>;
+}
+
+export async function login(username: string, password: string): Promise<AuthUser> {
+  const response = await fetch(`${apiUrl}/api/auth/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ username, password }) });
+  if (!response.ok) throw await responseError(response, "Login failed");
+  return response.json() as Promise<AuthUser>;
+}
+
+export async function logout(): Promise<void> {
+  const response = await fetch(`${apiUrl}/api/auth/logout`, { method: "POST" });
+  if (!response.ok) throw await responseError(response, "Logout failed");
+}
+
+export async function listUsers(): Promise<AuthUser[]> {
+  const response = await fetch(`${apiUrl}/api/auth/users`, { cache: "no-store" });
+  if (!response.ok) throw await responseError(response, "User list failed");
+  return response.json() as Promise<AuthUser[]>;
+}
+
+export async function createUser(command: { username: string; displayName: string; role: AuthUser["role"]; password: string; }): Promise<AuthUser> {
+  const response = await fetch(`${apiUrl}/api/auth/users`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(command) });
+  if (!response.ok) throw await responseError(response, "Create user failed");
+  return response.json() as Promise<AuthUser>;
+}
+
+export async function listSessions(): Promise<SessionSummary[]> {
+  const response = await fetch(`${apiUrl}/api/sessions?limit=50`, { cache: "no-store" });
+  if (!response.ok) throw await responseError(response, "List sessions request failed");
+  return response.json() as Promise<SessionSummary[]>;
+}
+
+export async function deleteSession(sessionId: string): Promise<void> {
+  const response = await fetch(`${apiUrl}/api/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
+  if (!response.ok) throw await responseError(response, "Delete session request failed");
+}
+
 export async function getSession(
   sessionId: string
 ): Promise<ReplayableSession> {
@@ -241,7 +302,8 @@ export function subscribeToEvents(
   onEvent: (event: ExecutionEvent) => void
 ): () => void {
   const url = new URL(
-    `${apiUrl}/api/sessions/${encodeURIComponent(sessionId)}/events/stream`
+    `${apiUrl}/api/sessions/${encodeURIComponent(sessionId)}/events/stream`,
+    window.location.origin
   );
   if (lastEventId > 0) {
     url.searchParams.set("after", String(lastEventId));

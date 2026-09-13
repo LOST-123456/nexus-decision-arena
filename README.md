@@ -4,7 +4,7 @@
 
 Nexus Decision Arena 是一个 AI 决策质询沙盘。五个角色先独立分析，再通过交叉质询暴露冲突，最后由人类完成裁决并生成可回放报告。
 
-本仓库的固定演示项目为“高校实验室 AI 危化品库存与安全预警平台”。`/sessions/demo` 继续使用标记为 `DEMO FIXTURE` 的离线回放；通过 REST API 创建的 UUID 会话则运行完整 Mock Mode orchestration，持久化五角色分析、Claim、Evidence、Challenge、Conflict、人工裁决与 FinalReport，并通过 SSE 推送到同一套浏览器工作区。
+本仓库的固定演示项目为“高校实验室 AI 危化品库存与安全预警平台”。`/sessions/demo` 使用标记为 `DEMO FIXTURE` 的离线回放；登录 Owner 或 Reviewer 后创建的新评审使用当前配置的 OpenAI-compatible 模型（本地演示为 `qwen2.5:3b`），持久化五角色分析、Claim、Evidence、Challenge、Conflict、人工裁决与 FinalReport，并通过 SSE 推送到同一套浏览器工作区。
 
 ## 10 分钟极速复现
 
@@ -45,6 +45,13 @@ macOS/Linux:
 cp .env.example .env
 ```
 
+默认本地演示账号：
+
+- Owner：`owner / nexus-owner`
+- Viewer：`viewer / nexus-viewer`
+
+首次启动会创建 `.data/users.json`。生产或公开部署前必须替换 `AUTH_SECRET` 和默认密码，并妥善保护该文件；`.data/` 已加入 `.gitignore`，不会进入仓库。
+
 ### 5. 执行迁移
 
 ```bash
@@ -84,11 +91,13 @@ corepack pnpm demo:fixture
 
 ### 新建自己的评审
 
-启动完整服务后打开：
+先登录 Owner 或 Reviewer，再打开：
 
 ```text
 http://127.0.0.1:3000/sessions/new
 ```
+
+登录入口为 `http://127.0.0.1:3000/login`。未登录用户和 Viewer 会被前端与服务端双重阻断，不能创建或启动评审。
 
 填写项目名称、项目简介、目标用户、商业模式和预期数据，点击“开始评审”。前端会依次执行：
 
@@ -103,6 +112,20 @@ Live UUID 会话（真实模型模式）：
 3. 打开 `/sessions/:id` 查看 SSE 更新、统一 Timeline 和 DecisionReplay。
 4. 完成人工裁决后打开 `/sessions/:id/report`，报告来自持久化的 FinalReport。
 5. 报告页支持导出 PDF、Markdown 和完整 JSON 审计包。
+
+### 评审历史、账户与安全治理
+
+- 历史记录：`http://127.0.0.1:3000/history`，显示项目名称、阶段、当前结论、冲突数量、最近更新，并可继续评审和查看报告。
+- 账户与团队：`http://127.0.0.1:3000/login`。Owner 可新增团队成员；密码使用 scrypt 加盐哈希，浏览器只保存 HMAC 签名的 HttpOnly 会话 Cookie。
+- 安全与数据治理：`http://127.0.0.1:3000/security`，说明数据存储、API Key 边界、日志脱敏、会话删除、模型调用边界和人工最终裁决。
+
+角色权限：
+
+| 角色 | 查看历史与报告 | 创建/启动评审 | 人工裁决 | 删除会话 | 管理成员 |
+|---|---:|---:|---:|---:|---:|
+| Owner | 是 | 是 | 是 | 是 | 是 |
+| Reviewer | 是 | 是 | 是 | 否 | 否 |
+| Viewer | 是 | 否 | 否 | 否 | 否 |
 
 ### 8. 运行测试
 
@@ -146,7 +169,7 @@ Live UUID 会话会在 `LLM_MODE=openai-compatible` 时使用环境变量配置�
 
 ```powershell
 $env:OLLAMA_MODELS = "E:\AI创新应用挑战赛\.models\ollama"
-ollama pull qwen2.5:1.5b
+ollama pull qwen2.5:3b
 ```
 
 `.env` 配置示例：
@@ -155,7 +178,7 @@ ollama pull qwen2.5:1.5b
 LLM_MODE=openai-compatible
 LLM_BASE_URL=http://127.0.0.1:11434/v1
 LLM_API_KEY=ollama
-LLM_MODEL=qwen2.5:1.5b
+LLM_MODEL=qwen2.5:3b
 LLM_TIMEOUT_MS=300000
 LLM_MAX_TOKENS=1200
 CROSS_EXAMINATION_MAX_CLAIMS=2

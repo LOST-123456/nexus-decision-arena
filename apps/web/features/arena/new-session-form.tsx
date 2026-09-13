@@ -1,13 +1,16 @@
 "use client";
 
 import Link from "next/link";
+import { AuthUserBadge } from "../../components/auth-user-badge";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 import {
   createSession,
+  getCurrentUser,
   getRuntimeInfo,
   startSession,
-  type RuntimeInfo
+  type RuntimeInfo,
+  type AuthUser,
 } from "./api-client";
 
 const initialValues = {
@@ -38,11 +41,17 @@ export function NewSessionForm() {
   const [createdSessionId, setCreatedSessionId] = useState<string | null>(null);
   const [runtimeInfo, setRuntimeInfo] = useState<RuntimeInfo | null>(null);
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
+  const [currentUser, setCurrentUser] = useState<AuthUser | null | undefined>(undefined);
 
   const pending = status !== "idle";
   const liveModelReady = runtimeInfo?.mode === "openai-compatible";
+  const canReview = currentUser?.role === "owner" || currentUser?.role === "reviewer";
 
   useEffect(() => {
+    getCurrentUser()
+      .then(setCurrentUser)
+      .catch(() => setCurrentUser(null));
+
     const copied = window.localStorage.getItem("nexus:project-copy");
     if (copied) {
       try {
@@ -86,6 +95,11 @@ export function NewSessionForm() {
     }
 
     setErrorMessage(null);
+    if (!canReview) {
+      setErrorMessage("请先登录 Owner 或 Reviewer 账户后再创建评审。");
+      return;
+    }
+
     setCreatedSessionId(null);
 
     try {
@@ -132,6 +146,7 @@ export function NewSessionForm() {
             <small>NEW DECISION REVIEW</small>
           </span>
         </Link>
+        <AuthUserBadge />
         <Link className="header-secondary-link" href="/sessions/demo">
           查看固定演示
         </Link>
@@ -169,6 +184,7 @@ export function NewSessionForm() {
               当前模式：{runtimeInfo?.mode ?? "detecting"} / {runtimeInfo?.model ?? "..."}。
             </p>
             {runtimeError ? <p className="new-session-runtime-error">{runtimeError}</p> : null}
+            {currentUser === null ? <p className="new-session-runtime-error">请先登录 Owner 或 Reviewer 账户。</p> : null}
           </div>
         </section>
 
@@ -298,10 +314,10 @@ export function NewSessionForm() {
           <button
             className="new-session-submit"
             type="submit"
-            disabled={pending || !liveModelReady}
+            disabled={pending || !liveModelReady || !canReview}
             data-testid="start-review"
           >
-            {pending ? "正在启动评审..." : liveModelReady ? "开始评审" : "需要真实模型模式"}
+            {pending ? "正在启动评审..." : !canReview ? "需要登录 Reviewer" : liveModelReady ? "开始评审" : "需要真实模型模式"}
             <span aria-hidden="true">→</span>
           </button>
         </form>

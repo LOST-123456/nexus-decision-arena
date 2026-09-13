@@ -84,10 +84,10 @@ const scenes = [
     kicker: "04 · PROJECT INTAKE",
     title: "新建评审必须使用真实模型",
     bullets: [
-      "填写项目名称、目标用户、商业模式和预期数据",
+      "Owner 与 Reviewer 登录后创建，Viewer 只能查看",
       "页面读取 /api/runtime 并显示当前运行模式",
-      "Mock Mode 只允许固定 Demo，不能冒充新项目结果",
-      "真实模型模式显示 REAL MODEL 与模型名称"
+      "历史记录可继续评审、查看报告并按权限删除",
+      "安全治理页说明密钥、日志、删除与模型调用边界"
     ],
     image: "artifacts/playwright/desktop-1440x900-new-review-real-model.png",
     caption: "新项目与固定 Demo 明确分离，避免把 fixture 结果误认为真实项目分析。",
@@ -289,7 +289,7 @@ const scenes = [
     kicker: "17 · VERIFICATION",
     title: "只展示实际完成的验证",
     metrics: [
-      { value: "156/156", label: "单元与集成测试" },
+      { value: "157/157", label: "单元与集成测试" },
       { value: "4/4", label: "桌面与移动 E2E" },
       { value: "80/80", label: "重复 Playwright 用例" },
       { value: "28", label: "技术文档页数" }
@@ -423,7 +423,7 @@ const scenes = [
     notes: [
       "GitHub: github.com/LOST-123456/nexus-decision-arena",
       "Gitee: gitee.com/lost666666/nexus-decision-arena",
-      "AI 对话、Prompt 链、技术 PDF 与复现指南已入库"
+      "AI 对话、Prompt 链、账户权限、安全治理、技术 PDF 与复现指南已入库"
     ],
     caption: "独立分析、交叉质询、冲突检测、人工裁决、可回放报告。",
     accent: "#22a699"

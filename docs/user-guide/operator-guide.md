@@ -4,7 +4,9 @@
 
 固定 Demo 使用 `fixtures/lab-safety-project.json`，打开 `http://127.0.0.1:3000/sessions/demo` 即可。页面顶部显示 `DEMO FIXTURE` 时，数据来自仓库 fixture，未写入数据库。
 
-Live session 通过 `POST /api/sessions` 提交项目对象，必须在请求头提供 `Idempotency-Key`。项目对象包含 `name`、`summary`、`targetUsers`、`businessModel` 和 `expectedData`。开始运行后再调用 `POST /api/sessions/:id/start`，并使用新的幂等键或同一业务请求的稳定键。
+Live session 先在 `http://127.0.0.1:3000/login` 登录 Owner 或 Reviewer。Owner 可管理成员，Reviewer 可创建评审和人工裁决，Viewer 只能查看；未登录请求会被服务端拒绝。创建与启动仍通过 `POST /api/sessions` 和 `POST /api/sessions/:id/start` 完成，并必须在请求头提供 `Idempotency-Key`。
+
+历史入口为 `http://127.0.0.1:3000/history`，可继续评审、查看已生成报告，并由 Owner 删除会话。安全与数据治理页面为 `http://127.0.0.1:3000/security`。
 
 ## 阅读 Agent 状态
 

@@ -109,7 +109,7 @@ describe("session creation client", () => {
     expect(started.status).toBe("STARTED");
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
-      "http://127.0.0.1:4100/api/sessions",
+      "/api/sessions",
       expect.objectContaining({
         method: "POST",
         headers: expect.objectContaining({
@@ -119,7 +119,7 @@ describe("session creation client", () => {
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
-      `http://127.0.0.1:4100/api/sessions/${sessionId}/start`,
+      `/api/sessions/${sessionId}/start`,
       expect.objectContaining({
         method: "POST",
         headers: expect.objectContaining({

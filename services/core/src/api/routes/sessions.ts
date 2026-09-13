@@ -38,7 +38,26 @@ export function registerSessionRoutes(
   dependencies: AppDependencies,
   idempotency: IdempotencyStore
 ): void {
+  app.get<{ Querystring: { limit?: string } }>(
+    "/api/sessions",
+    async (request, reply) => {
+      if (!dependencies.sessionHistory) {
+        return reply.code(501).send({ error: "Session history unavailable" });
+      }
+      const requested = Number(request.query.limit ?? 50);
+      const limit = Number.isFinite(requested) ? requested : 50;
+      return dependencies.sessionHistory.listSummaries(limit);
+    }
+  );
+
   app.post("/api/sessions", async (request, reply) => {
+    const authUser = dependencies.auth?.userFromRequest(request);
+    if (dependencies.auth && !authUser) {
+      return reply.code(401).send({ error: "Authentication required" });
+    }
+    if (authUser?.role === "viewer") {
+      return reply.code(403).send({ error: "Reviewer role required" });
+    }
     const key = getIdempotencyKey(request);
     if (!key) {
       return reply
@@ -98,6 +117,13 @@ export function registerSessionRoutes(
   app.post<{ Params: { id: string } }>(
     "/api/sessions/:id/start",
     async (request, reply) => {
+      const startAuthUser = dependencies.auth?.userFromRequest(request);
+      if (dependencies.auth && !startAuthUser) {
+        return reply.code(401).send({ error: "Authentication required" });
+      }
+      if (startAuthUser?.role === "viewer") {
+        return reply.code(403).send({ error: "Reviewer role required" });
+      }
       const key = getIdempotencyKey(request);
       if (!key) {
         return reply
@@ -160,4 +186,22 @@ export function registerSessionRoutes(
       return reply.send(view);
     }
   );
+  app.delete<{ Params: { id: string } }>(
+    "/api/sessions/:id",
+    async (request, reply) => {
+      const deleteAuthUser = dependencies.auth?.userFromRequest(request);
+      if (dependencies.auth && deleteAuthUser?.role !== "owner") {
+        return reply.code(403).send({ error: "Owner role required" });
+      }
+      if (!dependencies.sessionHistory) {
+        return reply.code(501).send({ error: "Session history unavailable" });
+      }
+      const deleted = await dependencies.sessionHistory.deleteById(request.params.id);
+      if (!deleted) {
+        return reply.code(404).send({ error: "Session not found" });
+      }
+      return reply.code(204).send();
+    }
+  );
+
 }
