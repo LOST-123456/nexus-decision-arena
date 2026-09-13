@@ -2,26 +2,11 @@
 
 ## 公开仓库
 
-当前 worktree 执行：
-
-```bash
-git remote get-url origin
-```
-
-实际输出：
-
-```text
-error: No such remote 'origin'
-```
-
-由于本仓库当前没有 `origin`，不能在清单中伪造公开仓库链接。创建公开 GitHub/Gitee 仓库并执行下面命令后，再补充真实 URL：
-
-```bash
-git remote add origin <PUBLIC_REPOSITORY_URL>
-git push -u origin feature/decision-arena
-```
-
-公开仓库链接：`PENDING_REMOTE_CONFIGURATION`
+- GitHub: https://github.com/LOST-123456/nexus-decision-arena
+- Gitee: https://gitee.com/lost666666/nexus-decision-arena
+- 默认分支：`main`
+- 完整功能分支：`feature/decision-arena`
+- 两端已同步完整、细粒度的 Git 历史
 
 ## AI 对话快照
 
@@ -30,6 +15,9 @@ git push -u origin feature/decision-arena
 - [决策状态机](../ai-history/0005-state-machine.md)
 - [人工检查点、回放与报告](../ai-history/0013-human-checkpoint.md)
 - [固定 Demo 交付记录](../ai-history/0014-demo-delivery.md)
+- [Codex 对话导出](../ai-history/0016-codex-conversation-export.md)
+- [三条核心 Prompt 链](../ai-history/0017-core-prompt-chains.md)
+- [结构化对话快照](../ai-history/exports/codex-session-curated.jsonl)
 
 ## Prompt-to-Commit 映射
 
@@ -41,7 +29,7 @@ git push -u origin feature/decision-arena
 | `docs/ai-history/0013-human-checkpoint.md` | 增加 Inspector、Timeline、Human Checkpoint、Replay 和 Report | 用单事务持久化 HumanDecision 和 SESSION_STATE_CHANGED | 增加 compare-and-set 与 eligible conflict 约束 | DB/Core/Web tests | `70545c7` |
 | `docs/ai-history/0014-demo-delivery.md` | 固定 fixture、E2E、20 次稳定性和投稿材料 | 浏览器 fixture 模式与 offline Mock Provider 分离 | 明确标注未接入 live orchestration，不宣称未测量指标 | unit/integration/typecheck/build/E2E 输出 | `ff9793a` |
 | `docs/ai-history/0015-final-fix-wave.md` | 修复最终评审的 live orchestration、SSE、FinalReport、Claim 不变量和 Next 安全版本 | 以确定性 Mock AgentRunner 和持久化运行时连接浏览器与 Core | 每个会话创建独立 Cross Examination 依赖，并标准化数据库行 | 146 tests、Next build、4 E2E、80/80 stability、live smoke | `c3d4dcc` |
-| `docs/ai-history/0017-core-prompt-chains.md` | 汇总 Decision Graph、并行 Agent 竞态、SSE 事件丢失三条核心 Prompt 链 | 用结构化契约、不可变对象、单飞锁和连续序号恢复约束实现 | 接受独立复审发现的 UUIDv7、事件快照、lease fencing 和可重入问题 | 152+ tests、4 E2E、80/80 stability、正式对话导出 | `edd873a` |
+| `docs/ai-history/0017-core-prompt-chains.md` | 汇总 Decision Graph、并行 Agent 竞态、SSE 事件丢失三条核心 Prompt 链 | 用结构化契约、不可变对象、单飞锁和连续序号恢复约束实现 | 接受独立复审发现的 UUIDv7、事件快照、lease fencing 和可重入问题 | 156 tests、4 E2E、80/80 stability、正式对话导出 | `edd873a` |
 
 ## 复现路径
 
@@ -70,6 +58,18 @@ git push -u origin feature/decision-arena
 - 原始记录：`docs/experiments/stability-output.txt`
 - 未完成 20/20 前不得填写通过率、平均耗时或稳定性百分比。
 
+当前结果为 80/80 个 Playwright 用例通过：桌面 20 次重复、移动 20 次重复，每个重复包含 2 个 E2E。
+
+## 技术文档 PDF
+
+- 源文件：`docs/submission/technical-document.html`
+- 渲染脚本：`scripts/render-technical-pdf.ps1`
+- PDF：`artifacts/submission/Nexus-Decision-Arena-Technical-Document.pdf`
+- 当前页数：28 页 A4
+- 当前 SHA-256：`868CEC83E431DFBBD306607BC540469D528B85FC0ED6581FA0C333D6016D2E3A`
+
+PDF 重新渲染后必须更新哈希；正文不得超过 30 页，且只可引用已执行的测试或已保存的原始输出。
+
 ## 8 分钟视频时间图
 
 | 时间 | 内容 |
@@ -84,6 +84,8 @@ git push -u origin feature/decision-arena
 | 5:20-6:15 | AI 协同案例 1：Decision Graph 数据结构 |
 | 6:15-7:10 | AI 协同案例 2：并行状态竞态 Bug |
 | 7:10-8:00 | AI 协同案例 3：Cross Examination 协议 |
+
+详细录制说明见 `docs/submission/video-production-kit.md`。
 
 ## PDF 章节图
 
@@ -101,9 +103,11 @@ git push -u origin feature/decision-arena
 ## 提交前检查
 
 - [x] `origin` 已配置且公开可访问
+- [x] GitHub 与 Gitee 已同步完整历史
 - [x] 三条以上 AI 对话快照已包含原始 Prompt、建议、纠偏和测试证据
-- [x] Prompt-to-Commit 表已补齐 Task 12 最终 hash
+- [x] 结构化对话导出和三条核心 Prompt 链已入库
+- [x] Prompt-to-Commit 表已补齐最终修复 hash
 - [x] `stability-output.txt` 已记录实际 80/80 输出（桌面 20 + 移动 20）
-- [ ] 截图已生成；演示视频待录制
-- [ ] PDF 未包含未测量指标
+- [ ] 演示视频待录制；截图已生成
+- [x] PDF 已生成，28 页且未包含未测量指标
 - [x] 固定 Demo 仍明确标记为 fixture，live UUID 会话已走真实持久化 orchestration

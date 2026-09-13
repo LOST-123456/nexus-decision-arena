@@ -1,0 +1,2195 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Nexus Decision Arena - Technical Document</title>
+  <style>
+    :root {
+      --ink: #14202b;
+      --muted: #5c6975;
+      --line: #d8e0e6;
+      --paper: #ffffff;
+      --wash: #f3f7f8;
+      --navy: #102a43;
+      --teal: #147d73;
+      --cyan: #1d8fa3;
+      --amber: #bd6b16;
+      --red: #b33a3a;
+      --green: #2d7a4f;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      background: #dfe5e8;
+      color: var(--ink);
+      font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif;
+      font-size: 9.4pt;
+      line-height: 1.48;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    body {
+      counter-reset: page;
+    }
+
+    .page {
+      position: relative;
+      width: 210mm;
+      height: 297mm;
+      margin: 0 auto 8mm;
+      padding: 15mm 15mm 12mm;
+      overflow: hidden;
+      background: var(--paper);
+      page-break-after: always;
+      break-after: page;
+      counter-increment: page;
+    }
+
+    .page:last-child {
+      page-break-after: auto;
+      break-after: auto;
+    }
+
+    .page::after {
+      content: "Nexus Decision Arena  |  " counter(page);
+      position: absolute;
+      right: 15mm;
+      bottom: 6mm;
+      color: #7c8891;
+      font-size: 7.5pt;
+      letter-spacing: 0.02em;
+    }
+
+    .cover {
+      padding: 0;
+      color: #fff;
+      background:
+        linear-gradient(90deg, rgba(20, 125, 115, 0.16) 1px, transparent 1px),
+        linear-gradient(rgba(20, 125, 115, 0.11) 1px, transparent 1px),
+        var(--navy);
+      background-size: 18mm 18mm, 18mm 18mm, auto;
+    }
+
+    .cover::after {
+      color: rgba(255, 255, 255, 0.72);
+      right: 16mm;
+      bottom: 10mm;
+    }
+
+    .cover-rail {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 0;
+      width: 8mm;
+      background: var(--teal);
+    }
+
+    .cover-inner {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      padding: 20mm 17mm 18mm 24mm;
+    }
+
+    .cover-mark {
+      display: inline-flex;
+      align-items: center;
+      width: fit-content;
+      padding: 2.2mm 4mm;
+      border: 0.35mm solid rgba(255, 255, 255, 0.55);
+      border-radius: 2mm;
+      color: #dff6f2;
+      font-size: 8.5pt;
+      letter-spacing: 0.12em;
+    }
+
+    .cover h1 {
+      max-width: 154mm;
+      margin: 29mm 0 4mm;
+      font-size: 32pt;
+      line-height: 1.05;
+      letter-spacing: 0;
+    }
+
+    .cover h2 {
+      max-width: 150mm;
+      margin: 0;
+      color: #b9d9d6;
+      font-size: 18pt;
+      font-weight: 500;
+      line-height: 1.32;
+    }
+
+    .cover-summary {
+      max-width: 148mm;
+      margin-top: 12mm;
+      padding-top: 7mm;
+      border-top: 0.45mm solid rgba(255, 255, 255, 0.4);
+      color: #eaf3f3;
+      font-size: 11pt;
+      line-height: 1.72;
+    }
+
+    .cover-meta {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 4mm;
+      margin-top: auto;
+      color: #d7e5e5;
+      font-size: 8.8pt;
+    }
+
+    .cover-meta > div {
+      min-height: 15mm;
+      padding: 4mm;
+      border: 0.3mm solid rgba(255, 255, 255, 0.26);
+      border-radius: 1.8mm;
+      background: rgba(255, 255, 255, 0.055);
+    }
+
+    .cover-meta b {
+      display: block;
+      margin-bottom: 1mm;
+      color: #fff;
+      font-size: 9.4pt;
+    }
+
+    h1,
+    h2,
+    h3,
+    h4,
+    p,
+    ul,
+    ol,
+    table,
+    pre,
+    figure {
+      margin-top: 0;
+    }
+
+    h1 {
+      margin-bottom: 3mm;
+      font-size: 20pt;
+      line-height: 1.2;
+    }
+
+    h2 {
+      margin-bottom: 3mm;
+      padding-bottom: 1.8mm;
+      border-bottom: 0.7mm solid var(--teal);
+      color: var(--navy);
+      font-size: 15.5pt;
+      line-height: 1.25;
+    }
+
+    h3 {
+      margin: 4mm 0 2mm;
+      color: var(--navy);
+      font-size: 11.2pt;
+      line-height: 1.3;
+    }
+
+    h4 {
+      margin: 3mm 0 1.5mm;
+      color: var(--teal);
+      font-size: 9.8pt;
+      line-height: 1.3;
+    }
+
+    p {
+      margin-bottom: 2.4mm;
+    }
+
+    ul,
+    ol {
+      margin-bottom: 2.6mm;
+      padding-left: 5.2mm;
+    }
+
+    li {
+      margin-bottom: 1.15mm;
+    }
+
+    strong {
+      color: #0e3344;
+    }
+
+    a {
+      color: var(--teal);
+      text-decoration: none;
+      word-break: break-all;
+    }
+
+    .kicker {
+      margin-bottom: 2mm;
+      color: var(--teal);
+      font-size: 8.4pt;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    .lead {
+      color: #354652;
+      font-size: 11pt;
+      line-height: 1.68;
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    .small {
+      font-size: 8.15pt;
+      line-height: 1.44;
+    }
+
+    .tiny {
+      font-size: 7.4pt;
+      line-height: 1.4;
+    }
+
+    .mono {
+      font-family: Consolas, "Cascadia Mono", monospace;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 4mm;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 3mm;
+    }
+
+    .grid-4 {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 2.4mm;
+    }
+
+    .card {
+      padding: 3.2mm;
+      border: 0.28mm solid var(--line);
+      border-radius: 1.8mm;
+      background: #fff;
+    }
+
+    .card.wash {
+      background: var(--wash);
+    }
+
+    .card h3,
+    .card h4 {
+      margin-top: 0;
+    }
+
+    .card p:last-child,
+    .card ul:last-child,
+    .card ol:last-child {
+      margin-bottom: 0;
+    }
+
+    .metric {
+      padding: 3mm;
+      border-left: 1.2mm solid var(--teal);
+      background: var(--wash);
+    }
+
+    .metric b {
+      display: block;
+      color: var(--navy);
+      font-size: 17pt;
+      line-height: 1.1;
+    }
+
+    .metric span {
+      color: var(--muted);
+      font-size: 8.3pt;
+    }
+
+    .tag {
+      display: inline-block;
+      margin: 0 1mm 1mm 0;
+      padding: 0.7mm 1.8mm;
+      border-radius: 1.4mm;
+      background: #e8f3f2;
+      color: #0f665e;
+      font-size: 7.4pt;
+      white-space: nowrap;
+    }
+
+    .tag.amber {
+      background: #fbefe1;
+      color: #8a4b0d;
+    }
+
+    .tag.red {
+      background: #fae8e8;
+      color: #963131;
+    }
+
+    .tag.green {
+      background: #e8f3ec;
+      color: #286846;
+    }
+
+    .callout {
+      margin: 3mm 0;
+      padding: 3.4mm 4mm;
+      border-left: 1.2mm solid var(--teal);
+      background: var(--wash);
+    }
+
+    .callout.warn {
+      border-left-color: var(--amber);
+      background: #fff7ed;
+    }
+
+    .callout.danger {
+      border-left-color: var(--red);
+      background: #fff1f1;
+    }
+
+    .callout p:last-child,
+    .callout ul:last-child {
+      margin-bottom: 0;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 3mm;
+      font-size: 8.25pt;
+      line-height: 1.38;
+    }
+
+    th,
+    td {
+      padding: 1.8mm 2mm;
+      border: 0.25mm solid var(--line);
+      vertical-align: top;
+      text-align: left;
+    }
+
+    th {
+      background: #eaf1f2;
+      color: var(--navy);
+      font-weight: 700;
+    }
+
+    tr:nth-child(even) td {
+      background: #fafcfc;
+    }
+
+    pre {
+      overflow: hidden;
+      margin: 2mm 0 3mm;
+      padding: 3mm 3.4mm;
+      border: 0.25mm solid #c8d4da;
+      border-radius: 1.5mm;
+      background: #f7f9fa;
+      color: #173242;
+      font-family: Consolas, "Cascadia Mono", monospace;
+      font-size: 7.65pt;
+      line-height: 1.42;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    code {
+      font-family: Consolas, "Cascadia Mono", monospace;
+      color: #0d5f59;
+    }
+
+    figure {
+      margin: 3mm 0;
+    }
+
+    figure img {
+      display: block;
+      width: 100%;
+      border: 0.28mm solid #c5d0d6;
+      border-radius: 1.5mm;
+      object-fit: contain;
+      background: #eef2f3;
+    }
+
+    figure.screenshot-wide img {
+      max-height: 76mm;
+    }
+
+    figure.screenshot-small img {
+      max-height: 68mm;
+    }
+
+    figcaption {
+      margin-top: 1.4mm;
+      color: var(--muted);
+      font-size: 7.4pt;
+      line-height: 1.35;
+    }
+
+    .toc {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 1.2mm;
+      margin-top: 4mm;
+    }
+
+    .toc-row {
+      display: grid;
+      grid-template-columns: 9mm 1fr 14mm;
+      align-items: baseline;
+      padding: 1.8mm 0;
+      border-bottom: 0.22mm dotted #aebbc2;
+    }
+
+    .toc-row b {
+      color: var(--teal);
+    }
+
+    .toc-row span:last-child {
+      color: var(--muted);
+      text-align: right;
+    }
+
+    .diagram {
+      margin: 3mm 0;
+      padding: 3mm;
+      border: 0.25mm solid var(--line);
+      border-radius: 1.8mm;
+      background: #fbfcfc;
+    }
+
+    .flow {
+      display: flex;
+      align-items: stretch;
+      gap: 1.2mm;
+    }
+
+    .flow .node {
+      display: flex;
+      flex: 1;
+      align-items: center;
+      justify-content: center;
+      min-height: 12mm;
+      padding: 1.8mm;
+      border: 0.28mm solid #abc0c4;
+      border-radius: 1.5mm;
+      background: #f0f7f6;
+      color: #164b4a;
+      font-size: 7.8pt;
+      font-weight: 700;
+      text-align: center;
+    }
+
+    .flow .arrow {
+      display: flex;
+      align-items: center;
+      color: #66818a;
+      font-size: 12pt;
+    }
+
+    .stack {
+      display: grid;
+      gap: 2mm;
+    }
+
+    .layer {
+      display: grid;
+      grid-template-columns: 34mm 1fr;
+      min-height: 13mm;
+      border: 0.28mm solid #b9c8ce;
+      border-radius: 1.5mm;
+      overflow: hidden;
+    }
+
+    .layer > b {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2mm;
+      background: #e8f0f1;
+      color: var(--navy);
+      text-align: center;
+    }
+
+    .layer > div {
+      display: flex;
+      align-items: center;
+      padding: 2mm 3mm;
+      background: #fff;
+    }
+
+    .role-strip {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 1.6mm;
+    }
+
+    .role {
+      min-height: 24mm;
+      padding: 2.2mm;
+      border: 0.28mm solid #b9c8ce;
+      border-top: 1mm solid var(--teal);
+      border-radius: 1.5mm;
+      background: #fff;
+    }
+
+    .role b {
+      display: block;
+      margin-bottom: 1.5mm;
+      color: var(--navy);
+      font-size: 8.1pt;
+    }
+
+    .role span {
+      color: var(--muted);
+      font-size: 7.2pt;
+      line-height: 1.35;
+    }
+
+    .sequence {
+      display: grid;
+      gap: 1.5mm;
+    }
+
+    .sequence-row {
+      display: grid;
+      grid-template-columns: 23mm 1fr;
+      gap: 2mm;
+      break-inside: avoid;
+    }
+
+    .sequence-row b {
+      padding: 1.6mm;
+      border-radius: 1.2mm;
+      background: #eaf1f2;
+      color: var(--navy);
+      text-align: center;
+      font-size: 7.7pt;
+    }
+
+    .sequence-row span {
+      padding: 1.4mm 0;
+    }
+
+    .checklist {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .checklist li {
+      position: relative;
+      padding-left: 5mm;
+    }
+
+    .checklist li::before {
+      content: "✓";
+      position: absolute;
+      left: 0;
+      color: var(--green);
+      font-weight: 700;
+    }
+
+    .checklist.pending li::before {
+      content: "□";
+      color: var(--amber);
+    }
+
+    .hash {
+      padding: 1.4mm 2mm;
+      border: 0.25mm solid #c7d3d8;
+      border-radius: 1.2mm;
+      background: #f5f8f9;
+      font-family: Consolas, "Cascadia Mono", monospace;
+      font-size: 7.6pt;
+      word-break: break-all;
+    }
+
+    .page-title {
+      margin-bottom: 1.5mm;
+      color: var(--navy);
+      font-size: 13.2pt;
+      font-weight: 700;
+    }
+
+    .section-tag {
+      color: var(--teal);
+      font-size: 8pt;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+    }
+
+    .rule {
+      height: 0.3mm;
+      margin: 3mm 0;
+      background: var(--line);
+    }
+
+    .no-break {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+
+    @page {
+      size: A4;
+      margin: 0;
+    }
+
+    @media print {
+      html,
+      body {
+        background: #fff;
+      }
+
+      .page {
+        margin: 0;
+      }
+    }
+  </style>
+</head>
+<body>
+  <section class="page cover">
+    <div class="cover-rail"></div>
+    <div class="cover-inner">
+      <span class="cover-mark">AI INNOVATION APPLICATION CHALLENGE</span>
+      <h1>Nexus Decision Arena</h1>
+      <h2>AI 决策评审与质询沙盘<br />技术文档</h2>
+      <div class="cover-summary">
+        让多个具有不同立场的 AI 专家独立分析、交叉质询、暴露冲突，并由人类完成可追溯的最终裁决。
+      </div>
+      <div class="cover-meta">
+        <div>
+          <b>交付版本</b>
+          v1.0 · 2026-09-13
+        </div>
+        <div>
+          <b>证据基线</b>
+          Git commit 2f91a71
+        </div>
+        <div>
+          <b>公开仓库</b>
+          github.com/LOST-123456/nexus-decision-arena
+        </div>
+        <div>
+          <b>镜像仓库</b>
+          gitee.com/lost666666/nexus-decision-arena
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="page">
+    <div class="kicker">Executive Summary</div>
+    <h1>作品摘要</h1>
+    <p class="lead">
+      Nexus Decision Arena 不是通用 Agent 工作流编辑器，而是一个受约束的高价值决策评审引擎。
+      它围绕“独立分析 → 交叉质询 → 冲突检测 → 人工裁决 → 可回放报告”建立闭环。
+    </p>
+
+    <div class="grid-4">
+      <div class="metric"><b>5</b><span>一级 Agent<br />职责与立场明确</span></div>
+      <div class="metric"><b>3</b><span>核心创新<br />结构化分歧 / 质询 / 决策轨迹</span></div>
+      <div class="metric"><b>156</b><span>单元与集成测试<br />2f91a71 基线</span></div>
+      <div class="metric"><b>80/80</b><span>重复 Playwright 用例<br />桌面 + 移动</span></div>
+    </div>
+
+    <h3>问题</h3>
+    <p>
+      普通多 Agent 系统常把不同角色的自由文本回答并排展示，缺少可比较的断言、定向质询、未解决分歧的
+      结构化记录和结论变化的证据链。评委或使用者只能看到“很多观点”，无法快速判断哪些结论值得相信。
+    </p>
+
+    <h3>方案</h3>
+    <p>
+      系统把 Agent 输出约束为 Claim、Evidence、Challenge、Conflict 等结构化领域对象。Planner、
+      质询分配、状态迁移和冲突规则由确定性代码执行；LLM 只在受控边界内生成领域对象和语义判断。
+    </p>
+
+    <h3>验证</h3>
+    <div class="grid-2">
+      <div class="card wash">
+        <h4>工程证据</h4>
+        <ul class="checklist small">
+          <li>TypeScript strict 类型检查通过</li>
+          <li>156/156 单元与集成测试通过</li>
+          <li>桌面与移动 Playwright 4/4 通过</li>
+          <li>重复稳定性 80/80 用例通过</li>
+          <li>Next.js 15.5.25 生产构建通过</li>
+        </ul>
+      </div>
+      <div class="card wash">
+        <h4>过程证据</h4>
+        <ul class="checklist small">
+          <li>40 个细粒度 Git 提交，非一次性提交</li>
+          <li>100 条去噪后的实质 AI 对话消息</li>
+          <li>3 条完整核心 Prompt 链</li>
+          <li>Prompt、测试、Commit 相互映射</li>
+          <li>Mock Mode 无外网完成固定流程</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="callout">
+      <strong>文档边界：</strong>
+      本文件只引用仓库中实际存在的测试、输出、截图和提交。尚未执行的人工基线与真实模型规模化评测不会被包装为已完成数据。
+    </div>
+  </section>
+
+  <section class="page">
+    <div class="kicker">Contents & Evidence Baseline</div>
+    <h1>目录与证据基线</h1>
+    <div class="toc">
+      <div class="toc-row"><b>01</b><span>问题与作品定义</span><span>P04</span></div>
+      <div class="toc-row"><b>02</b><span>五角色决策模型与核心对象</span><span>P06</span></div>
+      <div class="toc-row"><b>03</b><span>Cross Examination 协议</span><span>P09</span></div>
+      <div class="toc-row"><b>04</b><span>系统架构、状态机与事件模型</span><span>P11</span></div>
+      <div class="toc-row"><b>05</b><span>意图控制策略与 AI 工程约束</span><span>P14</span></div>
+      <div class="toc-row"><b>06</b><span>可复现性、降级与恢复设计</span><span>P17</span></div>
+      <div class="toc-row"><b>07</b><span>实验验证、稳定性与结论</span><span>P19</span></div>
+      <div class="toc-row"><b>08</b><span>AI 协同证据、视频与投稿清单</span><span>P22</span></div>
+    </div>
+
+    <h3>证据基线</h3>
+    <table>
+      <thead>
+        <tr><th>类别</th><th>基线或文件</th><th>用途</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>代码与提交</td><td class="mono">main / feature/decision-arena</td><td>完整历史、可访问性、分支复核</td></tr>
+        <tr><td>设计冻结</td><td class="mono">docs/superpowers/specs/2026-09-10-decision-arena-design.md</td><td>产品边界、协议和数据契约</td></tr>
+        <tr><td>架构说明</td><td class="mono">docs/architecture/system-overview.md</td><td>组件、事件、数据库和 correlationId 规则</td></tr>
+        <tr><td>复现指南</td><td class="mono">README.md</td><td>10 分钟环境配置与启动路径</td></tr>
+        <tr><td>AI 对话导出</td><td class="mono">docs/ai-history/0016-codex-conversation-export.md</td><td>可读的对话快照</td></tr>
+        <tr><td>结构化导出</td><td class="mono">docs/ai-history/exports/codex-session-curated.jsonl</td><td>100 条去噪消息的机器可读记录</td></tr>
+        <tr><td>核心 Prompt 链</td><td class="mono">docs/ai-history/0017-core-prompt-chains.md</td><td>三次核心迭代的纠偏与修复过程</td></tr>
+        <tr><td>稳定性原始输出</td><td class="mono">docs/experiments/stability-output.txt</td><td>80/80 Playwright 用例原始结果</td></tr>
+      </tbody>
+    </table>
+
+    <h3>证据链关系</h3>
+    <div class="diagram">
+      <div class="flow">
+        <div class="node">原始 Prompt</div><div class="arrow">→</div>
+        <div class="node">AI 建议</div><div class="arrow">→</div>
+        <div class="node">人工纠偏</div><div class="arrow">→</div>
+        <div class="node">代码 / 测试</div><div class="arrow">→</div>
+        <div class="node">Commit</div><div class="arrow">→</div>
+        <div class="node">视频 / PDF</div>
+      </div>
+    </div>
+    <p class="small muted">
+      AI 历史导出使用仓库内的 <code>scripts/export-codex-history.ps1</code> 生成。原始 Codex Desktop
+      会话 JSONL 的 SHA-256 快照记录为
+      <code>e90dcc18135e4b9a8a5a67246197e0b9b2e95a47dc39bc8b8b01e6aaa13ae098</code>。
+    </p>
+  </section>
+
+  <section class="page">
+    <div class="section-tag">01 · PRODUCT DEFINITION</div>
+    <h2>问题与作品定义</h2>
+    <h3>1.1 真正待解决的问题</h3>
+    <p>
+      决策评审的困难不等于“缺少观点”，而在于观点之间缺少可核验的比较关系。一个可用的 AI 评审系统必须能够回答：
+    </p>
+    <div class="grid-2">
+      <div class="card">
+        <h4>结论层</h4>
+        <ul>
+          <li>当前建议是什么？</li>
+          <li>结论是否发生变化？</li>
+          <li>变化由谁触发？</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4>证据层</h4>
+        <ul>
+          <li>关键断言有何证据？</li>
+          <li>哪些内容只是假设？</li>
+          <li>证据是否过期或未核验？</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4>分歧层</h4>
+        <ul>
+          <li>谁不同意，具体质疑什么？</li>
+          <li>质疑是否已经回应？</li>
+          <li>冲突的严重度与影响范围？</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4>裁决层</h4>
+        <ul>
+          <li>人类在哪一步介入？</li>
+          <li>采纳或拒绝的依据是什么？</li>
+          <li>能否回放到关键事件？</li>
+        </ul>
+      </div>
+    </div>
+
+    <h3>1.2 产品定义</h3>
+    <div class="callout">
+      <strong>Nexus Decision Arena</strong>：面向真实决策评审的受约束多 Agent 系统。五个 AI 角色先独立分析，
+      再针对关键 Claim 进行交叉质询；系统把未解决分歧结构化为 Conflict，并交给人类裁决，最终输出可追溯、
+      可回放、可复现的决策报告。
+    </div>
+
+    <h3>1.3 与通用 Agent 工作流的差异</h3>
+    <table>
+      <thead>
+        <tr><th>维度</th><th>常见多 Agent 展示</th><th>Nexus 的约束</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>核心对象</td><td>节点、边、自由文本消息</td><td>Claim、Evidence、Challenge、Conflict</td></tr>
+        <tr><td>观点关系</td><td>并列展示，依赖阅读者归纳</td><td>结构化关系与定向质询</td></tr>
+        <tr><td>流程控制</td><td>节点自由拼装</td><td>固定状态机和确定性规则</td></tr>
+        <tr><td>结论产生</td><td>模型直接输出最终答案</td><td>系统建议，人类最终裁决</td></tr>
+        <tr><td>可复现单位</td><td>代码或一次输出</td><td>完整决策过程链</td></tr>
+      </tbody>
+    </table>
+
+    <h3>1.4 明确不做</h3>
+    <p>
+      首版不实现通用工作流画布、不开放无限节点编排、不自动完成高风险决策、不把业务规则写入 UI，
+      也不要求真实模型 API 才能运行固定 Demo。产品边界由设计冻结规格和测试共同约束。
+    </p>
+  </section>
+
+  <section class="page">
+    <div class="section-tag">01 · PRODUCT DEFINITION</div>
+    <h2>固定 Demo：高校实验室安全平台立项评审</h2>
+    <h3>2.1 输入</h3>
+    <div class="grid-2">
+      <div class="card wash">
+        <h4>项目方案</h4>
+        <p class="small">
+          高校实验室 AI 危化品库存与安全预警平台，包含二维码盘点、图像识别、补货预测、过期试剂预警和事故风险提示。
+        </p>
+      </div>
+      <div class="card wash">
+        <h4>商业目标</h4>
+        <p class="small">
+          每间实验室每年 8 万元；24 个月覆盖 200 间实验室；取得 1600 万元 ARR；毛利率 65%；6 个月完成 MVP。
+        </p>
+      </div>
+    </div>
+
+    <h3>2.2 四个高风险假设</h3>
+    <table>
+      <thead><tr><th>假设</th><th>质询方向</th><th>可能导致的变化</th></tr></thead>
+      <tbody>
+        <tr><td>24 个月获得 200 间实验室</td><td>获客能力、采购周期、试点转化</td><td>从规模化扩张转为有限验证</td></tr>
+        <tr><td>6 个月完成硬件与算法集成</td><td>硬件依赖、数据采集、部署条件</td><td>追加技术验证门槛</td></tr>
+        <tr><td>毛利率达到 65%</td><td>硬件成本、实施成本、售后服务</td><td>要求分阶段核算单位经济</td></tr>
+        <tr><td>高校采购周期不超过 90 天</td><td>预算、招标、验收与合规流程</td><td>降低首年收入预期</td></tr>
+      </tbody>
+    </table>
+
+    <h3>2.3 预期决策变化</h3>
+    <div class="diagram">
+      <div class="flow">
+        <div class="node">初始分析<br />建议立项</div><div class="arrow">→</div>
+        <div class="node">交叉质询<br />暂缓扩张</div><div class="arrow">→</div>
+        <div class="node">人工裁决<br />采纳关键质询</div><div class="arrow">→</div>
+        <div class="node">最终结论<br />有限立项</div>
+      </div>
+    </div>
+    <p>
+      最终建议为先在 3 间实验室验证 12 个月，设置阶段验收门槛；验证通过后再讨论规模化扩张。
+      结论变化不是模型随机改写，而是由 Challenge、Conflict 和 HumanDecision 共同驱动。
+    </p>
+
+    <div class="grid-2">
+      <div class="card">
+        <h4>固定 Demo 验收下限</h4>
+        <ul class="checklist small">
+          <li>至少 3 个方向不一致的 Claim</li>
+          <li>至少 5 个结构化 Challenge</li>
+          <li>至少 3 个 Conflict</li>
+          <li>展示三种 Human Checkpoint 动作</li>
+          <li>Replay 可回到结论变化时点</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4>实际 fixture 运行证据</h4>
+        <ul class="checklist small">
+          <li>12 个 Claims</li>
+          <li>9 个 opposing Claims</li>
+          <li>5 个 Challenges</li>
+          <li>4 个 Conflicts</li>
+          <li>36 个 ExecutionEvents</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="callout warn">
+      <strong>真实性边界：</strong>
+      浏览器固定 Demo 明确标注 <code>DEMO FIXTURE</code>。它用于稳定演示与测评，不伪装成真实模型调用；
+      live UUID 会话才走 Mock Mode orchestration 或真实模型 Provider。
+    </div>
+  </section>
+
+  <section class="page">
+    <div class="section-tag">02 · DECISION MODEL</div>
+    <h2>五角色决策模型</h2>
+    <p>
+      系统保留五个一级 Agent，避免角色膨胀和概念堆叠。数据分析、运营、合规、伦理和逻辑分析作为角色内部
+      Lens 存在；运行、状态展示和推理记录仍以五个一级角色为单位。
+    </p>
+
+    <div class="role-strip">
+      <div class="role"><b>市场分析师</b><span>市场趋势、用户需求、规模口径、数据可信度与获客路径。</span></div>
+      <div class="role"><b>技术专家</b><span>架构可行性、实现路径、工程量、依赖条件与部署风险。</span></div>
+      <div class="role"><b>财务分析师</b><span>成本、收入、现金流、单位经济与运营效率。</span></div>
+      <div class="role"><b>风险审查员</b><span>合规、隐私、安全、社会、环境、伦理与假设失效。</span></div>
+      <div class="role"><b>质询主持人</b><span>证据充分性、逻辑一致性、矛盾识别和重新评估。</span></div>
+    </div>
+
+    <h3>1.1 AgentRole 契约</h3>
+    <pre>AgentRole {
+  id, name, role, goal, perspective,
+  evaluationCriteria: string[],
+  evidenceRequired: string[],
+  conflictPreference: string[],
+  lenses: string[],
+  promptVersionId
+}</pre>
+
+    <h3>1.2 确定性组件</h3>
+    <table>
+      <thead><tr><th>组件</th><th>职责</th><th>为什么不由 LLM 主导</th></tr></thead>
+      <tbody>
+        <tr><td>Planner</td><td>选择角色、生成任务、建立执行顺序</td><td>保证同输入同顺序和可测试性</td></tr>
+        <tr><td>Conflict Detector</td><td>比较立场、证据、版本和置信度</td><td>规则可审计，避免模型随意制造冲突</td></tr>
+        <tr><td>Report Generator</td><td>汇总已校验对象和人工裁决</td><td>报告只描述已发生的事实</td></tr>
+      </tbody>
+    </table>
+
+    <h3>1.3 角色约束</h3>
+    <ul>
+      <li>初始分析阶段不得读取其他 Agent 的 Claim，避免角色相互污染。</li>
+      <li>质询者不得质询自己创建的 Claim。</li>
+      <li>主持人只能验证回应是否符合协议，不能擅自修改他方立场。</li>
+      <li>每个断言必须标记类型、立场、重要度、置信度和证据引用。</li>
+      <li>任务生成与角色分配由代码执行，LLM 只输出受 Schema 约束的内容。</li>
+    </ul>
+
+    <div class="callout">
+      <strong>设计选择：</strong>
+      一级角色保持五个，内部 Lens 可以多视角展开。这样既保留数据分析、运营和伦理等细分能力，又避免
+      Decision Map 被十多个角色切碎，降低演示成本和评审理解成本。
+    </div>
+  </section>
+
+  <section class="page">
+    <div class="section-tag">02 · DECISION MODEL</div>
+    <h2>核心对象：Claim 与 Evidence</h2>
+    <h3>2.1 Claim：可质询的原子断言</h3>
+    <pre>Claim {
+  id: UUIDv7, sessionId, agentRunId, roleId, lens,
+  statement,
+  type: fact | assumption | prediction | recommendation,
+  stance: support | oppose | neutral,
+  importance: 1..5, confidence: 0..1,
+  evidenceIds: string[],
+  status: proposed | supported | contested | accepted | rejected,
+  rootClaimId, revisionOfClaimId?, revision,
+  relations: Array&lt;{ targetClaimId, type }&gt;,
+  respondsToChallengeId?, disposition?
+}</pre>
+
+    <table>
+      <thead><tr><th>约束</th><th>实现含义</th></tr></thead>
+      <tbody>
+        <tr><td>UUIDv7</td><td>全球唯一，同时具有时间排序特征；非 UUIDv7 会被 Schema 拒绝。</td></tr>
+        <tr><td>不可原地覆盖</td><td>实质修改创建新 Claim，通过 rootClaimId、revisionOfClaimId、revision 追踪版本。</td></tr>
+        <tr><td>关系有类型</td><td>supports、contradicts、qualifies、depends_on，避免无类型 ID 数组。</td></tr>
+        <tr><td>接受门槛</td><td>重要 Claim 进入 accepted 前必须满足证据和高严重度质询约束。</td></tr>
+      </tbody>
+    </table>
+
+    <h3>2.2 Evidence：可核验的支撑或反证</h3>
+    <pre>Evidence {
+  id, sessionId, claimId,
+  kind: project_input | calculation | external_reference | assumption,
+  title, content, description, sourceRef?,
+  direction: supports | opposes,
+  reliability: 0..1,
+  verificationStatus: unverified | verified | rejected,
+  validityPeriod?: { from?, to? },
+  retrievedAt, createdBy, agentRunId?
+}</pre>
+
+    <div class="grid-2">
+      <div class="card">
+        <h4>证据规则</h4>
+        <ul class="small">
+          <li>external_reference 必须有 sourceRef。</li>
+          <li>assumption 不得伪装为 verified。</li>
+          <li>超出 validityPeriod 的证据不能支撑最终接受。</li>
+          <li>输入中的数字要记录计算口径或来源。</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4>为什么需要这些字段</h4>
+        <ul class="small">
+          <li>description 让引用型证据可读。</li>
+          <li>validityPeriod 处理市场、法规和价格时效。</li>
+          <li>reliability 与 verificationStatus 分离，避免把“像真的”当作“已核验”。</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="page">
+    <div class="section-tag">02 · DECISION MODEL</div>
+    <h2>核心对象：Challenge 与 Conflict</h2>
+    <h3>3.1 Challenge：一次定向质疑</h3>
+    <pre>Challenge {
+  id, sessionId, targetClaimId,
+  challengerRunId, challengerRoleId,
+  type: evidence_gap | logic_flaw | contradiction | feasibility | priority,
+  question,
+  context: { triggerClaimIds: string[], explanation },
+  requiredEvidence: string[],
+  severity: 1..5,
+  resolutionStrategy:
+    provide_evidence | revise_claim | withdraw_claim | human_decision,
+  status: open | answered | validating | resolved | unresolved,
+  responseClaimId?, correlationId
+}</pre>
+
+    <h3>3.2 Conflict：系统检测出的结构化分歧</h3>
+    <pre>Conflict {
+  id, sessionId, claimIds, challengeIds,
+  type: evidence | logic | assumption | priority,
+  summary, severity: 1..5,
+  status: detected | human_review | resolved,
+  humanDecisionRequired,
+  resolutionSuggestion,
+  impactScope: {
+    analysisAreas: market | technology | finance | risk | operations[],
+    stakeholders: string[]
+  }
+}</pre>
+
+    <div class="callout warn">
+      <strong>关键边界：</strong>
+      resolutionSuggestion 只代表建议，不能自动关闭 Conflict。严重度 ≥ 4，或影响三个以上分析域时，
+      必须进入人类裁决。人工裁决前，Conflict 不得直接进入 resolved。
+    </div>
+
+    <h3>3.3 对象之间的关系</h3>
+    <div class="diagram">
+      <div class="flow">
+        <div class="node">AgentRun<br />生成</div><div class="arrow">→</div>
+        <div class="node">Claim<br />原子断言</div><div class="arrow">→</div>
+        <div class="node">Evidence<br />支撑 / 反证</div><div class="arrow">→</div>
+        <div class="node">Challenge<br />定向质询</div><div class="arrow">→</div>
+        <div class="node">Conflict<br />结构化分歧</div><div class="arrow">→</div>
+        <div class="node">HumanDecision<br />最终裁决</div>
+      </div>
+    </div>
+    <p class="small muted">
+      Challenge 的回应仍是新版本 Claim，不额外创造“回复消息”对象。这样版本链、证据和质询关系可以在
+      同一套领域模型中解释。
+    </p>
+  </section>
+
+  <section class="page">
+    <div class="section-tag">03 · CROSS EXAMINATION</div>
+    <h2>Cross Examination 协议</h2>
+    <h3>3.1 执行顺序</h3>
+    <div class="sequence">
+      <div class="sequence-row"><b>Step 1</b><span>五个角色独立分析，禁止互相读取 Claim。</span></div>
+      <div class="sequence-row"><b>Step 2</b><span>通过 Schema 校验、去重，并选最多 5 个高优先级 Claim。</span></div>
+      <div class="sequence-row"><b>Step 3</b><span>为每个 Claim 分配 1 至 2 个异角色质询者。</span></div>
+      <div class="sequence-row"><b>Step 4</b><span>质询者生成带上下文、证据要求、严重度和解决策略的 Challenge。</span></div>
+      <div class="sequence-row"><b>Step 5</b><span>目标 Agent 创建新版 Claim 回应，不覆盖原 Claim。</span></div>
+      <div class="sequence-row"><b>Step 6</b><span>主持人核验回应，标记 resolved 或 unresolved。</span></div>
+      <div class="sequence-row"><b>Step 7</b><span>冲突检测器生成 Conflict，高严重度冲突进入 Human Checkpoint。</span></div>
+    </div>
+
+    <h3>3.2 七条刚性规则</h3>
+    <div class="grid-2">
+      <div class="card">
+        <ol class="small">
+          <li>初次分析期间，Agent 不得读取他方输出。</li>
+          <li>一个 Challenge 只能指向一个 Claim。</li>
+          <li>质询者不得质询自己的 Claim。</li>
+          <li>Challenge 必须包含问题、上下文、证据要求、严重度和策略。</li>
+        </ol>
+      </div>
+      <div class="card">
+        <ol class="small" start="5">
+          <li>回应必须产生新版本 Claim。</li>
+          <li>主持人不能擅自修改其他 Agent 的立场。</li>
+          <li>未解决的高严重度 Conflict 不得自动关闭。</li>
+        </ol>
+      </div>
+    </div>
+
+    <h3>3.3 Claim 选择算法</h3>
+    <p>比较顺序固定，避免结果依赖模型调用顺序或偶然排序：</p>
+    <pre>importance DESC
+  → evidence coverage ASC
+  → confidence ASC
+  → assumption &gt; prediction &gt; recommendation &gt; fact
+  → UUIDv7 ASC</pre>
+
+    <h3>3.4 质询者分配</h3>
+    <table>
+      <thead><tr><th>角色</th><th>优先质询</th></tr></thead>
+      <tbody>
+        <tr><td>市场分析师</td><td>市场假设、需求证据缺口、规模口径</td></tr>
+        <tr><td>技术专家</td><td>技术可行性、依赖条件、实现周期</td></tr>
+        <tr><td>财务分析师</td><td>成本、收入、单位经济与现金流假设</td></tr>
+        <tr><td>风险审查员</td><td>合规、伦理和关键假设失效风险</td></tr>
+        <tr><td>质询主持人</td><td>逻辑矛盾、跨角色冲突和证据充分性</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="page">
+    <div class="section-tag">03 · CROSS EXAMINATION</div>
+    <h2>状态流、限流与失败隔离</h2>
+    <h3>4.1 Challenge 状态机</h3>
+    <div class="diagram">
+      <div class="flow">
+        <div class="node">open</div><div class="arrow">→</div>
+        <div class="node">answered</div><div class="arrow">→</div>
+        <div class="node">validating</div><div class="arrow">→</div>
+        <div class="node">resolved</div>
+      </div>
+      <div class="flow" style="margin-top: 2mm;">
+        <div class="node" style="flex: 3;">校验不满足协议时</div><div class="arrow">→</div>
+        <div class="node" style="flex: 1;">unresolved</div>
+      </div>
+    </div>
+
+    <h3>4.2 运行限制</h3>
+    <table>
+      <thead><tr><th>限制</th><th>值</th><th>目的</th></tr></thead>
+      <tbody>
+        <tr><td>每轮目标 Claim</td><td>最多 5 个</td><td>控制 Demo 时长与事件规模</td></tr>
+        <tr><td>每个 Claim 质询者</td><td>最多 2 个</td><td>保留对抗，避免重复轰炸</td></tr>
+        <tr><td>补充质询</td><td>最多 1 次</td><td>防止无限循环</td></tr>
+        <tr><td>单次模型调用</td><td>45 秒超时</td><td>避免长尾请求阻塞</td></tr>
+        <tr><td>Repair Prompt</td><td>最多 1 次</td><td>修复结构错误但不无限重试</td></tr>
+      </tbody>
+    </table>
+
+    <h3>4.3 错误隔离</h3>
+    <div class="grid-3">
+      <div class="card">
+        <h4>AgentRun 失败</h4>
+        <p class="small">记录 AGENT_RUN_FAILED，其他关键 Agent 继续运行。</p>
+      </div>
+      <div class="card">
+        <h4>Challenge 失败</h4>
+        <p class="small">只影响当前质询，不阻断其他 Challenge 分支。</p>
+      </div>
+      <div class="card">
+        <h4>结构错误</h4>
+        <p class="small">先解析、再 Schema 校验，最后执行一次 Repair Prompt。</p>
+      </div>
+    </div>
+
+    <h3>4.4 并发与不可变性</h3>
+    <ul>
+      <li>五个 Agent 使用并行执行，但每个运行单元有独立 correlationId。</li>
+      <li>交给依赖的 Claim 使用 structuredClone，避免外部修改原对象。</li>
+      <li>CHALLENGE_CREATED 发布不可变快照，避免后续状态变化污染事件。</li>
+      <li>响应 Claim 独立校验版本链、Challenge 关联和 session 归属。</li>
+      <li>补充轮使用 PostgreSQL session 级 advisory lock，防止并发重复执行。</li>
+    </ul>
+
+    <div class="callout">
+      <strong>设计结果：</strong>
+      协议不是“让 Agent 自由辩论”，而是一个可测试、可限流、可恢复的有限状态流程。
+    </div>
+  </section>
+
+  <section class="page">
+    <div class="section-tag">04 · ARCHITECTURE</div>
+    <h2>系统架构与组件边界</h2>
+    <div class="stack">
+      <div class="layer"><b>Web</b><div>Next.js App Router、React、XYFlow、Decision Map、Inspector、Timeline、Human Checkpoint、Report</div></div>
+      <div class="layer"><b>Command API</b><div>Fastify REST、Idempotency-Key、Session commands、HumanDecision、Report</div></div>
+      <div class="layer"><b>Core Engine</b><div>Workflow state machine、Arena orchestration、Cross Examination、Replay、Conflict detection</div></div>
+      <div class="layer"><b>Shared Contracts</b><div>Zod schemas、领域对象、DTO、状态迁移不变量、UUIDv7</div></div>
+      <div class="layer"><b>Adapters</b><div>MockLlmProvider、OpenAI-compatible Provider、结构化输出校验与修复</div></div>
+      <div class="layer"><b>Persistence</b><div>PostgreSQL 16、Drizzle ORM、聚合 View、Event repository、FinalReport repository</div></div>
+      <div class="layer"><b>Eventing</b><div>ExecutionEvent、事务后 EventBus、SSE replay/live、Last-Event-ID</div></div>
+    </div>
+
+    <h3>1.1 目录结构</h3>
+    <pre>apps/web              # Next.js 页面、组件、Decision Map 与浏览器状态
+services/core         # Workflow、Arena、API、SSE、Replay、Checkpoint
+packages/shared       # 领域 Schema、状态机、DTO、ID 与事件视图
+lib/db                # Drizzle Schema、迁移、Repository、SQL View
+lib/llm               # Mock 与 OpenAI-compatible Provider
+docs/                 # 架构、AI 历史、实验、设计与投稿材料
+scripts/              # Demo runner、稳定性测试、AI 历史导出</pre>
+
+    <h3>1.2 模块职责</h3>
+    <table>
+      <thead><tr><th>模块</th><th>职责</th><th>约束</th></tr></thead>
+      <tbody>
+        <tr><td>claim-selector</td><td>按固定优先级选择 Claim</td><td>纯规则，可单元测试</td></tr>
+        <tr><td>challenger-assigner</td><td>分配异角色质询者</td><td>不得自问自答</td></tr>
+        <tr><td>cross-examination</td><td>生成质询、回应和核验状态</td><td>单分支失败隔离</td></tr>
+        <tr><td>conflict-detector</td><td>根据 Claim / Challenge / 版本规则生成 Conflict</td><td>高风险必须转人工</td></tr>
+        <tr><td>decision-replay</td><td>按事件序列恢复地图状态</td><td>共享给 Core 与 Web</td></tr>
+        <tr><td>inspector repository</td><td>聚合 Claim、Evidence、Challenge、Conflict</td><td>稳定 camelCase DTO</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="page">
+    <div class="section-tag">04 · ARCHITECTURE</div>
+    <h2>状态机、事件模型与一致性</h2>
+    <h3>2.1 DecisionSession 领域状态</h3>
+    <div class="diagram">
+      <div class="flow" style="flex-wrap: wrap; gap: 2mm;">
+        <div class="node">CREATED</div><div class="arrow">→</div>
+        <div class="node">PLANNING</div><div class="arrow">→</div>
+        <div class="node">ANALYZING</div><div class="arrow">→</div>
+        <div class="node">CHALLENGING</div><div class="arrow">→</div>
+        <div class="node">CONFLICT_DETECTED</div><div class="arrow">→</div>
+        <div class="node">HUMAN_REVIEW</div><div class="arrow">→</div>
+        <div class="node">REASSESSING?</div><div class="arrow">→</div>
+        <div class="node">DECIDED</div><div class="arrow">→</div>
+        <div class="node">REPORT_READY</div>
+      </div>
+    </div>
+    <p class="small">
+      operationalStatus 与领域阶段分离：ACTIVE、PAUSED、FAILED、COMPLETED。刷新后通过 phase、
+      operationalStatus 和事件序列恢复页面，避免把临时前端状态作为事实源。
+    </p>
+
+    <h3>2.2 ExecutionEvent</h3>
+    <pre>ExecutionEvent {
+  id, sessionId, sequence, correlationId, traceId?,
+  type:
+    SESSION_STATE_CHANGED |
+    AGENT_RUN_STARTED | AGENT_RUN_COMPLETED | AGENT_RUN_FAILED |
+    CLAIM_CREATED |
+    CHALLENGE_CREATED | CHALLENGE_RESOLVED | CHALLENGE_FAILED |
+    CONFLICT_DETECTED | HUMAN_REVIEW_REQUIRED | SESSION_COMPLETED,
+  payload, occurredAt, promptVersionId?
+}</pre>
+
+    <div class="grid-2">
+      <div class="card">
+        <h4>写入顺序</h4>
+        <ol class="small">
+          <li>在同一 PostgreSQL 事务中分配 sequence。</li>
+          <li>追加不可变事件。</li>
+          <li>事务提交。</li>
+          <li>提交后才由 EventBus 发布。</li>
+        </ol>
+      </div>
+      <div class="card">
+        <h4>SSE 恢复</h4>
+        <ol class="small">
+          <li>客户端携带 Last-Event-ID 或 after。</li>
+          <li>先查询持久化事件进行 replay。</li>
+          <li>直播事件按 session 连续 sequence 缓冲。</li>
+          <li>重复或过期事件被幂等忽略。</li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="callout warn">
+      <strong>一致性原则：</strong>
+      REST 负责写入命令，SSE 负责单向事实流；任何写操作必须先完成数据库提交，之后才允许前端看到事件。
+    </div>
+  </section>
+
+  <section class="page">
+    <div class="section-tag">04 · ARCHITECTURE</div>
+    <h2>数据持久化与 Human-in-the-loop</h2>
+    <h3>3.1 核心表</h3>
+    <div class="grid-4">
+      <div class="card small">Project</div>
+      <div class="card small">DecisionSession</div>
+      <div class="card small">AgentRole</div>
+      <div class="card small">AgentRun</div>
+      <div class="card small">Claim</div>
+      <div class="card small">Evidence</div>
+      <div class="card small">Challenge</div>
+      <div class="card small">Conflict</div>
+      <div class="card small">HumanDecision</div>
+      <div class="card small">PromptVersion</div>
+      <div class="card small">ExecutionEvent</div>
+      <div class="card small">FinalReport</div>
+    </div>
+
+    <h3>3.2 Inspector 聚合</h3>
+    <pre>GET /api/sessions/:sessionId/claims/:claimId/inspector
+
+ClaimInspectorDTO {
+  claim,
+  evidence[],
+  challenges[]: { challenge, responseClaim? },
+  conflicts[],
+  provenance: { agentRun, promptVersion },
+  decisionRationale: {
+    outcome, summary, decisiveChallengeIds[],
+    evidenceIds[], humanDecisionId?
+  }
+}</pre>
+    <p class="small">
+      SQL View 完成必要 Join 和排序，Repository 映射稳定 DTO。前端不直接依赖数据库表或 View 结构，
+      减少多次请求并避免 UI 与数据库耦合。
+    </p>
+
+    <h3>3.3 HumanDecision</h3>
+    <pre>HumanDecision {
+  id, sessionId, conflictId,
+  action: accept_challenge | uphold_claim | request_more_analysis,
+  rationale,
+  affectedClaimIds, affectedAgentRoleIds,
+  previousConclusion, newConclusion,
+  operatorId, createdAt
+}</pre>
+
+    <div class="grid-3">
+      <div class="card"><h4>采纳质询</h4><p class="small">接受异议，推动修订或收敛为有限结论。</p></div>
+      <div class="card"><h4>维持判断</h4><p class="small">保留原结论，但必须记录 rationale 和影响。</p></div>
+      <div class="card"><h4>补充分析</h4><p class="small">进入一次受控补充轮，然后重新回到人工复核。</p></div>
+    </div>
+
+    <div class="callout">
+      <strong>Human Intent 落地：</strong>
+      人类选择、理由、受影响 Claim / Agent、前后结论都写入同一事务事件，并可从 Replay 追溯到决策解释。
+    </div>
+  </section>
+
+  <section class="page">
+    <div class="section-tag">05 · INTENT CONTROL</div>
+    <h2>意图控制策略：从自然语言到可测试协议</h2>
+    <h3>1.1 上下文分层</h3>
+    <table>
+      <thead><tr><th>层</th><th>内容</th><th>控制目的</th></tr></thead>
+      <tbody>
+        <tr><td>系统约束</td><td>角色、目标、评价标准、证据要求、冲突偏好、输出 Schema</td><td>定义“允许生成什么”</td></tr>
+        <tr><td>任务上下文</td><td>项目输入、当前阶段、目标 Claim、已有 Evidence、允许引用的 ID</td><td>定义“本次要判断什么”</td></tr>
+        <tr><td>修复上下文</td><td>失败原因、目标 Schema、错误路径、原输出摘要</td><td>定义“如何修正而不扩题”</td></tr>
+        <tr><td>审计上下文</td><td>correlationId、promptVersionId、模型参数摘要、事件 sequence</td><td>定义“结果来自哪次调用”</td></tr>
+      </tbody>
+    </table>
+
+    <h3>1.2 Prompt 设计原则</h3>
+    <div class="grid-2">
+      <div class="card">
+        <h4>约束生成边界</h4>
+        <ul class="small">
+          <li>输出必须是结构化对象，而不是自然语言长文。</li>
+          <li>枚举值、必填字段、引用关系由 Schema 决定。</li>
+          <li>Assumption 必须显式标记，不允许升级为 Fact。</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4>保留人工控制</h4>
+        <ul class="small">
+          <li>LLM 只能建议，不能自动关闭高风险 Conflict。</li>
+          <li>人工纠偏是状态变化的一部分。</li>
+          <li>补充分析最多一次，防止无限扩展。</li>
+        </ul>
+      </div>
+    </div>
+
+    <h3>1.3 用户需求如何被拆成协议</h3>
+    <pre>“让不同 Agent 互相质疑”
+  → Claim 表示可质询断言
+  → Challenge 表示一次定向质疑
+  → 新版 Claim 表示回应
+  → 主持人核验 resolved / unresolved
+  → Conflict 表示未解决分歧
+  → HumanDecision 表示最终裁决</pre>
+
+    <h3>1.4 模型不可控问题的工程方案</h3>
+    <div class="sequence">
+      <div class="sequence-row"><b>JSON parse</b><span>解析失败进入明确错误路径，不把文本强行当对象。</span></div>
+      <div class="sequence-row"><b>Zod validate</b><span>校验枚举、必填字段、数值范围、引用和版本关系。</span></div>
+      <div class="sequence-row"><b>Repair once</b><span>只针对结构或引用问题执行一次修复 Prompt。</span></div>
+      <div class="sequence-row"><b>Isolate</b><span>仍失败时记录当前 AgentRun / Challenge 失败，不毒化其他分支。</span></div>
+    </div>
+  </section>
+
+  <section class="page">
+    <div class="section-tag">05 · INTENT CONTROL</div>
+    <h2>结构化输出、版本与可追踪链路</h2>
+    <h3>2.1 LLM Provider 接口</h3>
+    <pre>interface LlmProvider {
+  generateStructured&lt;T&gt;(
+    input: LlmRequest,
+    schema: ZodSchema&lt;T&gt;,
+    signal: AbortSignal
+  ): Promise&lt;LlmResult&lt;T&gt;&gt;
+}</pre>
+    <div class="grid-2">
+      <div class="card wash">
+        <h4>MockLlmProvider</h4>
+        <p class="small">读取固定 fixture，返回确定性结构化对象。无外网、无模型 API 时可完成全流程。</p>
+      </div>
+      <div class="card wash">
+        <h4>OpenAiCompatibleProvider</h4>
+        <p class="small">通过服务端环境变量配置真实模型，结果经过同一套解析、校验和修复管线。</p>
+      </div>
+    </div>
+
+    <h3>2.2 Claim 版本不可覆盖</h3>
+    <div class="diagram">
+      <div class="flow">
+        <div class="node">Claim v1<br />原始断言</div><div class="arrow">→</div>
+        <div class="node">Challenge<br />证据不足</div><div class="arrow">→</div>
+        <div class="node">Claim v2<br />限定适用范围</div><div class="arrow">→</div>
+        <div class="node">主持人<br />解除 / 保留冲突</div>
+      </div>
+    </div>
+    <p class="small">
+      旧 Claim 不被改写。rootClaimId 连接版本链，revisionOfClaimId 指向被修订版本，respondsToChallengeId
+      指向触发修订的质询。Replay 因此可以展示“哪个论点在何时变化”。
+    </p>
+
+    <h3>2.3 correlationId 传播</h3>
+    <table>
+      <thead><tr><th>工作单元</th><th>correlationId</th><th>追踪目标</th></tr></thead>
+      <tbody>
+        <tr><td>AgentRun</td><td>运行级 ID</td><td>Prompt、Token、耗时、输出校验、相关 Claim</td></tr>
+        <tr><td>Challenge</td><td>目标 Claim + challenger 的一次尝试</td><td>created / resolved / failed 三类事件</td></tr>
+        <tr><td>HumanDecision</td><td>HumanDecision.id</td><td>SESSION_STATE_CHANGED 与决策解释</td></tr>
+      </tbody>
+    </table>
+
+    <h3>2.4 PromptVersion 与 Commit 的双向映射</h3>
+    <ul>
+      <li>PromptVersion 记录角色或任务使用的提示版本。</li>
+      <li>AgentRun 记录 PromptVersion、模型和参数摘要。</li>
+      <li>Claim、Challenge、Evidence 保留 agentRunId 或 promptVersionId。</li>
+      <li>AI 历史文档记录对应 Commit 和测试证据，形成可复核闭环。</li>
+    </ul>
+
+    <div class="callout">
+      <strong>意图控制的核心：</strong>
+      不让 Prompt 决定整个系统结构，而让领域模型、Schema、确定性编排和测试共同约束模型输出。
+    </div>
+  </section>
+
+  <section class="page">
+    <div class="section-tag">05 · INTENT CONTROL</div>
+    <h2>AI 协作开发方法与人工纠偏</h2>
+    <h3>3.1 协作角色分工</h3>
+    <table>
+      <thead><tr><th>角色</th><th>职责</th><th>不可让渡的边界</th></tr></thead>
+      <tbody>
+        <tr><td>人类负责人</td><td>确定产品目标、约束范围、选择方案、最终验收</td><td>高风险结论、范围扩张、真实提交</td></tr>
+        <tr><td>AI 设计协作者</td><td>分解需求、比较方案、生成契约、提出风险</td><td>不能自行改变比赛目标或声称未验证结果</td></tr>
+        <tr><td>AI 编程协作者</td><td>实现模块、补测试、定位 Bug、整理证据</td><td>不能绕过架构规则或隐藏失败</td></tr>
+        <tr><td>独立复审</td><td>从边界、并发、安全和一致性重新检查</td><td>发现的问题必须回到测试和 Commit</td></tr>
+      </tbody>
+    </table>
+
+    <h3>3.2 一轮协作的标准动作</h3>
+    <div class="sequence">
+      <div class="sequence-row"><b>1 · 目标</b><span>用户描述业务意图与验收边界，不直接要求“写一个大而全系统”。</span></div>
+      <div class="sequence-row"><b>2 · 方案</b><span>AI 给出数据结构、状态流、失败路径与测试计划。</span></div>
+      <div class="sequence-row"><b>3 · 纠偏</b><span>人类接受、拒绝或收敛建议，明确不做什么。</span></div>
+      <div class="sequence-row"><b>4 · 实现</b><span>按模块小步落地，每次变更对应功能与 Commit。</span></div>
+      <div class="sequence-row"><b>5 · 验证</b><span>类型、单元、集成、E2E、稳定性或人工检查留下输出。</span></div>
+      <div class="sequence-row"><b>6 · 复审</b><span>独立复审寻找竞态、幻觉、引用悬空和恢复问题。</span></div>
+      <div class="sequence-row"><b>7 · 记录</b><span>把 Prompt、建议、纠偏、代码、测试和 Commit 写入 AI 历史。</span></div>
+    </div>
+
+    <h3>3.3 人工纠偏的实际例子</h3>
+    <div class="grid-2">
+      <div class="card">
+        <h4>避免角色膨胀</h4>
+        <p class="small">
+          用户提出增加数据分析、运营、合规、伦理和逻辑分析角色。最终方案保留五个一级 Agent，
+          其余能力作为 Lens 内聚，避免复杂度失控。
+        </p>
+      </div>
+      <div class="card">
+        <h4>接受独立复审</h4>
+        <p class="small">
+          AI 初版通过了基础测试，但复审发现事件对象可变、SSE 有丢事件窗口、幂等记录可能卡死。
+          这些风险被逐一转化为失败测试和修复 Commit。
+        </p>
+      </div>
+    </div>
+
+    <h3>3.4 禁止的协作方式</h3>
+    <ul>
+      <li>不允许一次性要求“把全部功能都做了”，再用单个 initial commit 伪装演进历史。</li>
+      <li>不允许把用户的纠偏、失败测试或 Bug 修复从 AI 历史中删除。</li>
+      <li>不允许用真实模型口吻描述 Mock fixture 结果。</li>
+      <li>不允许以“AI 说通过”代替实际命令输出。</li>
+    </ul>
+  </section>
+
+  <section class="page">
+    <div class="section-tag">06 · REPRODUCIBILITY</div>
+    <h2>可复现性论证</h2>
+    <p class="lead">
+      可复现的不是单次模型文本，而是从输入、配置、Prompt、事件、领域对象到人工裁决和最终报告的完整决策过程。
+    </p>
+
+    <h3>1.1 复现链</h3>
+    <div class="diagram">
+      <div class="flow">
+        <div class="node">Input</div><div class="arrow">→</div>
+        <div class="node">Arena Config</div><div class="arrow">→</div>
+        <div class="node">Prompt Versions</div><div class="arrow">→</div>
+        <div class="node">Agent Outputs</div><div class="arrow">→</div>
+        <div class="node">Claims / Evidence</div><div class="arrow">→</div>
+        <div class="node">Challenges / Conflicts</div><div class="arrow">→</div>
+        <div class="node">HumanDecision</div><div class="arrow">→</div>
+        <div class="node">Report</div>
+      </div>
+    </div>
+
+    <h3>1.2 复现所需固定项</h3>
+    <table>
+      <thead><tr><th>固定项</th><th>仓库证据</th></tr></thead>
+      <tbody>
+        <tr><td>项目输入</td><td class="mono">fixtures/lab-safety-project.json</td></tr>
+        <tr><td>预期报告</td><td class="mono">fixtures/expected-final-report.json</td></tr>
+        <tr><td>依赖版本</td><td class="mono">package.json + pnpm-lock.yaml</td></tr>
+        <tr><td>环境变量模板</td><td class="mono">.env.example</td></tr>
+        <tr><td>数据库迁移</td><td class="mono">lib/db/migrations/0001..0004</td></tr>
+        <tr><td>模型模式</td><td>LLM_MODE=mock 或 openai-compatible</td></tr>
+        <tr><td>事件事实源</td><td>execution_events + ExecutionEvent schema</td></tr>
+        <tr><td>验证输出</td><td>test、E2E、build、stability 原始记录</td></tr>
+      </tbody>
+    </table>
+
+    <h3>1.3 两种复现路径</h3>
+    <div class="grid-2">
+      <div class="card wash">
+        <h4>离线固定路径</h4>
+        <ol class="small">
+          <li>安装依赖。</li>
+          <li>运行 <code>corepack pnpm demo:fixture</code>。</li>
+          <li>使用 MockLlmProvider 完整推进到 HUMAN_REVIEW。</li>
+          <li>无需数据库、外网或模型 API。</li>
+        </ol>
+      </div>
+      <div class="card wash">
+        <h4>完整产品路径</h4>
+        <ol class="small">
+          <li>Docker 启动 PostgreSQL。</li>
+          <li>复制环境变量并执行迁移。</li>
+          <li>启动 Web 与 Core。</li>
+          <li>通过 REST 创建 UUID 会话，SSE 实时更新。</li>
+          <li>完成人工裁决并打开持久化报告。</li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="callout">
+      <strong>10 分钟目标：</strong>
+      干净机器按 README 完成安装、数据库、迁移和启动。网络受限时使用 Mock Mode，
+      固定 Demo 与 offline fixture runner 仍可运行。
+    </div>
+  </section>
+
+  <section class="page">
+    <div class="section-tag">06 · REPRODUCIBILITY</div>
+    <h2>降级、恢复与失败处理</h2>
+    <h3>2.1 降级矩阵</h3>
+    <table>
+      <thead><tr><th>故障</th><th>系统行为</th><th>用户可见状态</th></tr></thead>
+      <tbody>
+        <tr><td>真实模型 API 不可用</td><td>可切换 Mock Mode；固定 Demo 独立运行</td><td>Provider 模式与 fixture 标识明确</td></tr>
+        <tr><td>单个 AgentRun 失败</td><td>记录 AGENT_RUN_FAILED，其他角色继续</td><td>失败节点与失败原因可见</td></tr>
+        <tr><td>单个 Challenge 失败</td><td>记录 CHALLENGE_FAILED，不阻塞其他质询</td><td>当前质疑标记失败或未解决</td></tr>
+        <tr><td>结构输出错误</td><td>解析和 Schema 校验，最多一次 Repair</td><td>重试中或明确失败</td></tr>
+        <tr><td>SSE 断线</td><td>Last-Event-ID 或 after 补发事件</td><td>重连后状态恢复</td></tr>
+        <tr><td>并发重复写</td><td>Idempotency-Key + lease fencing</td><td>只应用一次结果</td></tr>
+      </tbody>
+    </table>
+
+    <h3>2.2 SSE 恢复算法</h3>
+    <div class="sequence">
+      <div class="sequence-row"><b>Subscribe</b><span>先订阅实时事件，缓存 replay 期间到达的事件。</span></div>
+      <div class="sequence-row"><b>Replay</b><span>按 after / Last-Event-ID 查询持久化事件并送达。</span></div>
+      <div class="sequence-row"><b>Gap</b><span>检测缺失 sequence，不丢弃后续乱序事件。</span></div>
+      <div class="sequence-row"><b>Backoff</b><span>gap recovery 使用 25ms 到 1000ms 指数退避。</span></div>
+      <div class="sequence-row"><b>Idempotence</b><span>sequence ≤ lastSequence 的事件被忽略。</span></div>
+      <div class="sequence-row"><b>Cleanup</b><span>close / error 时释放订阅、计时器和 heartbeat。</span></div>
+    </div>
+
+    <h3>2.3 幂等与 lease fencing</h3>
+    <ul>
+      <li>同一 Idempotency-Key 的并发请求只允许一个执行者持有 lease。</li>
+      <li>进程崩溃后，过期 lease 可以被安全回收。</li>
+      <li>旧 lease 不能覆盖或删除新 lease 的完成结果。</li>
+      <li>human decision 通过 HTTP 与 SSE 同时到达时只应用一次。</li>
+    </ul>
+
+    <h3>2.4 安全边界</h3>
+    <div class="grid-2">
+      <div class="card">
+        <h4>输入与密钥</h4>
+        <ul class="small">
+          <li>API 请求由 Zod 校验。</li>
+          <li>项目输入作为不可信数据处理，不能覆盖系统指令。</li>
+          <li>API Key 只存在服务端环境变量。</li>
+          <li>日志不输出密钥或完整敏感输入。</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4>报告完整性</h4>
+        <ul class="small">
+          <li>导出前检查 Claim、Evidence 引用。</li>
+          <li>检查 Conflict 是否仍处于待裁决状态。</li>
+          <li>只汇总已通过 Schema 的对象。</li>
+          <li>最终报告保留人工裁决与决策解释。</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="page">
+    <div class="section-tag">07 · EVALUATION</div>
+    <h2>实验设计与实际验证结果</h2>
+    <h3>1.1 已实际执行的工程验证</h3>
+    <table>
+      <thead><tr><th>验证项</th><th>命令</th><th>结果</th></tr></thead>
+      <tbody>
+        <tr><td>类型检查</td><td class="mono">corepack pnpm typecheck</td><td>Shared / Web / DB / LLM / Core 全部通过</td></tr>
+        <tr><td>单元与集成测试</td><td class="mono">corepack pnpm test</td><td>156/156 通过</td></tr>
+        <tr><td>E2E</td><td class="mono">corepack pnpm --filter @nexus/web test:e2e</td><td>桌面与移动 4/4 通过</td></tr>
+        <tr><td>生产构建</td><td class="mono">corepack pnpm --filter @nexus/web build</td><td>Next.js 15.5.25 通过</td></tr>
+        <tr><td>重复稳定性</td><td class="mono">corepack pnpm test:stability</td><td>80/80 Playwright 用例通过</td></tr>
+        <tr><td>离线 fixture</td><td class="mono">corepack pnpm demo:fixture</td><td>到达 HUMAN_REVIEW，输出 12 Claims / 5 Challenges / 4 Conflicts / 36 Events</td></tr>
+      </tbody>
+    </table>
+
+    <h3>1.2 稳定性输出解释</h3>
+    <div class="grid-3">
+      <div class="metric"><b>20×</b><span>桌面固定流程重复<br />每个重复包含 2 个 E2E</span></div>
+      <div class="metric"><b>20×</b><span>移动固定流程重复<br />每个重复包含 2 个 E2E</span></div>
+      <div class="metric"><b>80/80</b><span>最终测试用例<br />原始输出已入库</span></div>
+    </div>
+    <p class="small muted">
+      注意分母的准确含义：命令使用 <code>--repeat-each=20</code>，项目为桌面与移动，每个项目有 2 个 E2E，
+      因此 2 × 2 × 20 = 80 个 Playwright 测试用例。文档不把 80 个用例误写成 80 个不同业务场景。
+    </p>
+
+    <h3>1.3 已验证的关键行为</h3>
+    <div class="grid-2">
+      <div class="card">
+        <ul class="checklist small">
+          <li>固定 Demo 到达“有限立项”</li>
+          <li>live session 通过 SSE 更新工作区</li>
+          <li>人工决策后生成持久化报告</li>
+          <li>移动和桌面关键区域无重叠</li>
+        </ul>
+      </div>
+      <div class="card">
+        <ul class="checklist small">
+          <li>补充轮只执行一次</li>
+          <li>旧 Claim 不会被原地修改</li>
+          <li>事件重放不丢最终人工裁决</li>
+          <li>报告只在终态生成</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="callout">
+      <strong>原始输出：</strong>
+      <code>docs/experiments/stability-output.txt</code> 记录命令、起止时间、退出码、完整 stdout/stderr 和最终
+      <code>80 passed</code>。
+    </div>
+  </section>
+
+  <section class="page">
+    <div class="section-tag">07 · EVALUATION</div>
+    <h2>产品流程界面证据</h2>
+    <figure class="screenshot-wide">
+      <img src="../../artifacts/playwright/desktop-1440x900-conflict.png" alt="桌面冲突地图界面" />
+      <figcaption>桌面 1440×900：Decision Map 展示 Agent、Claim、Challenge 与 Conflict，Inspector 可聚合查看证据和决策解释。</figcaption>
+    </figure>
+    <div class="grid-2">
+      <figure class="screenshot-small">
+        <img src="../../artifacts/playwright/desktop-1440x900-final.png" alt="桌面最终裁决界面" />
+        <figcaption>人工裁决后：最终结论切换为“有限立项”，Timeline 保留状态变化。</figcaption>
+      </figure>
+      <figure class="screenshot-small">
+        <img src="../../artifacts/playwright/desktop-1440x900-report.png" alt="桌面最终报告" />
+        <figcaption>FinalReport：包含 Executive Summary、关键冲突、人工裁决与下一步行动。</figcaption>
+      </figure>
+    </div>
+    <p class="small muted">
+      截图来源：<code>artifacts/playwright/</code>。同一组 Playwright 测试同时验证桌面和移动视口，
+      并检查关键区域几何重叠与最终结论。
+    </p>
+  </section>
+
+  <section class="page">
+    <div class="section-tag">07 · EVALUATION</div>
+    <h2>移动端适配与评估边界</h2>
+    <div class="grid-2">
+      <figure class="screenshot-small">
+        <img src="../../artifacts/playwright/mobile-390x844-conflict.png" alt="移动端冲突界面" />
+        <figcaption>移动端 390×844：Decision Map 纵向主线，Inspector 与 Agent 面板通过抽屉组织。</figcaption>
+      </figure>
+      <figure class="screenshot-small">
+        <img src="../../artifacts/playwright/mobile-390x844-final.png" alt="移动端最终界面" />
+        <figcaption>移动端最终结论与决策解释保持可读，未因缩放导致主要操作不可用。</figcaption>
+      </figure>
+    </div>
+
+    <h3>3.1 指标定义</h3>
+    <table>
+      <thead><tr><th>指标</th><th>定义</th><th>当前状态</th></tr></thead>
+      <tbody>
+        <tr><td>评审耗时</td><td>从输入提交到出现可审阅结论</td><td>实验计划已定义，人工基线与真实模型大规模运行未执行</td></tr>
+        <tr><td>风险发现数</td><td>初始风险与质询后新增风险数量</td><td>fixture 计数已记录；统计口径需追加实验 CSV</td></tr>
+        <tr><td>结论一致性</td><td>同输入、同模式下重复运行是否得到一致结论</td><td>固定流程稳定性已验证，未宣称为通用模型一致性</td></tr>
+        <tr><td>人工介入价值</td><td>无人工与有人工裁决的结论差异</td><td>协议已实现；对照组实验尚未执行</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout warn">
+      <strong>不虚构效果：</strong>
+      本作品当前可证明的是工程可运行、固定流程可复现、关键边界有测试覆盖。它尚未证明在真实组织中可以
+      缩短一定比例的评审时间或提升一定比例的正确率，因此正文不做这类结论。
+    </div>
+
+    <h3>3.2 后续可执行实验</h3>
+    <ul>
+      <li>使用同一项目材料完成人工单角色基线，记录完成时间和风险发现。</li>
+      <li>分别在 Mock Mode 与真实模型模式完成 20 次运行，不混合两组结果。</li>
+      <li>保留 Claim、Challenge、Conflict、HumanDecision 和 Event sequence 原始 ID。</li>
+      <li>对无人工裁决和有人工裁决两条路径使用同一 fixture。</li>
+      <li>失败运行不得从稳定性分母中删除。</li>
+    </ul>
+
+    <p class="small muted">
+      实验模板与 CSV 表头见 <code>docs/experiments/evaluation-plan.md</code>，所有未填写字段保持空白。
+    </p>
+  </section>
+
+  <section class="page">
+    <div class="section-tag">08 · AI COLLABORATION</div>
+    <h2>AI 协同证据：三条完整 Prompt 链</h2>
+    <p class="lead">
+      三条链路覆盖数据结构、并发状态和事件恢复三个高风险主题。每条都保留用户 Prompt、AI 建议、人工纠偏、
+      Bug 修复、回归测试和 Commit。
+    </p>
+
+    <table>
+      <thead><tr><th>链路</th><th>用户目标</th><th>关键纠偏 / Bug</th><th>Commit</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>1. Decision Graph 数据结构</td>
+          <td>约束 Claim / Evidence / Challenge / Conflict，避免不可维护嵌套 JSON</td>
+          <td>普通 UUID 校验放宽了 UUIDv7 全局约束</td>
+          <td class="mono">901ce8c</td>
+        </tr>
+        <tr>
+          <td>2. 并行 Agent 状态竞争</td>
+          <td>隔离 Agent 和 Challenge 失败，确保 Claim 不可变</td>
+          <td>依赖可修改原 Claim；事件对象后续可变；补充轮并发重复</td>
+          <td class="mono">c7b0c8b<br />e47c016<br />cfad589</td>
+        </tr>
+        <tr>
+          <td>3. SSE 事件丢失与幂等 lease</td>
+          <td>支持 Last-Event-ID 回放、连续序号和持久化幂等</td>
+          <td>replay/live 窗口丢事件、乱序误丢、崩溃留下 processing、旧 lease 覆盖新结果</td>
+          <td class="mono">ac90dbe<br />39f8ce7<br />c77551a<br />79f7e25</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>证据文件</h3>
+    <div class="grid-2">
+      <div class="card wash">
+        <h4>可读对话导出</h4>
+        <p class="mono small">docs/ai-history/0016-codex-conversation-export.md</p>
+        <p class="small muted">100 条去噪后的实质用户 / AI 消息。</p>
+      </div>
+      <div class="card wash">
+        <h4>结构化对话快照</h4>
+        <p class="mono small">docs/ai-history/exports/codex-session-curated.jsonl</p>
+        <p class="small muted">按消息逐行保存，便于评审检索与溯源。</p>
+      </div>
+      <div class="card wash">
+        <h4>Prompt 链</h4>
+        <p class="mono small">docs/ai-history/0017-core-prompt-chains.md</p>
+        <p class="small muted">三条链的完整问题、建议、纠偏与验证。</p>
+      </div>
+      <div class="card wash">
+        <h4>导出脚本</h4>
+        <p class="mono small">scripts/export-codex-history.ps1</p>
+        <p class="small muted">从 Codex Desktop 原始 JSONL 生成快照。</p>
+      </div>
+    </div>
+
+    <div class="callout">
+      <strong>去噪原则：</strong>
+      只保留与产品、架构、实现、Bug、测试和提交有关的实质消息；过滤环境上下文、工具输出、寒暄、
+      重复状态和子 Agent 通知。
+    </div>
+  </section>
+
+  <section class="page">
+    <div class="section-tag">08 · AI COLLABORATION</div>
+    <h2>Prompt 链 1：Decision Graph 与 UUIDv7</h2>
+    <h3>1.1 用户 Prompt</h3>
+    <pre>Claim ID 使用 UUID，避免冲突。
+Claim 增加版本号和时间戳，保留变更历史。
+Claim 增加 relatedClaimIds，表达逻辑关系。
+Evidence 增加 description 和 validityPeriod。
+Challenge 增加 context 和 resolutionStrategy。
+Conflict 增加 resolutionSuggestion 和 impactScope。</pre>
+
+    <h3>1.2 AI 建议</h3>
+    <ul>
+      <li>所有核心对象统一 UUIDv7，兼顾唯一性和时间排序。</li>
+      <li>Claim 不原地修改，每次实质变化产生新版本。</li>
+      <li>用 rootClaimId、revisionOfClaimId、revision 表达版本链。</li>
+      <li>把无类型 relatedClaimIds 改为 supports、contradicts、qualifies、depends_on。</li>
+      <li>Conflict 建议不能自动关闭冲突，高严重度必须转人工。</li>
+    </ul>
+
+    <h3>1.3 人工纠偏</h3>
+    <p>
+      用户接受 schema，并补充要求：ExecutionEvent 增加 correlationId；Inspector 增加可追溯决策解释；
+      报告加入 Decision Explanation；多语言只预留 locale，首版不扩展双语功能。
+    </p>
+
+    <h3>1.4 发现并修复 Bug</h3>
+    <div class="callout danger">
+      最初使用 <code>z.string().uuid()</code>，UUID v1/v4 也会通过，无法落实“所有持久化 ID 必须为 UUIDv7”的约束。
+    </div>
+    <p>修复要求：版本位必须为 7；RFC 变体位必须为 8、9、a 或 b；newId 通过；v4 与非 UUID 拒绝。</p>
+    <pre>共享包测试：9/9 通过
+TypeScript 类型检查：通过
+最终 Commit：901ce8c
+设计规格：docs/superpowers/specs/2026-09-10-decision-arena-design.md</pre>
+
+    <h3>1.5 视频展示建议</h3>
+    <ul class="small">
+      <li>同屏展示原始 Prompt 与 AI 回复。</li>
+      <li>切到 <code>IdSchema</code> 修复前后的代码 Diff。</li>
+      <li>展示 UUIDv7 通过、v4 拒绝的测试输出。</li>
+      <li>最后显示 Commit <code>901ce8c</code> 与设计规格位置。</li>
+    </ul>
+  </section>
+
+  <section class="page">
+    <div class="section-tag">08 · AI COLLABORATION</div>
+    <h2>Prompt 链 2：并行状态竞争与不可变性</h2>
+    <h3>2.1 用户 Prompt</h3>
+    <pre>实现多 Agent 分析和交叉质询。
+使用 Promise.allSettled 隔离单个 Agent 失败。
+每个 Challenge 必须有独立 try/catch，不能中断其他 Challenge。
+原 Claim 不可被原地修改，回应必须形成新版本。</pre>
+
+    <h3>2.2 AI 建议</h3>
+    <ul>
+      <li>五个 Agent 并行执行，每个 AgentRun 使用独立 correlationId。</li>
+      <li>单 Agent 失败发出 AGENT_RUN_FAILED，其他 Agent 继续。</li>
+      <li>每个 Challenge 独立执行，失败发出 CHALLENGE_FAILED。</li>
+      <li>响应 Claim 必须满足版本、Challenge 和 session 关联约束。</li>
+    </ul>
+
+    <h3>2.3 真实 Bug 与人工纠偏</h3>
+    <table>
+      <thead><tr><th>问题</th><th>修复</th></tr></thead>
+      <tbody>
+        <tr><td>Challenge 依赖可原地修改原 Claim</td><td>交付给依赖的 Claim 使用 structuredClone。</td></tr>
+        <tr><td>响应 Claim 可复用旧 revision</td><td>增加独立校验：版本链、Challenge 关联、session 归属。</td></tr>
+        <tr><td>CHALLENGE_CREATED 事件对象后续仍可变化</td><td>发布 structuredClone(challenge) 不可变快照。</td></tr>
+        <tr><td>补充轮并发请求重复执行</td><td>PostgreSQL session advisory lock + 内存等价串行锁。</td></tr>
+      </tbody>
+    </table>
+
+    <h3>2.4 回归测试</h3>
+    <pre>原 Claim 不可修改
+无效 revision 被拒绝
+Challenge 失败不阻断其他 Challenge
+CHALLENGE_CREATED 在后续状态变化后保持 open 快照
+并发补充轮只执行一次
+补充轮不重复运行 Agent 分析</pre>
+
+    <div class="grid-2">
+      <div class="card">
+        <h4>验证结果</h4>
+        <ul class="small">
+          <li>Core 测试通过</li>
+          <li>TypeScript 类型检查通过</li>
+          <li>相关 Commit：c7b0c8b / e47c016 / cfad589</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4>视频展示建议</h4>
+        <ul class="small">
+          <li>展示 structuredClone Diff</li>
+          <li>展示并发测试从失败到通过</li>
+          <li>展示 advisory lock 与单飞断言</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="page">
+    <div class="section-tag">08 · AI COLLABORATION</div>
+    <h2>Prompt 链 3：SSE 丢失、乱序与幂等 lease</h2>
+    <h3>3.1 用户 Prompt</h3>
+    <pre>使用 SSE 将 ExecutionEvent 推送给前端。
+支持 Last-Event-ID 重连和事件回放。
+后端事务提交后才能发布事件。
+客户端必须能恢复关键状态。
+持久化幂等请求不能重复执行。</pre>
+
+    <h3>3.2 人工纠偏与四个真实问题</h3>
+    <ol>
+      <li>replay 结束到开始订阅之间存在丢失事件窗口。</li>
+      <li>replay 与实时事件合并时，低序号乱序事件在 gap 补齐前被错误丢弃。</li>
+      <li>慢速 replay 期间客户端断开，订阅和 heartbeat 可能未清理。</li>
+      <li>幂等处理中的进程崩溃可能留下永久 processing 记录。</li>
+    </ol>
+
+    <h3>3.3 修复路线</h3>
+    <table>
+      <thead><tr><th>问题</th><th>修复</th></tr></thead>
+      <tbody>
+        <tr><td>事件窗口</td><td>先订阅并缓存实时事件，再读取并写入 replay。</td></tr>
+        <tr><td>乱序</td><td>expectedSequence 与 pending map，只按连续序号推进。</td></tr>
+        <tr><td>gap 轮询</td><td>25ms 到 1000ms 指数退避，防高频 DB 查询。</td></tr>
+        <tr><td>连接清理</td><td>replay 前注册 close / error 清理。</td></tr>
+        <tr><td>崩溃卡死</td><td>幂等记录增加 lease token 和过期回收。</td></tr>
+        <tr><td>旧 lease 覆盖</td><td>过期 lease 回收时使用 fencing，旧 lease 不能删除新结果。</td></tr>
+      </tbody>
+    </table>
+
+    <h3>3.4 回归测试与验证</h3>
+    <pre>SSE replay 期间发布的事件不丢失
+2 / 3 先到的乱序事件最终按 1 / 2 / 3 输出
+慢速 replay 断开后订阅和 heartbeat 被释放
+gap recovery 有上限退避且无重连风暴
+同 key 并发请求只执行一次
+过期 lease 可以安全回收，旧 lease 无法覆盖新 lease
+
+Core / DB / TypeScript：通过
+Playwright：4/4
+稳定性：桌面 + 移动 80/80 用例通过
+相关 Commit：ac90dbe / 39f8ce7 / c77551a / 79f7e25</pre>
+
+    <h3>3.5 视频展示建议</h3>
+    <ul class="small">
+      <li>展示原始需求、失败测试和事件序列图。</li>
+      <li>展示乱序事件 2、3 先到时的 pending buffer。</li>
+      <li>展示 lease fencing 测试和 SSE 重连日志。</li>
+      <li>切换到 Commit Hash 与稳定性原始输出。</li>
+    </ul>
+  </section>
+
+  <section class="page">
+    <div class="section-tag">08 · SUBMISSION</div>
+    <h2>10 分钟极速复现指南</h2>
+    <h3>4.1 环境要求</h3>
+    <div class="grid-3">
+      <div class="card"><h4>Node.js 22</h4><p class="small">仓库锁定 pnpm 10.6.5，使用 corepack 调用。</p></div>
+      <div class="card"><h4>Docker Desktop</h4><p class="small">启动 PostgreSQL 16；离线 fixture runner 不依赖数据库。</p></div>
+      <div class="card"><h4>Git / Chrome</h4><p class="small">浏览产品；Playwright 需要 Chromium。</p></div>
+    </div>
+
+    <h3>4.2 启动步骤</h3>
+    <pre>corepack pnpm install
+docker compose up -d postgres
+Copy-Item .env.example .env       # PowerShell
+corepack pnpm --filter @nexus/db db:migrate
+corepack pnpm dev</pre>
+    <table>
+      <thead><tr><th>入口</th><th>地址</th></tr></thead>
+      <tbody>
+        <tr><td>Web</td><td class="mono">http://127.0.0.1:3000</td></tr>
+        <tr><td>固定 Demo</td><td class="mono">http://127.0.0.1:3000/sessions/demo</td></tr>
+        <tr><td>Core API</td><td class="mono">http://127.0.0.1:4100</td></tr>
+        <tr><td>Health</td><td class="mono">http://127.0.0.1:4100/health</td></tr>
+      </tbody>
+    </table>
+
+    <h3>4.3 两条演示路径</h3>
+    <div class="grid-2">
+      <div class="card wash">
+        <h4>固定 Demo（推荐录屏）</h4>
+        <ol class="small">
+          <li>打开 /sessions/demo。</li>
+          <li>展示初始分析“建议立项”。</li>
+          <li>展示质询后的“暂缓扩张”和采购渠道冲突。</li>
+          <li>执行“采纳质询”。</li>
+          <li>展示最终“有限立项”和决策解释。</li>
+          <li>点击 Timeline 回放。</li>
+          <li>打开最终报告。</li>
+        </ol>
+      </div>
+      <div class="card wash">
+        <h4>live Mock Mode</h4>
+        <ol class="small">
+          <li>POST /api/sessions 创建会话。</li>
+          <li>POST /api/sessions/:id/start，带 Idempotency-Key。</li>
+          <li>打开 /sessions/:id 观察 SSE 更新。</li>
+          <li>完成 HumanDecision。</li>
+          <li>打开 /sessions/:id/report。</li>
+        </ol>
+      </div>
+    </div>
+
+    <h3>4.4 离线复现</h3>
+    <pre>corepack pnpm demo:fixture</pre>
+    <p class="small">使用 fixtures 与 MockLlmProvider，不需要数据库、外网或模型 API。</p>
+
+    <div class="callout">
+      <strong>常见故障：</strong>
+      PostgreSQL 5432 被占用时修改 compose 与 DATABASE_URL；Playwright 浏览器缺失时安装 Chromium；
+      页面无事件时先检查 Core /health 和浏览器 SSE 连接。
+    </div>
+  </section>
+
+  <section class="page">
+    <div class="section-tag">08 · SUBMISSION</div>
+    <h2>8 分钟视频时间图与录制边界</h2>
+    <table>
+      <thead><tr><th>时间</th><th>内容</th><th>必须出现的证据</th></tr></thead>
+      <tbody>
+        <tr><td>0:00–0:20</td><td>初始结论、关键冲突和最终结论概览</td><td>产品画面</td></tr>
+        <tr><td>0:20–0:50</td><td>固定项目输入与五角色配置</td><td>输入、角色、DEMO FIXTURE 标识</td></tr>
+        <tr><td>0:50–1:40</td><td>五角色独立 Claim 与 Evidence</td><td>Agent 状态、证据列表</td></tr>
+        <tr><td>1:40–2:50</td><td>Challenge、回应、主持人评估</td><td>结构化质疑与新版 Claim</td></tr>
+        <tr><td>2:50–3:40</td><td>Conflict Map 与高风险假设</td><td>冲突严重度、影响范围</td></tr>
+        <tr><td>3:40–4:30</td><td>Human Checkpoint 三种动作</td><td>选择、理由、前后结论</td></tr>
+        <tr><td>4:30–5:20</td><td>Replay、决策解释与最终报告</td><td>Timeline 与报告</td></tr>
+        <tr><td>5:20–6:15</td><td>AI 案例 1：Decision Graph / UUIDv7</td><td>Prompt、Diff、测试、Commit</td></tr>
+        <tr><td>6:15–7:10</td><td>AI 案例 2：并行状态竞争</td><td>纠偏、Bug、回归测试、Commit</td></tr>
+        <tr><td>7:10–8:00</td><td>AI 案例 3：Cross Examination / SSE</td><td>协议、测试、稳定性、Commit</td></tr>
+      </tbody>
+    </table>
+
+    <h3>5.1 画面素材清单</h3>
+    <div class="grid-2">
+      <div class="card">
+        <h4>功能录屏</h4>
+        <ul class="checklist small">
+          <li>固定 Demo 全流程</li>
+          <li>Inspector 展开证据与版本</li>
+          <li>Human Checkpoint 三种动作</li>
+          <li>Timeline 回放与最终报告</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4>AI 协同录屏</h4>
+        <ul class="checklist small">
+          <li>原始 Prompt 文本</li>
+          <li>AI 修改建议</li>
+          <li>人的纠偏与 Bug 修复</li>
+          <li>代码 Diff、测试输出、Commit Hash</li>
+        </ul>
+      </div>
+    </div>
+
+    <h3>5.2 当前提交状态</h3>
+    <ul class="checklist">
+      <li>代码仓库、Git 历史、README、AI 对话导出和 Prompt 链已完成。</li>
+      <li>技术 PDF 可由本 HTML 源文件重复渲染。</li>
+    </ul>
+    <ul class="checklist pending">
+      <li>5–8 分钟 MP4 1080p 需由参赛团队完成最终录制、配音和平台命名。</li>
+      <li>团队实名、学校、指导老师、联系方式和赛事封面模板按平台要求补充。</li>
+    </ul>
+
+    <div class="callout warn">
+      <strong>录制真实性：</strong>
+      视频中的 AI 协同片段应直接展示实际对话或可验证的对话导出，不应使用重新扮演的提示词冒充原始交互。
+    </div>
+  </section>
+
+  <section class="page">
+    <div class="section-tag">08 · SUBMISSION</div>
+    <h2>提交索引与最终检查</h2>
+    <h3>6.1 公开访问</h3>
+    <div class="grid-2">
+      <div class="card wash">
+        <h4>GitHub</h4>
+        <p class="mono small">https://github.com/LOST-123456/nexus-decision-arena</p>
+      </div>
+      <div class="card wash">
+        <h4>Gitee</h4>
+        <p class="mono small">https://gitee.com/lost666666/nexus-decision-arena</p>
+      </div>
+    </div>
+
+    <h3>6.2 核心材料索引</h3>
+    <table>
+      <thead><tr><th>要求</th><th>文件 / 地址</th><th>状态</th></tr></thead>
+      <tbody>
+        <tr><td>公开代码仓库</td><td>GitHub + Gitee，main / feature 分支同步</td><td>完成</td></tr>
+        <tr><td>细粒度 Git 历史</td><td>40 个提交，首个为设计冻结</td><td>完成</td></tr>
+        <tr><td>AI 对话导出</td><td>0016 可读导出 + JSONL 结构化快照</td><td>完成</td></tr>
+        <tr><td>3 条核心 Prompt 链</td><td>0017-core-prompt-chains.md</td><td>完成</td></tr>
+        <tr><td>10 分钟复现指南</td><td>README.md</td><td>完成</td></tr>
+        <tr><td>环境变量模板</td><td>.env.example</td><td>完成</td></tr>
+        <tr><td>技术文档 PDF</td><td>本文件渲染输出</td><td>可重复生成</td></tr>
+        <tr><td>演示视频</td><td>MP4 1080p，5–8 分钟</td><td>待团队录制</td></tr>
+        <tr><td>实名与封面</td><td>按赛事平台填写</td><td>待外部信息</td></tr>
+      </tbody>
+    </table>
+
+    <h3>6.3 最终验收清单</h3>
+    <div class="grid-2">
+      <div class="card">
+        <h4>产品与工程</h4>
+        <ul class="checklist small">
+          <li>新用户无需培训完成一次评审</li>
+          <li>分析 → 质询 → 冲突 → 裁决 → 报告完整可见</li>
+          <li>单 Agent 失败不导致会话无响应</li>
+          <li>结构错误可修复或明确失败</li>
+          <li>刷新后关键状态可恢复</li>
+          <li>Mock Mode 无外网可完整运行</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4>Vibe Coding 证据</h4>
+        <ul class="checklist small">
+          <li>Git 历史与功能演进一致</li>
+          <li>Prompt 与 Commit 可映射</li>
+          <li>至少三条完整协作链</li>
+          <li>失败测试和修复过程保留</li>
+          <li>技术文档不超过 30 页</li>
+          <li>视频总长 5–8 分钟且协同片段不少于 2 分钟</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="callout">
+      <strong>文档结束：</strong>
+      本文档与仓库同源，可由 <code>scripts/render-technical-pdf.ps1</code> 在 Chrome 或 Edge 中重复渲染为 A4 PDF。
+    </div>
+  </section>
+</body>
+</html>

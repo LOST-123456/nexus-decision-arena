@@ -157,6 +157,10 @@ corepack pnpm --version
 - `docs/ai-history/0013-human-checkpoint.md`
 - `docs/ai-history/0014-demo-delivery.md`
 - `docs/ai-history/0015-final-fix-wave.md`
+- `docs/ai-history/0016-codex-conversation-export.md`
+- `docs/ai-history/0017-core-prompt-chains.md`
+- `docs/ai-history/exports/codex-session-curated.jsonl`
+- `scripts/export-codex-history.ps1`
 
 ## 架构与协议文档
 
@@ -165,6 +169,28 @@ corepack pnpm --version
 - `docs/user-guide/operator-guide.md`
 - `docs/experiments/evaluation-plan.md`
 - `docs/experiments/submission-checklist.md`
+- `docs/submission/technical-document.html`
+- `docs/submission/video-production-kit.md`
+
+## 技术文档 PDF
+
+技术文档 PDF 位于：
+
+```text
+artifacts/submission/Nexus-Decision-Arena-Technical-Document.pdf
+```
+
+当前为 28 页 A4，正文覆盖意图控制策略、架构设计、错误处理、可复现性论证、实际测试结果、三条核心
+AI 协作链和投稿索引。
+
+在 Windows 上安装 Chrome 或 Edge 后，可由 HTML 源文件重复渲染：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/render-technical-pdf.ps1
+```
+
+HTML 源文件为 `docs/submission/technical-document.html`。重新渲染前应确认页面没有溢出，并保持正文
+不超过 30 页。
 
 ## 8 分钟视频时间图
 
@@ -182,6 +208,7 @@ corepack pnpm --version
 | 7:10-8:00 | AI 协同案例 3：Cross Examination 协议与测试证据 |
 
 AI 协同片段必须同时出现原始 Prompt、AI 建议、人的纠偏、代码 Diff、测试输出和 Commit Hash。
+完整录屏顺序、素材位置和导出参数见 `docs/submission/video-production-kit.md`。
 
 ## PDF 章节图
 
