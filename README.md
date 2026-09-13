@@ -192,6 +192,25 @@ powershell -ExecutionPolicy Bypass -File scripts/render-technical-pdf.ps1
 HTML 源文件为 `docs/submission/technical-document.html`。重新渲染前应确认页面没有溢出，并保持正文
 不超过 30 页。
 
+## 演示视频
+
+自动生成的证据成片位于：
+
+```text
+artifacts/submission/Nexus-Decision-Arena-Demo.mp4
+```
+
+- 时长：7 分 54 秒
+- 分辨率：1920×1080
+- 编码：H.264 / MP4
+- 字幕：视频底部烧录中文字幕
+- 独立字幕：`artifacts/submission/Nexus-Decision-Arena-Demo.zh-CN.srt`
+- 封面：`artifacts/submission/Nexus-Decision-Arena-Demo-poster.png`
+
+视频由 `scripts/render-submission-video.mjs` 从产品截图、真实对话导出、测试输出和 Commit 证据生成。
+如果赛事明确要求“参赛者实时输入 Prompt”的原始屏幕录制，只需替换 5:20–8:00 的 AI 协同片段，其余结构
+无需重做。
+
 ## 8 分钟视频时间图
 
 | 时间 | 画面与证据 |

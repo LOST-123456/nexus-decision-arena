@@ -8,6 +8,18 @@
 本录制包只使用仓库中已经存在的界面、AI 对话导出、代码、测试输出和 Commit。不要重新扮演原始 Prompt，
 也不要把 Mock fixture 描述为真实模型调用。
 
+## 零、当前已生成版本
+
+仓库已经包含一版自动证据成片：
+
+```text
+artifacts/submission/Nexus-Decision-Arena-Demo.mp4
+artifacts/submission/Nexus-Decision-Arena-Demo.zh-CN.srt
+```
+
+该版本为 7 分 54 秒、1920×1080、H.264，底部字幕已经烧录。若赛事明确要求展示参赛者实时输入 Prompt
+的原始屏幕录制，可只替换 5:20–8:00 的 AI 协同片段；其余功能画面和字幕结构可以保留。
+
 ## 一、录制前准备
 
 ### 1. 环境

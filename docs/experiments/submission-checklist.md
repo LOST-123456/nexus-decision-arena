@@ -66,9 +66,18 @@
 - 渲染脚本：`scripts/render-technical-pdf.ps1`
 - PDF：`artifacts/submission/Nexus-Decision-Arena-Technical-Document.pdf`
 - 当前页数：28 页 A4
-- 当前 SHA-256：`868CEC83E431DFBBD306607BC540469D528B85FC0ED6581FA0C333D6016D2E3A`
+- 当前 SHA-256：`979D9E88E7F6B1F1F47B81C039FAC5D89835D422B076EFF5FE925297CDFA59D5`
 
 PDF 重新渲染后必须更新哈希；正文不得超过 30 页，且只可引用已执行的测试或已保存的原始输出。
+
+## 演示视频
+
+- 成片：`artifacts/submission/Nexus-Decision-Arena-Demo.mp4`
+- 字幕：`artifacts/submission/Nexus-Decision-Arena-Demo.zh-CN.srt`
+- 封面：`artifacts/submission/Nexus-Decision-Arena-Demo-poster.png`
+- 生成脚本：`scripts/render-submission-video.mjs`
+- 当前规格：7 分 54 秒、1920×1080、H.264、30fps
+- 当前视频 SHA-256：`54C490C8C9E274D6ADD25495C588090B79402DA5A47C919DED43B6C17A238FFF`
 
 ## 8 分钟视频时间图
 
@@ -108,6 +117,6 @@ PDF 重新渲染后必须更新哈希；正文不得超过 30 页，且只可引
 - [x] 结构化对话导出和三条核心 Prompt 链已入库
 - [x] Prompt-to-Commit 表已补齐最终修复 hash
 - [x] `stability-output.txt` 已记录实际 80/80 输出（桌面 20 + 移动 20）
-- [ ] 演示视频待录制；截图已生成
+- [x] 演示视频已生成，7 分 54 秒、1080p，并包含中文硬字幕和独立 SRT
 - [x] PDF 已生成，28 页且未包含未测量指标
 - [x] 固定 Demo 仍明确标记为 fixture，live UUID 会话已走真实持久化 orchestration

@@ -1,4 +1,4 @@
-﻿.worktrees/
+.worktrees/
 .superpowers/
 node_modules/
 .next/
@@ -6,6 +6,7 @@ dist/
 coverage/
 playwright-report/
 test-results/
+artifacts/submission/video-build/
 .env
 .env.local
 *.log
