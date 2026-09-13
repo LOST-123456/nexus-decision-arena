@@ -20,6 +20,11 @@ export class OpenAiCompatibleProvider implements LlmProvider {
     signal: AbortSignal
   ): Promise<string> {
     const effectiveSignal = withLlmTimeout(signal);
+    const configuredMaxTokens = Number(process.env.LLM_MAX_TOKENS ?? 1_200);
+    const maxTokens =
+      Number.isFinite(configuredMaxTokens) && configuredMaxTokens > 0
+        ? configuredMaxTokens
+        : 1_200;
     const response = await this.fetchImpl(
       `${this.options.baseUrl.replace(/\/$/, "")}/chat/completions`,
       {
@@ -32,6 +37,8 @@ export class OpenAiCompatibleProvider implements LlmProvider {
         },
         body: JSON.stringify({
           model: this.options.model,
+          max_tokens: maxTokens,
+          temperature: 0,
           response_format: { type: "json_object" },
           messages: [
             { role: "system", content: request.system },

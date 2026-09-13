@@ -1,29 +1,59 @@
 import type { HumanDecision } from "@nexus/shared";
+import { useState } from "react";
+
+type CheckpointRole = {
+  id: string;
+  name: string;
+};
+
+const defaultRationale: Record<HumanDecision["action"], string> = {
+  accept_challenge: "质询依据充分，接受该质询结论。",
+  uphold_claim: "经复核维持原判断，并保留持续监测要求。",
+  request_more_analysis: "现有证据不足以裁决，要求补充一轮分析。"
+};
 
 export function HumanCheckpoint({
   conflictSummary,
+  roles = [],
   onDecision,
   pending = false,
   errorMessage,
   previewOnly = false
 }: {
   conflictSummary: string;
+  roles?: readonly CheckpointRole[];
   onDecision(
     action: HumanDecision["action"],
-    rationale: string
+    rationale: string,
+    affectedAgentRoleIds: string[]
   ): void;
   pending?: boolean;
   errorMessage?: string;
   previewOnly?: boolean;
 }) {
+  const [rationale, setRationale] = useState("");
+  const [affectedAgentRoleIds, setAffectedAgentRoleIds] = useState<string[]>([]);
+
+  function submit(action: HumanDecision["action"]): void {
+    onDecision(
+      action,
+      rationale.trim() || defaultRationale[action],
+      affectedAgentRoleIds
+    );
+  }
+
+  function toggleRole(roleId: string): void {
+    setAffectedAgentRoleIds((current) =>
+      current.includes(roleId)
+        ? current.filter((id) => id !== roleId)
+        : [...current, roleId]
+    );
+  }
+
   return (
     <section
       className="human-checkpoint"
-      aria-label={
-        previewOnly
-          ? "Human Checkpoint preview only"
-          : "Human Checkpoint"
-      }
+      aria-label={previewOnly ? "Human Checkpoint preview only" : "Human Checkpoint"}
       aria-busy={pending}
     >
       <div className="checkpoint-heading">
@@ -34,37 +64,59 @@ export function HumanCheckpoint({
       </div>
       <h2>{conflictSummary}</h2>
 
+      <label className="checkpoint-rationale">
+        <span>人工理由</span>
+        <textarea
+          rows={3}
+          value={rationale}
+          onChange={(event) => setRationale(event.target.value)}
+          placeholder="说明采纳、维持或要求补充分析的具体依据"
+          disabled={pending}
+        />
+      </label>
+
+      {roles.length > 0 ? (
+        <fieldset className="checkpoint-impact" disabled={pending}>
+          <legend>影响范围</legend>
+          <div className="checkpoint-impact-options">
+            {roles.map((role) => (
+              <label key={role.id}>
+                <input
+                  type="checkbox"
+                  checked={affectedAgentRoleIds.includes(role.id)}
+                  onChange={() => toggleRole(role.id)}
+                />
+                <span>{role.name}</span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      ) : null}
+
       <div className="human-checkpoint-actions">
         <button
           type="button"
           className="checkpoint-action checkpoint-action-accept"
           disabled={pending}
-          onClick={() =>
-            onDecision(
-              "accept_challenge",
-              "\u8d28\u8be2\u4f9d\u636e\u5145\u5206"
-            )
-          }
+          onClick={() => submit("accept_challenge")}
         >
-          {"\u91c7\u7eb3\u8d28\u8be2"}
+          采纳质询
         </button>
         <button
           type="button"
           className="checkpoint-action checkpoint-action-uphold"
           disabled={pending}
-          onClick={() => onDecision("uphold_claim", "\u7ef4\u6301\u539f\u5224\u65ad")}
+          onClick={() => submit("uphold_claim")}
         >
-          {"\u7ef4\u6301\u5224\u65ad"}
+          维持判断
         </button>
         <button
           type="button"
           className="checkpoint-action checkpoint-action-more"
           disabled={pending}
-          onClick={() =>
-            onDecision("request_more_analysis", "\u8865\u5145\u6750\u6599")
-          }
+          onClick={() => submit("request_more_analysis")}
         >
-          {"\u8981\u6c42\u8865\u5145\u5206\u6790"}
+          要求补充分析
         </button>
       </div>
 

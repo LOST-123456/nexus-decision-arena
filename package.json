@@ -7,6 +7,7 @@
     "build": "corepack pnpm -r --if-present build",
     "demo:fixture": "tsx scripts/run-demo.ts",
     "dev": "corepack pnpm --parallel --filter @nexus/core --filter @nexus/web dev",
+    "smoke:provider": "tsx scripts/provider-smoke.ts",
     "test": "corepack pnpm -r --if-present test",
     "test:e2e": "corepack pnpm --filter @nexus/web test:e2e",
     "test:stability": "tsx scripts/test-stability.ts",

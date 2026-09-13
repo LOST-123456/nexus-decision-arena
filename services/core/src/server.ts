@@ -23,6 +23,18 @@ import type { AgentRunner } from "./arena/agent-runner";
 import { ProviderAgentRunner } from "./arena/provider-agent-runner";
 import { EventBus } from "./execution/event-bus";
 
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { loadEnvFile } from "node:process";
+
+try {
+  loadEnvFile(
+    resolve(dirname(fileURLToPath(import.meta.url)), "../../..", ".env")
+  );
+} catch {
+  // The process environment is still supported when .env is absent.
+}
+
 const port = Number(process.env.PORT ?? 4100);
 const database = createDatabase(
   process.env.DATABASE_URL ??
@@ -72,6 +84,8 @@ if (mode === "mock") {
     new CrossExaminationService(
       providerRunner.createChallengeDependencies()
     );
+  createChallengePlans = (roles, claims, runIdByRoleId) =>
+    providerRunner.createChallengePlans(roles, claims, runIdByRoleId);
 } else {
   throw new Error(`Unsupported LLM_MODE: ${mode}`);
 }
@@ -80,7 +94,7 @@ const runSession = new RunSessionService(agentRunner, {
   store: arena,
   roles: DEFAULT_AGENT_ROLES,
   crossExamination: createCrossExamination,
-  ...(createChallengePlans ? { createChallengePlans } : {}),
+  createChallengePlans,
   appendEvent: (input) => events.append(input),
   eventBus,
   initialConclusion: "建议立项",
@@ -98,6 +112,18 @@ const app = createApp(
   new PostgresIdempotencyStore(database),
   {
     eventBus,
+    runtimeInfo:
+      mode === "openai-compatible"
+        ? {
+            mode,
+            provider: "OpenAI-compatible",
+            model: process.env.LLM_MODEL ?? "unknown"
+          }
+        : {
+            mode: "mock",
+            provider: "MockLlmProvider",
+            model: "deterministic-fixtures"
+          },
     ...(process.env.WEB_ORIGIN
       ? { webOrigin: process.env.WEB_ORIGIN }
       : {})

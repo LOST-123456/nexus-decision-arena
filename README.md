@@ -96,12 +96,13 @@ http://127.0.0.1:3000/sessions/new
 2. `POST /api/sessions/:id/start` 启动五角色分析和 Cross Examination。
 3. 跳转到 `/sessions/:id`，通过 SSE 查看实时状态、Conflict 和 Human Checkpoint。
 
-Live Mock Mode：
+Live UUID 会话（真实模型模式）：
 
 1. 使用 `POST /api/sessions` 创建会话。
 2. 使用 `POST /api/sessions/:id/start` 启动真实 orchestration 路径。
 3. 打开 `/sessions/:id` 查看 SSE 更新、统一 Timeline 和 DecisionReplay。
 4. 完成人工裁决后打开 `/sessions/:id/report`，报告来自持久化的 FinalReport。
+5. 报告页支持导出 PDF、Markdown 和完整 JSON 审计包。
 
 ### 8. 运行测试
 
@@ -124,7 +125,7 @@ corepack pnpm test:stability
 
 ## Mock Mode
 
-`LLM_MODE=mock` 是默认模式。Live UUID 会话使用确定性的 fixture/provider 路径完成五角色分析、Cross Examination、Conflict Detection、Human Review 和最终报告持久化，不发送外部网络请求。固定 Demo 页面仍单独标记为 `DEMO FIXTURE`，避免把离线回放误认为真实模型运行结果。
+`LLM_MODE=mock` 用于固定 Demo 和自动化回归测试。`/sessions/new` 在任何新项目启动前会检查运行模式；Mock Mode 下禁止把固定 fixture 结果冒充为新项目分析结果。固定 Demo 页面始终标记为 `DEMO FIXTURE`。
 
 ## 真实模型模式
 
@@ -138,6 +139,34 @@ LLM_MODEL=your-model
 ```
 
 Live UUID 会话会在 `LLM_MODE=openai-compatible` 时使用环境变量配置的模型 Provider。固定浏览器 Demo 不因切换环境变量而自动改为实时运行；不要用真实模型模式描述 fixture 截图或 Mock Mode 证据。
+
+## 本地真实模型（Ollama）
+
+本项目可以直接连接本机 Ollama 的 OpenAI-compatible 接口。模型建议存放在 E 盘：
+
+```powershell
+$env:OLLAMA_MODELS = "E:\AI创新应用挑战赛\.models\ollama"
+ollama pull qwen2.5:1.5b
+```
+
+`.env` 配置示例：
+
+```dotenv
+LLM_MODE=openai-compatible
+LLM_BASE_URL=http://127.0.0.1:11434/v1
+LLM_API_KEY=ollama
+LLM_MODEL=qwen2.5:1.5b
+LLM_TIMEOUT_MS=300000
+LLM_MAX_TOKENS=1200
+CROSS_EXAMINATION_MAX_CLAIMS=2
+CROSS_EXAMINATION_MAX_CHALLENGERS=1
+```
+
+可用下面的命令验证真实模型是否能够返回结构化 Claim：
+
+```powershell
+corepack pnpm smoke:provider
+```
 
 ## 常见问题
 

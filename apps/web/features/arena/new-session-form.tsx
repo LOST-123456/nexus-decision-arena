@@ -2,8 +2,13 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, type FormEvent } from "react";
-import { createSession, startSession } from "./api-client";
+import { useEffect, useState, type FormEvent } from "react";
+import {
+  createSession,
+  getRuntimeInfo,
+  startSession,
+  type RuntimeInfo
+} from "./api-client";
 
 const initialValues = {
   name: "",
@@ -31,8 +36,34 @@ export function NewSessionForm() {
   >("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [createdSessionId, setCreatedSessionId] = useState<string | null>(null);
+  const [runtimeInfo, setRuntimeInfo] = useState<RuntimeInfo | null>(null);
+  const [runtimeError, setRuntimeError] = useState<string | null>(null);
 
   const pending = status !== "idle";
+  const liveModelReady = runtimeInfo?.mode === "openai-compatible";
+
+  useEffect(() => {
+    const copied = window.localStorage.getItem("nexus:project-copy");
+    if (copied) {
+      try {
+        const parsed = JSON.parse(copied) as Partial<FormValues>;
+        setValues((current) => ({ ...current, ...parsed, locale: parsed.locale ?? current.locale }));
+      } finally {
+        window.localStorage.removeItem("nexus:project-copy");
+      }
+    }
+
+    getRuntimeInfo()
+      .then((runtime) => {
+        setRuntimeInfo(runtime);
+        setRuntimeError(null);
+      })
+      .catch((error: unknown) => {
+        setRuntimeError(
+          error instanceof Error ? error.message : "Runtime mode unavailable"
+        );
+      });
+  }, []);
 
   function updateField(
     field: keyof FormValues,
@@ -44,6 +75,13 @@ export function NewSessionForm() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     if (pending) {
+      return;
+    }
+
+    if (!liveModelReady) {
+      setErrorMessage(
+        "Mock Mode 只用于固定演示。请切换 openai-compatible 真实模型模式后再创建任意项目。"
+      );
       return;
     }
 
@@ -127,9 +165,10 @@ export function NewSessionForm() {
           <div className="new-session-note">
             <strong>运行条件</strong>
             <p>
-              live 评审需要 Core API、PostgreSQL 和与 `LLM_MODE` 匹配的 Provider。
-              固定 Demo 不需要这些服务。
+              任意新项目必须使用真实模型模式。Mock Mode 只用于固定演示；
+              当前模式：{runtimeInfo?.mode ?? "detecting"} / {runtimeInfo?.model ?? "..."}。
             </p>
+            {runtimeError ? <p className="new-session-runtime-error">{runtimeError}</p> : null}
           </div>
         </section>
 
@@ -143,11 +182,20 @@ export function NewSessionForm() {
               <p className="eyebrow">PROJECT BRIEF</p>
               <h2>项目基本信息</h2>
             </div>
-            <span className={`form-status form-status-${status}`}>
-              {status === "idle" && "READY"}
-              {status === "creating" && "CREATING"}
-              {status === "starting" && "STARTING"}
-              {status === "opening" && "OPENING"}
+            <span
+              className={`form-status ${
+                !runtimeInfo
+                  ? "form-status-checking"
+                  : liveModelReady
+                    ? "form-status-ready"
+                    : "form-status-blocked"
+              }`}
+            >
+              {!runtimeInfo
+                ? "CHECKING RUNTIME"
+                : liveModelReady
+                  ? "REAL MODEL READY"
+                  : "MOCK MODE BLOCKED"}
             </span>
           </div>
 
@@ -250,10 +298,10 @@ export function NewSessionForm() {
           <button
             className="new-session-submit"
             type="submit"
-            disabled={pending}
+            disabled={pending || !liveModelReady}
             data-testid="start-review"
           >
-            {pending ? "正在启动评审..." : "开始评审"}
+            {pending ? "正在启动评审..." : liveModelReady ? "开始评审" : "需要真实模型模式"}
             <span aria-hidden="true">→</span>
           </button>
         </form>

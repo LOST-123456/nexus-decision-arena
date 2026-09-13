@@ -26,6 +26,12 @@ export type CreatedSession = {
   id: string;
 };
 
+export type RuntimeInfo = {
+  mode: "mock" | "openai-compatible";
+  provider: string;
+  model: string;
+};
+
 type SessionPayload = Partial<SessionView> & {
   id?: string;
   nextEventSequence?: number;
@@ -144,6 +150,16 @@ export async function startSession(
   }
 
   return response.json() as Promise<{ id: string; status: string }>;
+}
+
+export async function getRuntimeInfo(): Promise<RuntimeInfo> {
+  const response = await fetch(`${apiUrl}/api/runtime`, {
+    cache: "no-store"
+  });
+  if (!response.ok) {
+    throw new Error(`Runtime request failed: ${response.status}`);
+  }
+  return response.json() as Promise<RuntimeInfo>;
 }
 
 export async function getSession(

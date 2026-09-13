@@ -108,6 +108,19 @@ export class DecisionSessionRepository {
     });
   }
 
+  async getProjectBySessionId(sessionId: string) {
+    const [row] = await this.database
+      .select({
+        name: projects.name,
+        input: projects.input,
+        locale: projects.locale
+      })
+      .from(decisionSessions)
+      .innerJoin(projects, eq(decisionSessions.projectId, projects.id))
+      .where(eq(decisionSessions.id, sessionId))
+      .limit(1);
+    return row ?? null;
+  }
   async create(input: SessionInput) {
     const [created] = await this.database
       .insert(decisionSessions)

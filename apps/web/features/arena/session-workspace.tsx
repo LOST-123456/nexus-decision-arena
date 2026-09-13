@@ -12,6 +12,7 @@ import { AgentPanel } from "../../components/agent-panel";
 import { DecisionMap } from "../../components/decision-map";
 import { HumanCheckpoint } from "../../components/human-checkpoint";
 import { Inspector } from "../../components/inspector";
+import { RuntimeModeBadge } from "../../components/runtime-mode-badge";
 import {
   Timeline,
   type TimelineEvent
@@ -253,7 +254,8 @@ export function SessionWorkspace({ sessionId }: { sessionId: string }) {
 
   async function handleDecision(
     action: HumanDecision["action"],
-    rationale: string
+    rationale: string,
+    affectedAgentRoleIds: string[]
   ) {
     if (!primaryConflict) {
       setErrorMessage("No eligible conflict is available for review.");
@@ -270,7 +272,7 @@ export function SessionWorkspace({ sessionId }: { sessionId: string }) {
         action,
         rationale,
         affectedClaimIds: primaryClaim ? [primaryClaim.id] : [],
-        affectedAgentRoleIds: [],
+        affectedAgentRoleIds,
         previousConclusion: session.currentConclusion ?? "No prior conclusion",
         newConclusion: conclusion,
         operatorId: "preview-operator",
@@ -295,7 +297,7 @@ export function SessionWorkspace({ sessionId }: { sessionId: string }) {
       action,
       rationale,
       affectedClaimIds: primaryClaim ? [primaryClaim.id] : [],
-      affectedAgentRoleIds: [],
+      affectedAgentRoleIds,
       newConclusion: conclusion,
       operatorId: "operator-1"
     };
@@ -376,6 +378,18 @@ export function SessionWorkspace({ sessionId }: { sessionId: string }) {
           </span>
         </Link>
 
+
+        <div className="workspace-runtime-cluster">
+          <RuntimeModeBadge />
+          {rawEvents.at(-1)?.correlationId ? (
+            <span
+              className="correlation-chip"
+              title={rawEvents.at(-1)?.correlationId}
+            >
+              CORR {rawEvents.at(-1)?.correlationId.slice(0, 8)}
+            </span>
+          ) : null}
+        </div>
         <div className="workspace-vitals">
           <span>
             <small>{"\u5f53\u524d\u7ed3\u8bba"}</small>
@@ -419,6 +433,7 @@ export function SessionWorkspace({ sessionId }: { sessionId: string }) {
           {checkpointActive ? (
             <HumanCheckpoint
               conflictSummary={primaryConflict.summary}
+              roles={session.agents}
               onDecision={handleDecision}
               pending={pending}
               previewOnly={!persisted}

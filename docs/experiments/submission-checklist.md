@@ -66,7 +66,7 @@
 - 渲染脚本：`scripts/render-technical-pdf.ps1`
 - PDF：`artifacts/submission/Nexus-Decision-Arena-Technical-Document.pdf`
 - 当前页数：28 页 A4
-- 当前 SHA-256：`26FF0A935DAEBDB5B28050E3CE05970EE67187EF7784E3C9FFC6BEE1336D275B`
+- 当前 SHA-256：`52D756CFE9DA91F8AEFE5B6CB45D601A02BBDBDB852215AA8F5BF9E09E384AC5`
 
 PDF 重新渲染后必须更新哈希；正文不得超过 30 页，且只可引用已执行的测试或已保存的原始输出。
 

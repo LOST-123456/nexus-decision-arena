@@ -40,7 +40,11 @@ export type SessionRecord = NonNullable<
 export type AppDependencies = {
   sessions: Pick<
     DecisionSessionRepository,
-    "createWithProject" | "getById" | "getView" | "recordHumanDecision"
+    | "createWithProject"
+    | "getById"
+    | "getView"
+    | "recordHumanDecision"
+    | "getProjectBySessionId"
   >;
   inspector: Pick<InspectorRepository, "getInspector">;
   reports?: Pick<
@@ -56,6 +60,11 @@ export type AppDependencies = {
 export type AppOptions = {
   eventBus?: EventBus;
   webOrigin?: string;
+  runtimeInfo?: {
+    mode: "mock" | "openai-compatible";
+    provider: string;
+    model: string;
+  };
 };
 
 export function createApp(
@@ -95,6 +104,14 @@ export function createApp(
   });
 
   app.get("/health", async () => ({ status: "ok" }));
+
+  app.get("/api/runtime", async () =>
+    options.runtimeInfo ?? {
+      mode: "mock",
+      provider: "MockLlmProvider",
+      model: "deterministic-fixtures"
+    }
+  );
 
   registerSessionRoutes(app, dependencies, idempotency);
   registerInspectorRoutes(app, dependencies);

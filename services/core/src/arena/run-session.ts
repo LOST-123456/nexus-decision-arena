@@ -491,6 +491,26 @@ export class RunSessionService {
       });
     }
 
+    if (allClaims.length === 0) {
+      await this.runtime!.store.setSessionState({
+        sessionId,
+        phase: "ANALYZING",
+        operationalStatus: "FAILED",
+        currentConclusion: initialConclusion
+      });
+      await emitEvent({
+        correlationId: newId(),
+        type: "SESSION_STATE_CHANGED",
+        payload: {
+          phase: "ANALYZING",
+          operationalStatus: "FAILED",
+          currentConclusion: initialConclusion,
+          reason: "All critical agent runs failed"
+        }
+      });
+      return;
+    }
+
     await this.runtime!.store.setSessionState({
       sessionId,
       phase: "CHALLENGING",

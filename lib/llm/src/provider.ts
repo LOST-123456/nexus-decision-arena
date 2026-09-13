@@ -10,6 +10,9 @@ export interface LlmProvider {
 }
 
 export function withLlmTimeout(parent?: AbortSignal): AbortSignal {
-  const timeout = AbortSignal.timeout(45_000);
+  const configured = Number(process.env.LLM_TIMEOUT_MS ?? 45_000);
+  const timeoutMs =
+    Number.isFinite(configured) && configured > 0 ? configured : 45_000;
+  const timeout = AbortSignal.timeout(timeoutMs);
   return parent ? AbortSignal.any([parent, timeout]) : timeout;
 }

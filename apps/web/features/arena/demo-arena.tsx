@@ -7,6 +7,7 @@ import { AgentPanel, type AgentPanelRole } from "../../components/agent-panel";
 import { DecisionMap } from "../../components/decision-map";
 import { HumanCheckpoint } from "../../components/human-checkpoint";
 import { Inspector } from "../../components/inspector";
+import { RuntimeModeBadge } from "../../components/runtime-mode-badge";
 import { Timeline, type TimelineEvent } from "../../components/timeline";
 import type { ReplayableSession } from "./event-reducer";
 import { toPreviewInspectorDTO } from "./preview-inspector";
@@ -254,7 +255,11 @@ export function DemoArena() {
   const challengeCount = session.challenges.length;
   const conflictCount = session.conflicts.length;
 
-  function handleDecision(action: HumanDecision["action"], rationale: string) {
+  function handleDecision(
+    action: HumanDecision["action"],
+    rationale: string,
+    affectedAgentRoleIds: string[]
+  ) {
     if (!primaryConflict) {
       return;
     }
@@ -267,7 +272,7 @@ export function DemoArena() {
       action,
       rationale,
       affectedClaimIds: primaryClaim ? [primaryClaim.id] : [],
-      affectedAgentRoleIds: [],
+      affectedAgentRoleIds,
       previousConclusion: session.currentConclusion ?? initialConclusion,
       newConclusion: nextOutcome.conclusion,
       operatorId: "demo-operator",
@@ -364,6 +369,7 @@ export function DemoArena() {
             </span>
           </Link>
           <span className="demo-fixture-badge">DEMO FIXTURE</span>
+          <RuntimeModeBadge fallback="OFFLINE FIXTURE" />
           <Link className="header-secondary-link" href="/sessions/new">
             新建评审
           </Link>
@@ -429,6 +435,7 @@ export function DemoArena() {
           {session.phase === "HUMAN_REVIEW" ? (
             <HumanCheckpoint
               conflictSummary={primaryConflict?.summary ?? ""}
+              roles={session.agents}
               onDecision={handleDecision}
               previewOnly
             />

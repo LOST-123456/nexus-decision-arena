@@ -1,4 +1,4 @@
-﻿import {
+import {
   ChallengeSchema,
   ClaimSchema,
   newId,
@@ -99,6 +99,21 @@ export class CrossExaminationService {
   constructor(private readonly dependencies: CrossExaminationDependencies) {}
 
   async run(input: CrossExaminationInput): Promise<CrossExaminationResult> {
+    const configuredMaxClaims = Number(
+      process.env.CROSS_EXAMINATION_MAX_CLAIMS ?? 5
+    );
+    const configuredMaxChallengers = Number(
+      process.env.CROSS_EXAMINATION_MAX_CHALLENGERS ?? 2
+    );
+    const maxClaims =
+      Number.isFinite(configuredMaxClaims) && configuredMaxClaims > 0
+        ? configuredMaxClaims
+        : 5;
+    const maxChallengers =
+      Number.isFinite(configuredMaxChallengers) &&
+      configuredMaxChallengers > 0
+        ? configuredMaxChallengers
+        : 2;
     const challenges: Challenge[] = [];
     const responseClaims: Claim[] = [];
     const claimById = new Map(input.claims.map((claim) => [claim.id, claim]));
@@ -111,8 +126,8 @@ export class CrossExaminationService {
             ? [{ target, challenger, challengerRunId: plan.challengerRunId }]
             : [];
         })
-      : selectClaims(input.claims, 5).flatMap((target) =>
-          assignChallengers(target, input.roles, 2).map((challenger) => ({
+      : selectClaims(input.claims, maxClaims).flatMap((target) =>
+          assignChallengers(target, input.roles, maxChallengers).map((challenger) => ({
             target,
             challenger,
             challengerRunId: newId()

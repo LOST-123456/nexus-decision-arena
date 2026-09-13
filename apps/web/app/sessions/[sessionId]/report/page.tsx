@@ -1,5 +1,6 @@
 import type { FinalReport } from "@nexus/shared";
 import Link from "next/link";
+import { ReportExportActions } from "../../../../components/report-export-actions";
 
 const apiUrl =
   process.env.API_URL ??
@@ -130,6 +131,7 @@ export default async function ReportPage({
           <div className="flex items-center gap-3">
             <span className="report-status">DEMO FIXTURE</span>
             <span className="report-status">REPORT READY</span>
+            <ReportExportActions sessionId={sessionId} report={fixtureReport} fixture />
           </div>
         </header>
         <ReportDocument report={fixtureReport} fixture />
@@ -161,6 +163,13 @@ export default async function ReportPage({
           <span className="report-status">
             {report ? "REPORT READY" : "REPORT PENDING"}
           </span>
+          {report ? (
+            <ReportExportActions
+              sessionId={sessionId}
+              report={report}
+              fixture={false}
+            />
+          ) : null}
         </div>
       </header>
       {report ? (

@@ -1381,6 +1381,10 @@ ClaimInspectorDTO {
       <strong>Human Intent 落地：</strong>
       人类选择、理由、受影响 Claim / Agent、前后结论都写入同一事务事件，并可从 Replay 追溯到决策解释。
     </div>
+    <p class="small">
+      前端 Human Checkpoint 提供人工理由输入框和影响 Agent 多选。理由与影响范围写入
+      HumanDecision，并在后续报告和 Replay 中保留。
+    </p>
   </section>
 
   <section class="page">
@@ -1466,6 +1470,10 @@ ClaimInspectorDTO {
         <div class="node">主持人<br />解除 / 保留冲突</div>
       </div>
     </div>
+    <p class="small">
+      新项目入口会先读取 <code>/api/runtime</code>。Mock Mode 只允许浏览固定 Demo；
+      任意项目必须切换到真实模型模式，运行模式会显示在界面顶部。
+    </p>
     <p class="small">
       旧 Claim 不被改写。rootClaimId 连接版本链，revisionOfClaimId 指向被修订版本，respondsToChallengeId
       指向触发修订的质询。Replay 因此可以展示“哪个论点在何时变化”。
