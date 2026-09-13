@@ -2056,3 +2056,12 @@ dd {
     justify-content: center;
   }
 }
+.decision-pending {
+  border-color: var(--warning);
+  background: rgba(239, 179, 95, 0.06);
+}
+
+.decision-pending .eyebrow,
+.decision-pending h2 {
+  color: var(--warning);
+}

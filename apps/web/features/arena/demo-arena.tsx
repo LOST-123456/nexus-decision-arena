@@ -229,7 +229,8 @@ function outcomeFor(action: HumanDecision["action"]): DecisionOutcome {
   return {
     conclusion: "要求补充分析",
     challengeStatus: "待补充",
-    explanation: null
+    explanation:
+      "补充分析请求已记录。系统将重新检查采购与成本证据，并返回人工检查点。"
   };
 }
 
@@ -245,6 +246,8 @@ export function DemoArena() {
   const primaryConflict = session.conflicts[0];
   const primaryClaim = session.claims[0];
   const finalVisible = session.phase === "DECIDED" && outcome !== null;
+  const reassessmentVisible =
+    session.phase === "REASSESSING" && outcome?.explanation !== null;
   const opposingClaimCount = session.claims.filter(
     (claim) => claim.stance === "oppose"
   ).length;
@@ -429,21 +432,33 @@ export function DemoArena() {
               onDecision={handleDecision}
               previewOnly
             />
-          ) : finalVisible && outcome.explanation ? (
+          ) : outcome?.explanation ? (
             <section
-              className="decision-complete decision-explanation"
+              className={`decision-complete decision-explanation ${
+                reassessmentVisible ? "decision-pending" : ""
+              }`}
               data-testid="decision-explanation"
             >
-              <p className="eyebrow">DECISION EXPLANATION</p>
-              <h2>决策解释</h2>
+              <p className="eyebrow">
+                {reassessmentVisible
+                  ? "REASSESSMENT REQUESTED"
+                  : "DECISION EXPLANATION"}
+              </p>
+              <h2>{reassessmentVisible ? "补充分析已排队" : "决策解释"}</h2>
               <p>{outcome.explanation}</p>
-              <Link
-                className="primary-link"
-                href="/sessions/demo/report"
-              >
-                查看决策报告
-                <span aria-hidden="true">→</span>
-              </Link>
+              {reassessmentVisible ? (
+                <p className="small muted">
+                  固定 Demo 只展示协议状态；live UUID 会话会执行一次真实补充轮。
+                </p>
+              ) : (
+                <Link
+                  className="primary-link"
+                  href="/sessions/demo/report"
+                >
+                  查看决策报告
+                  <span aria-hidden="true">→</span>
+                </Link>
+              )}
             </section>
           ) : null}
         </div>
