@@ -728,7 +728,7 @@
         <h4>工程证据</h4>
         <ul class="checklist small">
           <li>TypeScript strict 类型检查通过</li>
-          <li>156/156 单元与集成测试通过</li>
+          <li>157/157 单元与集成测试通过</li>
           <li>桌面与移动 Playwright 4/4 通过</li>
           <li>重复稳定性 80/80 用例通过</li>
           <li>Next.js 15.5.25 生产构建通过</li>
@@ -738,7 +738,7 @@
         <h4>过程证据</h4>
         <ul class="checklist small">
           <li>40 个细粒度 Git 提交，非一次性提交</li>
-          <li>100 条去噪后的实质 AI 对话消息</li>
+          <li>140 条去噪后的实质 AI 对话消息</li>
           <li>3 条完整核心 Prompt 链</li>
           <li>Prompt、测试、Commit 相互映射</li>
           <li>Mock Mode 无外网完成固定流程</li>
@@ -777,7 +777,7 @@
         <tr><td>架构说明</td><td class="mono">docs/architecture/system-overview.md</td><td>组件、事件、数据库和 correlationId 规则</td></tr>
         <tr><td>复现指南</td><td class="mono">README.md</td><td>10 分钟环境配置与启动路径</td></tr>
         <tr><td>AI 对话导出</td><td class="mono">docs/ai-history/0016-codex-conversation-export.md</td><td>可读的对话快照</td></tr>
-        <tr><td>结构化导出</td><td class="mono">docs/ai-history/exports/codex-session-curated.jsonl</td><td>100 条去噪消息的机器可读记录</td></tr>
+        <tr><td>结构化导出</td><td class="mono">docs/ai-history/exports/codex-session-curated.jsonl</td><td>140 条去噪消息的机器可读记录</td></tr>
         <tr><td>核心 Prompt 链</td><td class="mono">docs/ai-history/0017-core-prompt-chains.md</td><td>三次核心迭代的纠偏与修复过程</td></tr>
         <tr><td>稳定性原始输出</td><td class="mono">docs/experiments/stability-output.txt</td><td>80/80 Playwright 用例原始结果</td></tr>
       </tbody>
@@ -797,7 +797,7 @@
     <p class="small muted">
       AI 历史导出使用仓库内的 <code>scripts/export-codex-history.ps1</code> 生成。原始 Codex Desktop
       会话 JSONL 的 SHA-256 快照记录为
-      <code>e90dcc18135e4b9a8a5a67246197e0b9b2e95a47dc39bc8b8b01e6aaa13ae098</code>。
+      <code>ba613a4c56659bea27c52f6d08cdfa43a24264e4376e48a37743f7e4821258d3</code>。
     </p>
   </section>
 
@@ -1686,7 +1686,7 @@ ClaimInspectorDTO {
       <thead><tr><th>验证项</th><th>命令</th><th>结果</th></tr></thead>
       <tbody>
         <tr><td>类型检查</td><td class="mono">corepack pnpm typecheck</td><td>Shared / Web / DB / LLM / Core 全部通过</td></tr>
-        <tr><td>单元与集成测试</td><td class="mono">corepack pnpm test</td><td>156/156 通过</td></tr>
+        <tr><td>单元与集成测试</td><td class="mono">corepack pnpm test</td><td>157/157 通过</td></tr>
         <tr><td>E2E</td><td class="mono">corepack pnpm --filter @nexus/web test:e2e</td><td>桌面与移动 4/4 通过</td></tr>
         <tr><td>生产构建</td><td class="mono">corepack pnpm --filter @nexus/web build</td><td>Next.js 15.5.25 通过</td></tr>
         <tr><td>重复稳定性</td><td class="mono">corepack pnpm test:stability</td><td>80/80 Playwright 用例通过</td></tr>
@@ -1837,7 +1837,7 @@ ClaimInspectorDTO {
       <div class="card wash">
         <h4>可读对话导出</h4>
         <p class="mono small">docs/ai-history/0016-codex-conversation-export.md</p>
-        <p class="small muted">100 条去噪后的实质用户 / AI 消息。</p>
+        <p class="small muted">140 条去噪后的实质用户 / AI 消息。</p>
       </div>
       <div class="card wash">
         <h4>结构化对话快照</h4>

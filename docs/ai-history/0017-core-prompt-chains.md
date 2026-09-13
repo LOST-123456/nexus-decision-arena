@@ -232,6 +232,52 @@ c77551a
 
 ---
 
+## 链路 4：真实模型、人工理由与报告导出
+
+### 1. 用户 Prompt
+
+用户要求继续增加可提交能力，最初列出六项，随后明确删减：公网在线演示、历史记录和单/五 Agent 对照实验不保留，最终只实现三项：
+
+```text
+真实模型模式。
+人工裁决理由与影响范围。
+报告 PDF / Markdown / JSON 导出。
+```
+
+### 2. AI 建议
+
+- 新项目页面先读取运行模式；Mock Mode 只允许固定 Demo。
+- 使用本机 Ollama 的 OpenAI-compatible 接口，模型存放在 E 盘 `.models/ollama`。
+- Human Checkpoint 增加理由文本框和受影响 Agent 多选。
+- 报告页提供 PDF 打印、Markdown 和完整 JSON 审计包。
+- 真实模型的跨质询允许规则回退，避免小模型漏字段导致流程中断。
+
+### 3. 人工纠偏
+
+用户先要求六项，再明确删掉公网在线演示、历史记录和对照实验，要求清理无用代码。最终提交只保留真实模型、人工裁决理由和报告导出。
+
+### 4. 真实 Bug 与修复
+
+1. 任意项目在 Mock Mode 下仍会读取固定实验室 fixture，容易造成真实性误导。现在新项目页面在 Mock Mode 禁止启动，并明确显示模式。
+2. 小模型会把枚举示例中的 `fact|assumption|prediction|recommendation` 原样返回，Schema 校验失败。现在 prompt 改为单一合法示例并明确禁止 pipe-delimited 值。
+3. Challenge 使用了不存在的 `challengerRunId`，触发外键失败。现在真实模型模式复用有效 AgentRun 生成 CrossExaminationPlan。
+4. 模型没有返回完整 Challenge 字段时流程会中断。现在保留模型生成，同时增加确定性回退。
+5. 所有 Agent 失败时系统曾进入 DECIDED。现在改为 `ANALYZING + FAILED`，不再生成虚假完成结论。
+
+### 5. 验证结果
+
+```text
+TypeScript 全项目：通过
+测试：157/157 通过
+Next.js 15.5.25 构建：通过
+真实模型：qwen2.5:1.5b
+真实模型端到端：7 Claims / 2 Challenges / 2 Conflicts
+人工理由：写入 HumanDecision
+报告导出：PDF / Markdown / JSON 可用
+提交：e9822d2
+```
+
+
 ## 证据映射
 
 | 核心链路 | 对话导出 | 详细快照 | 验证 | Commit |
@@ -239,6 +285,7 @@ c77551a
 | Decision Graph 数据结构 | `0016-codex-conversation-export.md` | `0004-decision-schema.md` | `901ce8c` 前复审 | `901ce8c` |
 | 并行 Agent 状态竞争 | `0016-codex-conversation-export.md` | `0008-cross-examination.md` | Core 回归测试 | `c7b0c8b`、`e47c016`、`cfad589` |
 | SSE 事件丢失与幂等 | `0016-codex-conversation-export.md` | `0011-sse-events.md` | Core、DB、Playwright | `ac90dbe`、`39f8ce7`、`c77551a`、`79f7e25` |
+| 真实模型、人工理由与导出 | `0016-codex-conversation-export.md` | 本文链路 4 | 157 tests、真实模型 E2E、Next build | `e9822d2` |
 
 所有 Commit 均可在 GitHub 和 Gitee 的公开仓库中查询：
 

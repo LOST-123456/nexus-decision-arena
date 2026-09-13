@@ -78,19 +78,19 @@ const scenes = [
     accent: "#4b8fd1"
   },
   {
-    id: "fixed-input",
+    id: "new-review",
     mode: "split",
     duration: 18,
-    kicker: "04 · FUNCTION DEMO",
-    title: "固定场景：高校实验室安全平台",
+    kicker: "04 · PROJECT INTAKE",
+    title: "新建评审必须使用真实模型",
     bullets: [
-      "目标：24 个月覆盖 200 间实验室",
-      "收入目标：1600 万元 ARR，毛利率 65%",
-      "交付目标：6 个月完成 MVP",
-      "采购假设：单校周期不超过 90 天"
+      "填写项目名称、目标用户、商业模式和预期数据",
+      "页面读取 /api/runtime 并显示当前运行模式",
+      "Mock Mode 只允许固定 Demo，不能冒充新项目结果",
+      "真实模型模式显示 REAL MODEL 与模型名称"
     ],
-    image: "artifacts/playwright/desktop-1440x900-initial.png",
-    caption: "固定输入让评委可以在 Mock Mode 中重复看到同一场决策评审。",
+    image: "artifacts/playwright/desktop-1440x900-new-review-real-model.png",
+    caption: "新项目与固定 Demo 明确分离，避免把 fixture 结果误认为真实项目分析。",
     accent: "#22a699"
   },
   {
@@ -158,19 +158,19 @@ const scenes = [
     accent: "#22a699"
   },
   {
-    id: "claim-versioning",
-    mode: "code",
+    id: "human-rationale",
+    mode: "split",
     duration: 20,
-    kicker: "09 · CLAIM VERSIONING",
-    title: "回应不会覆盖原 Claim",
-    code: [
-      "rootClaimId = 原始根断言",
-      "revisionOfClaimId = 被修订版本",
-      "revision = 递增版本号",
-      "respondsToChallengeId = 触发修订的质询"
+    kicker: "09 · HUMAN DECISION",
+    title: "人工理由与影响范围可追溯",
+    bullets: [
+      "Human Checkpoint 提供自由文本理由",
+      "可多选受影响的 Agent 范围",
+      "理由与影响范围写入 HumanDecision",
+      "报告和 Replay 保留完整裁决依据"
     ],
-    bullets: ["实质变化生成新 Claim", "版本链让 Replay 能解释结论变化"],
-    caption: "旧版本不被改写，任何结论变化都能回到触发它的 Challenge。",
+    image: "artifacts/playwright/desktop-1440x900-human-rationale.png",
+    caption: "人工裁决不只是点击按钮，理由和影响范围都进入可审计记录。",
     accent: "#4b8fd1"
   },
   {
@@ -190,18 +190,19 @@ const scenes = [
     accent: "#d55b5b"
   },
   {
-    id: "assumptions",
-    mode: "cards",
+    id: "report-export",
+    mode: "split",
     duration: 18,
-    kicker: "11 · RISK HYPOTHESES",
-    title: "四项高风险假设进入决策地图",
-    cards: [
-      { title: "市场规模", body: "24 个月 200 间实验室是否可实现" },
-      { title: "技术交付", body: "6 个月完成硬件与算法集成" },
-      { title: "单位经济", body: "65% 毛利率是否包含实施与售后" },
-      { title: "采购周期", body: "高校采购是否可控制在 90 天内" }
+    kicker: "11 · REPORT EXPORT",
+    title: "报告支持 PDF、Markdown 与 JSON",
+    bullets: [
+      "PDF 可直接打印或另存",
+      "Markdown 便于二次编辑和归档",
+      "JSON 包含完整领域对象与 ExecutionEvent",
+      "审计包保留 Claim、Evidence、Challenge 与人工裁决"
     ],
-    caption: "评委无需阅读全部原文，也能看到风险集中在哪些假设上。",
+    image: "artifacts/playwright/desktop-1440x900-report-export.png",
+    caption: "最终结果不仅能浏览，还能作为完整审计包导出和复核。",
     accent: "#e47c4a"
   },
   {
@@ -477,12 +478,7 @@ function findFile(directory, filename) {
 function resolveFfmpeg() {
   const candidates = [
     process.env.FFMPEG_PATH,
-    path.join(
-      os.tmpdir(),
-      "nexus-ffmpeg-installer",
-      "package",
-      "ffmpeg.exe"
-    )
+    path.join(repositoryRoot, ".tools", "ffmpeg", "package", "ffmpeg.exe")
   ].filter(Boolean);
 
   const direct = candidates.find((candidate) => existsSync(candidate));
