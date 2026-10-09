@@ -3,6 +3,7 @@ import {
   createDatabase,
   DecisionSessionRepository,
   EventRepository,
+  EvidenceRepository,
   FinalReportRepository,
   InspectorRepository
 } from "@nexus/db";
@@ -46,6 +47,7 @@ const sessions = new DecisionSessionRepository(database);
 const events = new EventRepository(database);
 const arena = new ArenaRepository(database);
 const reports = new FinalReportRepository(database);
+const researchEvidence = new EvidenceRepository(database);
 
 const auth = new AuthService({
   usersPath:
@@ -117,6 +119,8 @@ const app = createApp(
     auth,
     sessionHistory: sessions,
     inspector: new InspectorRepository(database),
+    evidence: researchEvidence,
+    arena,
     reports,
     events,
     runSession,

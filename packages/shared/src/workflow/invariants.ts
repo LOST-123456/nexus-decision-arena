@@ -1,3 +1,4 @@
+import { evidenceCoversClaim } from "../domain/evidence";
 import type { Challenge, Claim, Evidence } from "../index";
 
 export function assertClaimInvariants(
@@ -22,7 +23,7 @@ export function assertClaimInvariants(
     claim.importance >= 4 &&
     !evidence.some(
       (item) =>
-        item.claimId === claim.id &&
+        evidenceCoversClaim(item, claim.id) &&
         item.verificationStatus === "verified"
     )
   ) {

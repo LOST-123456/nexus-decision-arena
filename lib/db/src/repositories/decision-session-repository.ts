@@ -31,6 +31,7 @@ import {
   parseEvidence,
   parseHumanDecisions
 } from "./domain-mapper";
+import { evidenceCoversAnyClaim } from "./evidence-link";
 
 type ProjectInput = {
   name: string;
@@ -47,6 +48,8 @@ type SessionInput = {
   phase: string;
   operationalStatus: string;
   currentConclusion: string | null;
+  /** The question this research set out to answer. */
+  researchQuestion?: string | null;
 };
 
 type HumanDecisionTransition = {
@@ -98,7 +101,12 @@ export class DecisionSessionRepository {
         .onConflictDoNothing({ target: projects.id });
       const [created] = await transaction
         .insert(decisionSessions)
-        .values(session)
+        .values({
+          ...session,
+          ...(session.researchQuestion !== undefined
+            ? { researchQuestion: session.researchQuestion }
+            : {})
+        })
         .onConflictDoNothing({ target: decisionSessions.id })
         .returning();
       if (created) {
@@ -353,7 +361,9 @@ export class DecisionSessionRepository {
               transaction
                 .select()
                 .from(evidence)
-                .where(inArray(evidence.claimId, conflictClaimIds))
+                .where(
+                  evidenceCoversAnyClaim(evidence.claimIds, conflictClaimIds)
+                )
             ]);
 
       const writeback = decisionWritebackPlan({

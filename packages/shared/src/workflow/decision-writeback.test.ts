@@ -73,7 +73,7 @@ function baseEvidence(
   return EvidenceSchema.parse({
     id: newId(),
     sessionId: newId(),
-    claimId,
+    claimIds: [claimId],
     kind: "calculation",
     title: "Procurement pipeline",
     content: "Derived from the signed pipeline.",
@@ -82,7 +82,14 @@ function baseEvidence(
     reliability: 0.8,
     verificationStatus,
     retrievedAt: timestamp,
-    createdBy: "system"
+    createdBy: "system",
+    ...(verificationStatus === "unverified"
+      ? {}
+      : {
+          verifiedBy: "researcher-1",
+          verifiedAt: timestamp,
+          verificationNote: "Recomputed from the signed pipeline."
+        })
   });
 }
 

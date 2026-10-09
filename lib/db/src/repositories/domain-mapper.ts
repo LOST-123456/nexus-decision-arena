@@ -5,12 +5,14 @@ import {
   ConflictSchema,
   EvidenceSchema,
   HumanDecisionSchema,
+  SourceSchema,
   type AgentRole,
   type Challenge,
   type Claim,
   type Conflict,
   type Evidence,
-  type HumanDecision
+  type HumanDecision,
+  type Source
 } from "@nexus/shared";
 
 function record(value: unknown): Record<string, unknown> {
@@ -49,7 +51,25 @@ export function parseEvidence(rows: readonly unknown[]): Evidence[] {
   return EvidenceSchema.array().parse(
     rows.map((row) => {
       const value = record(row);
-      return { ...value, retrievedAt: iso(value.retrievedAt) };
+      return {
+        ...value,
+        retrievedAt: iso(value.retrievedAt),
+        ...(value.verifiedAt ? { verifiedAt: iso(value.verifiedAt) } : {})
+      };
+    })
+  );
+}
+
+export function parseSources(rows: readonly unknown[]): Source[] {
+  return SourceSchema.array().parse(
+    rows.map((row) => {
+      const value = record(row);
+      return {
+        ...value,
+        ...(value.publishedAt ? { publishedAt: iso(value.publishedAt) } : {}),
+        createdAt: iso(value.createdAt),
+        updatedAt: iso(value.updatedAt)
+      };
     })
   );
 }

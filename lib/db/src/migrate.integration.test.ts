@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it } from "vitest";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolve } from "node:path";
@@ -48,24 +48,15 @@ describe("migration runner", () => {
         migrationDirectory
       );
 
-      expect(firstRun).toEqual({
-        applied: [
-          "0001_initial.sql",
-          "0002_claim_inspector_view.sql",
-          "0003_idempotency_leases.sql",
-          "0004_live_orchestration_and_reports.sql"
-        ],
-        skipped: []
-      });
-      expect(secondRun).toEqual({
-        applied: [],
-        skipped: [
-          "0001_initial.sql",
-          "0002_claim_inspector_view.sql",
-          "0003_idempotency_leases.sql",
-          "0004_live_orchestration_and_reports.sql"
-        ]
-      });
+      // Derived from the directory so a new migration does not silently skip
+      // verification here; the assertion still checks each file is applied once.
+      const expected = (await readdir(migrationDirectory))
+        .filter((file) => file.endsWith(".sql"))
+        .sort();
+      expect(expected.length).toBeGreaterThan(0);
+
+      expect(firstRun).toEqual({ applied: expected, skipped: [] });
+      expect(secondRun).toEqual({ applied: [], skipped: expected });
 
       const records = (await migrationDatabase.execute(
         "SELECT filename, checksum, applied_at FROM schema_migrations ORDER BY filename"
@@ -75,13 +66,8 @@ describe("migration runner", () => {
         applied_at: string;
       }>;
 
-      expect(records).toHaveLength(4);
-      expect(records.map((record) => record.filename)).toEqual([
-        "0001_initial.sql",
-        "0002_claim_inspector_view.sql",
-        "0003_idempotency_leases.sql",
-        "0004_live_orchestration_and_reports.sql"
-      ]);
+      expect(records).toHaveLength(expected.length);
+      expect(records.map((record) => record.filename)).toEqual(expected);
       expect(records.every((record) => record.checksum.length === 64)).toBe(
         true
       );

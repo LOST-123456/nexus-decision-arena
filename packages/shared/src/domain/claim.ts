@@ -23,8 +23,19 @@ export const ClaimRelationSchema = z.object({
 export const ClaimSchema = z.object({
   id: IdSchema,
   sessionId: IdSchema,
-  agentRunId: IdSchema,
-  roleId: IdSchema,
+  /**
+   * Absent for claims a researcher typed in themselves. A claim is a statement
+   * under review, not a byproduct of an agent run, so authorship is optional
+   * rather than faked with a placeholder run.
+   */
+  agentRunId: z.preprocess(
+    (value) => (value === null ? undefined : value),
+    IdSchema.optional()
+  ),
+  roleId: z.preprocess(
+    (value) => (value === null ? undefined : value),
+    IdSchema.optional()
+  ),
   lens: z.string().min(1),
   statement: z.string().min(1),
   type: ClaimTypeSchema,

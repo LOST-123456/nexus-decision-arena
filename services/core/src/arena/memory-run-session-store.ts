@@ -1,4 +1,5 @@
 import {
+  evidenceCoversClaim,
   newId,
   type AgentRole,
   type Challenge,
@@ -179,7 +180,9 @@ export class MemoryRunSessionStore implements RunSessionStore {
     }
     return {
       claim,
-      evidence: this.evidence.filter((item) => item.claimId === claimId),
+      evidence: this.evidence.filter((item) =>
+        evidenceCoversClaim(item, claimId)
+      ),
       challenges: this.challenges.filter(
         (item) => item.targetClaimId === claimId
       )

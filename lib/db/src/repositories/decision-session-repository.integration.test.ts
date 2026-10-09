@@ -126,7 +126,7 @@ async function seedCheckpoint(options: {
     await database.insert(evidence).values({
       id: newId(),
       sessionId,
-      claimId,
+      claimIds: [claimId],
       kind: "calculation",
       title: "Procurement pipeline",
       content: "Derived from the signed pipeline.",
@@ -134,6 +134,9 @@ async function seedCheckpoint(options: {
       direction: "supports",
       reliability: 0.8,
       verificationStatus: options.verificationStatus,
+      verifiedBy: "evidence-test-operator",
+      verifiedAt: timestamp,
+      verificationNote: "Seeded by the verification integration test.",
       retrievedAt: timestamp,
       createdBy: "system"
     });
@@ -314,7 +317,14 @@ describe("DecisionSessionRepository.recordHumanDecision", () => {
     if (!rejected || rejected.status !== "rejected") {
       throw new Error("Expected one rejected decision");
     }
-    expect(rejected.reason).toBeInstanceOf(SessionNotInHumanReviewError);
+    // Which guard the loser hits depends on when it reads the session relative
+    // to the winner's commit: the phase may already have moved on, or the
+    // conflict may already be resolved. Either way the second decision must be
+    // refused for a domain reason rather than silently recorded twice.
+    expect(
+      rejected.reason instanceof SessionNotInHumanReviewError ||
+        rejected.reason instanceof HumanDecisionConflictNotEligibleError
+    ).toBe(true);
 
     await expect(
       database

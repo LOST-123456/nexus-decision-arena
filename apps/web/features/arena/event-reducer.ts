@@ -112,6 +112,12 @@ function applyContiguousEvent(
         lastSequence: event.sequence
       };
     }
+    // Evidence changes are not folded incrementally: the workspace reloads the
+    // session so the evidence table, verdicts and source list stay accurate.
+    case "EVIDENCE_RECORDED":
+    case "EVIDENCE_VERIFICATION_CHANGED": {
+      return { ...current, lastSequence: event.sequence };
+    }
     default: {
       const exhaustiveEvent: never = event.type;
       void exhaustiveEvent;

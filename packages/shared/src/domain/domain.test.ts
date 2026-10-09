@@ -52,7 +52,7 @@ describe("decision domain schemas", () => {
       EvidenceSchema.parse({
         id: newId(),
         sessionId: newId(),
-        claimId: newId(),
+        claimIds: [newId()],
         kind: "calculation",
         title: "Invalid confidence",
         content: "invalid",

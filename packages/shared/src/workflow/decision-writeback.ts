@@ -1,6 +1,6 @@
 import type { Claim, ClaimStatus } from "../domain/claim";
 import type { Conflict, ConflictStatus } from "../domain/conflict";
-import type { Evidence } from "../domain/evidence";
+import { evidenceCoversClaim, type Evidence } from "../domain/evidence";
 import type { HumanDecision } from "../domain/human-decision";
 import {
   canTransitionConflict,
@@ -56,7 +56,8 @@ export function hasVerifiedEvidence(
   evidence: readonly Evidence[]
 ): boolean {
   return evidence.some(
-    (item) => item.claimId === claimId && item.verificationStatus === "verified"
+    (item) =>
+      evidenceCoversClaim(item, claimId) && item.verificationStatus === "verified"
   );
 }
 

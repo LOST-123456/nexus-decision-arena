@@ -1,6 +1,8 @@
 import type {
+  ArenaRepository,
   DecisionSessionRepository,
   EventRepository,
+  EvidenceRepository,
   FinalReportRepository,
   InspectorRepository
 } from "@nexus/db";
@@ -10,6 +12,7 @@ import {
   type IdempotencyStore
 } from "./api/plugins/idempotency";
 import { registerAuthRoutes } from "./api/routes/auth";
+import { registerEvidenceRoutes } from "./api/routes/evidence";
 import { registerEventRoutes } from "./api/routes/events";
 import { registerHumanDecisionRoutes } from "./api/routes/human-decisions";
 import { registerInspectorRoutes } from "./api/routes/inspector";
@@ -32,6 +35,8 @@ export type SessionInput = {
   phase: string;
   operationalStatus: string;
   currentConclusion: string | null;
+  /** The question the research set out to answer. */
+  researchQuestion?: string | null;
 };
 
 export type SessionRecord = NonNullable<
@@ -54,6 +59,9 @@ export type AppDependencies = {
     "listSummaries" | "deleteById"
   >;
   inspector: Pick<InspectorRepository, "getInspector">;
+  /** Research evidence and source management. */
+  evidence?: EvidenceRepository;
+  arena?: Pick<ArenaRepository, "createResearchClaim" | "getSessionArtifacts">;
   reports?: Pick<
     FinalReportRepository,
     "getBySessionId" | "generateAndPersist"
@@ -127,6 +135,7 @@ export function createApp(
   registerInspectorRoutes(app, dependencies);
   registerReportRoutes(app, dependencies);
   registerHumanDecisionRoutes(app, dependencies, idempotency, eventBus);
+  registerEvidenceRoutes(app, dependencies, idempotency, eventBus);
   registerEventRoutes(app, {
     bus: eventBus,
     repository: dependencies.events

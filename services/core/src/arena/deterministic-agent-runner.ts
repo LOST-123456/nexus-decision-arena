@@ -146,7 +146,7 @@ export class DeterministicAgentRunner implements AgentRunner {
         return EvidenceSchema.parse({
           id: evidenceId,
           sessionId: context.sessionId,
-          claimId,
+          claimIds: [claimId],
           kind: "assumption",
           title,
           content: title,

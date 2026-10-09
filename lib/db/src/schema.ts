@@ -49,6 +49,8 @@ export const decisionSessions = pgTable("decision_sessions", {
   phase: text("phase").notNull(),
   operationalStatus: text("operational_status").notNull(),
   currentConclusion: text("current_conclusion"),
+  /** The question under investigation, distinct from the workflow phase. */
+  researchQuestion: text("research_question"),
   nextEventSequence: integer("next_event_sequence").notNull().default(1),
   supplementRound: integer("supplement_round").notNull().default(0),
   pauseReason: text("pause_reason"),
@@ -98,12 +100,10 @@ export const claims = pgTable("claims", {
   sessionId: uuid("session_id")
     .notNull()
     .references(() => decisionSessions.id),
-  agentRunId: uuid("agent_run_id")
-    .notNull()
-    .references(() => agentRuns.id),
-  roleId: uuid("role_id")
-    .notNull()
-    .references(() => agentRoles.id),
+  // Nullable for human-authored research claims: provenance is either an agent
+  // run or nothing, and a claim typed in by a researcher has no agent run.
+  agentRunId: uuid("agent_run_id").references(() => agentRuns.id),
+  roleId: uuid("role_id").references(() => agentRoles.id),
   lens: text("lens").notNull(),
   statement: text("statement").notNull(),
   type: text("type").notNull(),
@@ -128,22 +128,53 @@ export const claims = pgTable("claims", {
   updatedAt: timestampColumn("updated_at").notNull().defaultNow()
 });
 
+/** Citable provenance record; one source can back many evidence excerpts. */
+export const sources = pgTable(
+  "sources",
+  {
+    id: uuid("id").primaryKey(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => decisionSessions.id),
+    title: text("title").notNull(),
+    kind: text("kind").notNull(),
+    url: text("url"),
+    publisher: text("publisher"),
+    author: text("author"),
+    publishedAt: timestampColumn("published_at"),
+    note: text("note"),
+    createdBy: text("created_by").notNull(),
+    createdAt: timestampColumn("created_at").notNull().defaultNow(),
+    updatedAt: timestampColumn("updated_at").notNull().defaultNow()
+  },
+  (table) => ({
+    sessionTitle: uniqueIndex("sources_session_title_idx").on(
+      table.sessionId,
+      table.title
+    )
+  })
+);
+
 export const evidence = pgTable("evidence", {
   id: uuid("id").primaryKey(),
   sessionId: uuid("session_id")
     .notNull()
     .references(() => decisionSessions.id),
-  claimId: uuid("claim_id")
-    .notNull()
-    .references(() => claims.id),
+  /** Claims this evidence bears on; one excerpt can bear on several. */
+  claimIds: jsonb("claim_ids").notNull(),
   kind: text("kind").notNull(),
   title: text("title").notNull(),
   content: text("content").notNull(),
   description: text("description").notNull(),
+  sourceId: uuid("source_id").references(() => sources.id),
   sourceRef: text("source_ref"),
+  locator: text("locator"),
   direction: text("direction").notNull(),
   reliability: doublePrecision("reliability").notNull(),
   verificationStatus: text("verification_status").notNull(),
+  verifiedBy: text("verified_by"),
+  verifiedAt: timestampColumn("verified_at"),
+  verificationNote: text("verification_note"),
   validityPeriod: jsonb("validity_period"),
   retrievedAt: timestampColumn("retrieved_at").notNull(),
   createdBy: text("created_by").notNull(),

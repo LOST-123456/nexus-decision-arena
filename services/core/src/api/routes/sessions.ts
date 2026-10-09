@@ -18,7 +18,9 @@ export const CreateSessionSchema = z.object({
     businessModel: z.string().min(1),
     expectedData: z.string().min(1)
   }),
-  locale: z.enum(["zh-CN", "en-US"]).default("zh-CN")
+  locale: z.enum(["zh-CN", "en-US"]).default("zh-CN"),
+  /** The question this research has to answer. */
+  researchQuestion: z.string().trim().min(1).max(1000).optional()
 });
 
 class SessionNotFoundError extends Error {
@@ -90,7 +92,8 @@ export function registerSessionRoutes(
             locale: parsed.data.locale,
             phase: "CREATED",
             operationalStatus: "ACTIVE",
-            currentConclusion: null
+            currentConclusion: null,
+            researchQuestion: parsed.data.researchQuestion ?? null
           }
         );
 

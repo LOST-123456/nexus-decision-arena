@@ -71,11 +71,14 @@ export class InspectorRepository {
     )) as unknown as InspectorViewRow[];
     const [view] = viewRows;
 
-    const [agentRun] = await this.database
-      .select()
-      .from(agentRuns)
-      .where(eq(agentRuns.id, claimRecord.agentRunId))
-      .limit(1);
+    // Human-authored claims have no agent run, so provenance is optional.
+    const [agentRun] = claimRecord.agentRunId
+      ? await this.database
+          .select()
+          .from(agentRuns)
+          .where(eq(agentRuns.id, claimRecord.agentRunId))
+          .limit(1)
+      : [];
 
     const [promptVersion] = agentRun
       ? await this.database

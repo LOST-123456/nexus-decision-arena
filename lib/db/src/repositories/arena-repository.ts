@@ -8,6 +8,7 @@ import {
   type Evidence,
   type ExecutionEvent
 } from "@nexus/shared";
+
 import type { Database } from "../client";
 import {
   agentRoles,
@@ -20,12 +21,14 @@ import {
   projects,
   promptVersions
 } from "../schema";
+import { appendEvent, type AppendEventInput } from "./append-event";
 import {
   parseChallenges,
   parseClaims,
   parseConflicts,
   parseEvidence
 } from "./domain-mapper";
+import { evidenceCoversClaim } from "./evidence-link";
 
 type SessionStateInput = {
   sessionId: string;
@@ -52,8 +55,8 @@ function claimValues(claim: Claim): typeof claims.$inferInsert {
   return {
     id: claim.id,
     sessionId: claim.sessionId,
-    agentRunId: claim.agentRunId,
-    roleId: claim.roleId,
+    agentRunId: claim.agentRunId ?? null,
+    roleId: claim.roleId ?? null,
     lens: claim.lens,
     statement: claim.statement,
     type: claim.type,
@@ -108,15 +111,22 @@ function evidenceValues(
   return {
     id: item.id,
     sessionId: item.sessionId,
-    claimId: item.claimId,
+    claimIds: item.claimIds,
     kind: item.kind,
     title: item.title,
     content: item.content,
     description: item.description,
+    ...(item.sourceId ? { sourceId: item.sourceId } : {}),
     ...(item.sourceRef ? { sourceRef: item.sourceRef } : {}),
+    ...(item.locator ? { locator: item.locator } : {}),
     direction: item.direction,
     reliability: item.reliability,
     verificationStatus: item.verificationStatus,
+    ...(item.verifiedBy ? { verifiedBy: item.verifiedBy } : {}),
+    ...(item.verifiedAt ? { verifiedAt: item.verifiedAt } : {}),
+    ...(item.verificationNote
+      ? { verificationNote: item.verificationNote }
+      : {}),
     ...(item.validityPeriod ? { validityPeriod: item.validityPeriod } : {}),
     retrievedAt: item.retrievedAt,
     createdBy: item.createdBy,
@@ -269,6 +279,39 @@ export class ArenaRepository {
     await this.database.insert(claims).values(claimValues(claim));
   }
 
+  /**
+   * Records a claim a researcher entered themselves, with no agent run behind
+   * it, together with its `CLAIM_CREATED` event.
+   */
+  async createResearchClaim(input: {
+    claim: Claim;
+    event: AppendEventInput;
+  }): Promise<{ claim: Claim; event: ExecutionEvent }> {
+    return this.database.transaction(async (transaction) => {
+      const [session] = await transaction
+        .select({ id: decisionSessions.id })
+        .from(decisionSessions)
+        .where(eq(decisionSessions.id, input.claim.sessionId))
+        .limit(1);
+      if (!session) {
+        throw new Error(`Session not found: ${input.claim.sessionId}`);
+      }
+
+      const [created] = await transaction
+        .insert(claims)
+        .values(claimValues(input.claim))
+        .returning();
+
+      const event = await appendEvent(
+        transaction,
+        input.claim.sessionId,
+        input.event
+      );
+
+      return { claim: parseClaims([created!])[0]!, event };
+    });
+  }
+
   async updateChallenge(challenge: Challenge): Promise<void> {
     const values = challengeValues(challenge);
     await this.database
@@ -364,7 +407,7 @@ export class ArenaRepository {
       this.database
         .select()
         .from(evidence)
-        .where(eq(evidence.claimId, claimId)),
+        .where(evidenceCoversClaim(evidence.claimIds, claimId)),
       this.database
         .select()
         .from(challenges)

@@ -40,7 +40,7 @@ const baseEvidence = (
   return EvidenceSchema.parse({
     id: newId(),
     sessionId: newId(),
-    claimId,
+    claimIds: [claimId],
     kind: "calculation",
     title: "Market size calculation",
     content: "The calculation supports the market-size Claim.",
@@ -48,6 +48,13 @@ const baseEvidence = (
     direction: "supports",
     reliability: 0.9,
     verificationStatus,
+    ...(verificationStatus === "unverified"
+      ? {}
+      : {
+          verifiedBy: "workflow-test-operator",
+          verifiedAt: new Date().toISOString(),
+          verificationNote: "Reviewed for the workflow test."
+        }),
     retrievedAt: new Date().toISOString(),
     createdBy: "system"
   });

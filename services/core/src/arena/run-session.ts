@@ -1,5 +1,6 @@
 import {
   assertClaimInvariants,
+  evidenceCoversClaim,
   isConflictAwaitingHumanDecision,
   newId,
   type AgentRole,
@@ -255,9 +256,14 @@ export class RunSessionService {
         typeof this.runtime!.crossExamination === "function"
           ? this.runtime!.crossExamination()
           : this.runtime!.crossExamination;
-      const runIdByRoleId = new Map(
-        artifacts.claims.map((claim) => [claim.roleId, claim.agentRunId])
-      );
+      // Only claims produced by an agent run can be attributed to one; claims a
+      // researcher entered themselves have neither role nor run.
+      const runIdByRoleId = new Map<string, string>();
+      for (const claim of artifacts.claims) {
+        if (claim.roleId && claim.agentRunId) {
+          runIdByRoleId.set(claim.roleId, claim.agentRunId);
+        }
+      }
       const plans = this.runtime!.createChallengePlans?.(
         roles,
         artifacts.claims,
@@ -461,7 +467,7 @@ export class RunSessionService {
       for (const claim of analysis.claims) {
         assertClaimInvariants(
           claim,
-          analysis.evidence.filter((item) => item.claimId === claim.id)
+          analysis.evidence.filter((item) => evidenceCoversClaim(item, claim.id))
         );
       }
       await this.runtime!.store.saveClaimsAndEvidence({

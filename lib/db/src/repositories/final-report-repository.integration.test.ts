@@ -109,7 +109,7 @@ describe("FinalReportRepository", () => {
     await database.insert(evidence).values({
       id: evidenceId,
       sessionId,
-      claimId,
+      claimIds: [claimId],
       kind: "project_input",
       title: "Procurement evidence",
       content: "Pipeline is missing",
@@ -117,6 +117,9 @@ describe("FinalReportRepository", () => {
       direction: "opposes",
       reliability: 0.7,
       verificationStatus: "verified",
+      verifiedBy: "report-test-operator",
+      verifiedAt: timestamp,
+      verificationNote: "Matched against the signed procurement record.",
       retrievedAt: timestamp,
       createdBy: "system"
     });

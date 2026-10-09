@@ -202,7 +202,7 @@ export const previewSession: PreviewSession = {
     {
       id: "evidence-policy",
       sessionId,
-      claimId: "claim-demand",
+      claimIds: ["claim-demand"],
       kind: "project_input",
       title: "政策需求",
       content: "实验室安全管理数字化受政策推动。",
@@ -210,13 +210,16 @@ export const previewSession: PreviewSession = {
       direction: "supports",
       reliability: 0.7,
       verificationStatus: "verified",
+      verifiedBy: "preview-operator",
+      verifiedAt: timestamp,
+      verificationNote: "项目输入原文已核对。",
       retrievedAt: timestamp,
       createdBy: "system"
     },
     {
       id: "evidence-prototype",
       sessionId,
-      claimId: "claim-feasibility",
+      claimIds: ["claim-feasibility"],
       kind: "assumption",
       title: "软件原型判断",
       content: "现有二维码与视觉方案可作为软件原型基础。",
@@ -230,7 +233,7 @@ export const previewSession: PreviewSession = {
     {
       id: "evidence-pilot-threshold",
       sessionId,
-      claimId: "claim-pilot",
+      claimIds: ["claim-pilot"],
       kind: "calculation",
       title: "试点门槛",
       content: "以 3 间实验室和 12 个月作为阶段验收周期。",
@@ -238,13 +241,16 @@ export const previewSession: PreviewSession = {
       direction: "supports",
       reliability: 0.82,
       verificationStatus: "verified",
+      verifiedBy: "preview-operator",
+      verifiedAt: timestamp,
+      verificationNote: "已对照试点方案原文复核。",
       retrievedAt: timestamp,
       createdBy: "agent"
     },
     {
       id: "evidence-compliance",
       sessionId,
-      claimId: "claim-risk",
+      claimIds: ["claim-risk"],
       kind: "assumption",
       title: "责任边界待确认",
       content: "学校安全责任、事故责任和数据处理边界尚未形成书面依据。",

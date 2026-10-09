@@ -99,7 +99,7 @@ export class ProviderAgentRunner implements AgentRunner {
         return EvidenceSchema.parse({
           id: evidenceId,
           sessionId: runContext.sessionId,
-          claimId,
+          claimIds: [claimId],
           kind: "assumption",
           title,
           content: title,
@@ -199,7 +199,9 @@ export class ProviderAgentRunner implements AgentRunner {
               schemaName: "challenge:create",
               system: 'Return JSON only: {"type":"evidence_gap","question":"缺少什么证据？","context":{"triggerClaimIds":[target.id],"explanation":"为什么该证据影响结论"},"requiredEvidence":["采购记录"],"severity":4,"resolutionStrategy":"provide_evidence"}. context.triggerClaimIds must contain the exact target.id from the user message and must never use placeholders. resolutionStrategy must be exactly one of provide_evidence, revise_claim, withdraw_claim, human_decision.',
               user: JSON.stringify({ challenger, target }),
-              correlationId: target.agentRunId
+              // A human-authored claim has no originating run, so the claim
+              // itself becomes the correlation anchor.
+              correlationId: target.agentRunId ?? target.id
             },
             z.object({
               type: ChallengeSchema.shape.type,

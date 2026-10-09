@@ -20,6 +20,8 @@ export type CreateSessionCommand = {
     expectedData: string;
   };
   locale: "zh-CN" | "en-US";
+  /** The question this research has to answer. */
+  researchQuestion?: string;
 };
 
 export type CreatedSession = {

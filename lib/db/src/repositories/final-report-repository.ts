@@ -158,10 +158,11 @@ export class FinalReportRepository {
         ? sessionEvidence
         : sessionEvidence.filter(
             (item) =>
-              relevantClaimIds.has(item.claimId) ||
+              item.claimIds.some((claimId) => relevantClaimIds.has(claimId)) ||
               sessionClaims.some(
                 (claim) =>
-                  claim.id === item.claimId && relevantClaimIds.has(claim.id)
+                  claim.id === item.claimIds[0] &&
+                  relevantClaimIds.has(claim.id)
               )
           );
     const requiredNextActions = [

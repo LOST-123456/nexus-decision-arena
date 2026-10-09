@@ -115,7 +115,7 @@ describe("inspector repository", () => {
     await database.insert(evidence).values({
       id: evidenceId,
       sessionId,
-      claimId,
+      claimIds: [claimId],
       kind: "project_input",
       title: "Survey",
       content: "Demand increased.",
@@ -123,6 +123,9 @@ describe("inspector repository", () => {
       direction: "supports",
       reliability: 0.8,
       verificationStatus: "verified",
+      verifiedBy: "inspector-test-operator",
+      verifiedAt: createdAt,
+      verificationNote: "Quote matched the published survey table.",
       retrievedAt: createdAt,
       createdBy: "system"
     });
@@ -220,7 +223,7 @@ describe("inspector repository", () => {
         expect.objectContaining({
           id: evidenceId,
           sessionId,
-          claimId,
+          claimIds: [claimId],
           verificationStatus: "verified",
           retrievedAt: expect.any(String)
         })

@@ -27,6 +27,9 @@ export default function HomePage() {
           <Link className="header-secondary-link" href="/sessions/new">
             新建评审
           </Link>
+          <Link className="header-secondary-link" href="/research">
+            研究与事实核查
+          </Link>
           <Link className="primary-link" href="/sessions/demo">
             进入固定演示
             <span aria-hidden="true">→</span>
