@@ -5,7 +5,8 @@ import {
   EventRepository,
   EvidenceRepository,
   FinalReportRepository,
-  InspectorRepository
+  InspectorRepository,
+  ReviewRepository
 } from "@nexus/db";
 import { OpenAiCompatibleProvider } from "@nexus/llm";
 import { createApp } from "./app";
@@ -23,6 +24,7 @@ import {
 import type { AgentRunner } from "./arena/agent-runner";
 import { ProviderAgentRunner } from "./arena/provider-agent-runner";
 import { EventBus } from "./execution/event-bus";
+import { CrossReviewService } from "./research/cross-review-service";
 import { AuthService } from "./auth";
 
 import { dirname, resolve } from "node:path";
@@ -48,6 +50,7 @@ const events = new EventRepository(database);
 const arena = new ArenaRepository(database);
 const reports = new FinalReportRepository(database);
 const researchEvidence = new EvidenceRepository(database);
+const researchReviews = new ReviewRepository(database);
 
 const auth = new AuthService({
   usersPath:
@@ -113,6 +116,32 @@ const runSession = new RunSessionService(agentRunner, {
   postChallengeConclusion: "暂缓规模化扩张"
 });
 
+/**
+ * Claim-level cross-examination. It reuses the arena's challenger selection
+ * and CrossExaminationService, but gives every challenger its own agent run so
+ * the research workspace can show real task status and real failure reasons.
+ */
+const crossReview = new CrossReviewService({
+  readArtifacts: (sessionId) => arena.getSessionArtifacts(sessionId),
+  readRoles: async (sessionId) => {
+    const context = await arena.getRunContext(sessionId);
+    if (!context) {
+      return [];
+    }
+    const configured =
+      DEFAULT_AGENT_ROLES.length > 0 ? DEFAULT_AGENT_ROLES : context.roles;
+    return arena.ensureAgentRoles(configured);
+  },
+  runs: researchReviews,
+  arena,
+  getClaimValidationContext: (claimId) =>
+    arena.getClaimValidationContext(claimId),
+  crossExamination: createCrossExamination,
+  appendEvent: (input) => events.append(input),
+  eventBus,
+  maxChallengers: Number(process.env.CROSS_EXAMINATION_MAX_CHALLENGERS ?? 2)
+});
+
 const app = createApp(
   {
     sessions,
@@ -120,6 +149,8 @@ const app = createApp(
     sessionHistory: sessions,
     inspector: new InspectorRepository(database),
     evidence: researchEvidence,
+    reviews: researchReviews,
+    crossReview,
     arena,
     reports,
     events,

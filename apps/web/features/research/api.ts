@@ -1,5 +1,8 @@
 import type {
+  AgentRun,
+  Challenge,
   Claim,
+  ClaimReview,
   ClaimVerdict,
   Conflict,
   Evidence,
@@ -21,6 +24,10 @@ export type ResearchSummary = {
   claims: number;
   evidence: number;
   sources: number;
+  challenges: number;
+  unresolvedChallenges: number;
+  reviews: number;
+  failedRuns: number;
   verified: number;
   unverified: number;
   rejected: number;
@@ -33,8 +40,149 @@ export type ResearchWorkspace = {
   evidence: Evidence[];
   sources: Source[];
   conflicts: Conflict[];
+  challenges: Challenge[];
+  agentRuns: AgentRun[];
+  reviews: ClaimReview[];
   verdicts: ClaimVerdict[];
   summary: ResearchSummary;
+};
+
+export type CrossReviewRunOutcome = {
+  run: AgentRun;
+  challenges: Challenge[];
+  status: "completed" | "failed";
+  failure: string | null;
+};
+
+export type CrossReviewResult = {
+  sessionId: string;
+  claimId: string;
+  status: "completed" | "partial" | "failed";
+  runs: CrossReviewRunOutcome[];
+  challenges: Challenge[];
+  responseClaims: Claim[];
+  conflicts: Conflict[];
+  failures: Array<{ runId: string; roleId: string; reason: string }>;
+};
+
+export type RecordReviewCommand = {
+  outcome: "confirmed" | "rejected" | "needs_more_evidence";
+  rationale: string;
+  evidenceIds?: string[];
+  sourceIds?: string[];
+};
+
+/** Structured citation as returned inside the fact-check report. */
+export type ReportCitation = {
+  evidenceId: string;
+  title: string;
+  excerpt: string;
+  locator: string | null;
+  direction: "supports" | "opposes" | "context";
+  verificationStatus: "unverified" | "verified" | "rejected";
+  reliability: number;
+  verifiedBy: string | null;
+  verificationNote: string | null;
+  source: {
+    id: string;
+    title: string;
+    kind: "url" | "document" | "dataset" | "manual";
+    publisher: string | null;
+    url: string | null;
+    publishedAt: string | null;
+  } | null;
+  sourceRef: string | null;
+  citationStatus: "linked" | "url_only" | "unlinked";
+};
+
+export type ReportChallenge = {
+  challengeId: string;
+  type: Challenge["type"];
+  question: string;
+  severity: number;
+  status: Challenge["status"];
+  resolutionStrategy: Challenge["resolutionStrategy"];
+  requiredEvidence: string[];
+  unverifiedReferences: string[];
+  registeredEvidenceIds: string[];
+  responseClaimId: string | null;
+  challengerRoleId: string;
+  challengerRunId: string;
+  unresolved: boolean;
+  createdAt: string;
+};
+
+export type ReportFinding = {
+  claimId: string;
+  statement: string;
+  type: Claim["type"];
+  stance: Claim["stance"];
+  importance: number;
+  claimStatus: Claim["status"];
+  verdict: ClaimVerdict;
+  review: ClaimReview | null;
+  reviewHistory: ClaimReview[];
+  supporting: ReportCitation[];
+  opposing: ReportCitation[];
+  context: ReportCitation[];
+  excluded: ReportCitation[];
+  challenges: ReportChallenge[];
+  runs: AgentRun[];
+};
+
+export type FactCheckReport = {
+  sessionId: string;
+  researchQuestion: string | null;
+  generatedAt: string;
+  reportVersion: number;
+  materialsFingerprint: string;
+  workflow: {
+    phase: string;
+    operationalStatus: string;
+    currentConclusion: string | null;
+  };
+  scope: {
+    claims: number;
+    evidence: number;
+    sources: number;
+    challenges: number;
+    reviews: number;
+    agentRuns: number;
+  };
+  summary: {
+    byStatus: Record<string, number>;
+    openVerdicts: number;
+    verified: number;
+    unverified: number;
+    rejected: number;
+    inconclusive: number;
+  };
+  findings: ReportFinding[];
+  crossExamination: {
+    runs: AgentRun[];
+    failedRuns: AgentRun[];
+    challenges: ReportChallenge[];
+  };
+  gaps: {
+    insufficientEvidence: Array<{ claimId: string; statement: string }>;
+    unresolvedConflicts: Array<{
+      conflictId: string;
+      summary: string;
+      severity: number;
+    }>;
+    assumptions: Array<{ claimId: string; statement: string }>;
+    unlinkedCitations: Array<{ evidenceId: string; title: string }>;
+  };
+  limits: string[];
+  provenance: {
+    evidenceIds: string[];
+    sourceIds: string[];
+    challengeIds: string[];
+    agentRunIds: string[];
+    reviewIds: string[];
+    claimIds: string[];
+    lastEventSequence: number;
+  };
 };
 
 export type EvidenceContext = {
@@ -88,20 +236,25 @@ async function request<T>(
   init?: RequestInit & { idempotencyKey?: string }
 ): Promise<T> {
   const { idempotencyKey, ...rest } = init ?? {};
+  // A body-less POST must not carry a JSON content-type: the API rejects an
+  // empty JSON payload, which would turn a valid action into a 400.
+  const hasBody = rest.body !== undefined && rest.body !== null;
   const response = await fetch(`${apiUrl}${path}`, {
     cache: "no-store",
     ...rest,
     headers: {
-      "content-type": "application/json",
+      ...(hasBody ? { "content-type": "application/json" } : {}),
       ...(idempotencyKey ? { "idempotency-key": idempotencyKey } : {}),
       ...(rest.headers ?? {})
     }
   });
   if (!response.ok) {
     const payload = (await response.json().catch(() => null)) as
-      | { error?: string }
+      | { error?: string; message?: string }
       | null;
-    throw new Error(payload?.error ?? `Request failed: ${response.status}`);
+    throw new Error(
+      payload?.message ?? payload?.error ?? `Request failed: ${response.status}`
+    );
   }
   return response.json() as Promise<T>;
 }
@@ -240,4 +393,55 @@ export function getEvents(sessionId: string): Promise<ExecutionEvent[]> {
   return request<ExecutionEvent[]>(
     `/api/sessions/${encodeURIComponent(sessionId)}/events`
   );
+}
+
+/**
+ * Asks the backend to cross-examine one claim. This starts real agent runs, so
+ * it is a write: the response carries per-run status and any failure reason.
+ */
+export function runCrossReview(
+  sessionId: string,
+  claimId: string
+): Promise<CrossReviewResult> {
+  return request<CrossReviewResult>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/claims/${encodeURIComponent(claimId)}/cross-review`,
+    { method: "POST", idempotencyKey: idempotencyKey("cross-review") }
+  );
+}
+
+export function listClaimReviews(
+  sessionId: string,
+  claimId: string
+): Promise<{ reviews: ClaimReview[]; latest: ClaimReview | null }> {
+  return request<{ reviews: ClaimReview[]; latest: ClaimReview | null }>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/claims/${encodeURIComponent(claimId)}/reviews`
+  );
+}
+
+export function recordClaimReview(
+  sessionId: string,
+  claimId: string,
+  command: RecordReviewCommand
+): Promise<{ review: ClaimReview; event: ExecutionEvent }> {
+  return request<{ review: ClaimReview; event: ExecutionEvent }>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/claims/${encodeURIComponent(claimId)}/reviews`,
+    {
+      method: "POST",
+      body: JSON.stringify(command),
+      idempotencyKey: idempotencyKey("claim-review")
+    }
+  );
+}
+
+export function getFactCheckReport(
+  sessionId: string
+): Promise<FactCheckReport> {
+  return request<FactCheckReport>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/fact-check-report`
+  );
+}
+
+/** Absolute url for the Markdown export, so it can be a real download link. */
+export function factCheckReportMarkdownUrl(sessionId: string): string {
+  return `${apiUrl}/api/sessions/${encodeURIComponent(sessionId)}/fact-check-report?format=markdown&download=1`;
 }

@@ -2,6 +2,7 @@ import {
   AgentRoleSchema,
   ChallengeSchema,
   ClaimSchema,
+  ClaimReviewSchema,
   ConflictSchema,
   EvidenceSchema,
   HumanDecisionSchema,
@@ -9,6 +10,7 @@ import {
   type AgentRole,
   type Challenge,
   type Claim,
+  type ClaimReview,
   type Conflict,
   type Evidence,
   type HumanDecision,
@@ -104,6 +106,15 @@ export function parseHumanDecisions(
   rows: readonly unknown[]
 ): HumanDecision[] {
   return HumanDecisionSchema.array().parse(
+    rows.map((row) => {
+      const value = record(row);
+      return { ...value, createdAt: iso(value.createdAt) };
+    })
+  );
+}
+
+export function parseClaimReviews(rows: readonly unknown[]): ClaimReview[] {
+  return ClaimReviewSchema.array().parse(
     rows.map((row) => {
       const value = record(row);
       return { ...value, createdAt: iso(value.createdAt) };

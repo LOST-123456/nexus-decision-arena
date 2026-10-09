@@ -22,8 +22,9 @@ export function ResearchNav() {
     links.push(
       { href: `/research/${sessionId}`, label: "Research Workspace" },
       { href: `/research/${sessionId}/evidence`, label: "Evidence Explorer" },
+      { href: `/research/${sessionId}/report`, label: "Fact Check Report" },
       { href: `/sessions/${sessionId}`, label: "Arena View" },
-      { href: `/sessions/${sessionId}/report`, label: "Fact Check Report" }
+      { href: `/sessions/${sessionId}/report`, label: "Decision Report" }
     );
   }
 

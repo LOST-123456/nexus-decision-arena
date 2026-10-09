@@ -2,6 +2,7 @@ export const productName = "Nexus Decision Arena";
 
 export * from "./ids";
 export * from "./domain/agent";
+export * from "./domain/agent-run";
 export * from "./domain/claim";
 export * from "./domain/evidence";
 export * from "./domain/source";
@@ -17,5 +18,7 @@ export * from "./workflow/decision-writeback";
 export * from "./execution/claim-inspector";
 export * from "./execution/session-view";
 export * from "./verification/claim-verdict";
+export * from "./verification/claim-review";
+export * from "./verification/review-outcome";
 export * from "./verification/evidence-verification";
 export * from "./replay/decision-replay";

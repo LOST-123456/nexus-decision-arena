@@ -94,11 +94,25 @@
   align-items: start;
 }
 
+/*
+ * Cross-examination and review are claim-scoped focus modes: they take the
+ * whole content area and drop the source-detail column, so nothing is squeezed
+ * and no horizontal scrollbar appears.
+ */
+.research-body[data-mode="focus"] {
+  grid-template-columns: 300px minmax(0, 1fr);
+}
+
 .research-column {
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+/* Sections inside a column collapse when their tab is not active. */
+.research-root [data-hidden="true"] {
+  display: none;
 }
 
 .research-panel {
@@ -458,12 +472,148 @@
   background: var(--rw-accent);
 }
 
+/* ---------- cross-examination and review ---------- */
+
+.research-plain-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12.5px;
+}
+
+.research-plain-list > li {
+  border: 1px solid var(--rw-line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--rw-panel-soft);
+  overflow-wrap: anywhere;
+}
+
+.research-challenge > div + div {
+  margin-top: 4px;
+}
+
+.research-review-actions {
+  border-top: 1px dashed var(--rw-line-strong);
+  margin-top: 10px;
+  padding-top: 10px;
+}
+
+.research-report-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--rw-accent);
+  text-decoration: none;
+}
+
+.research-report-link:hover {
+  text-decoration: underline;
+}
+
+/* ---------- fact-check report document ---------- */
+
+.research-report-shell {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 24px 20px 64px;
+}
+
+.research-report-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--rw-line-strong);
+  padding-bottom: 16px;
+}
+
+.research-report-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.research-report-section {
+  margin-top: 26px;
+}
+
+.research-report-section > h2 {
+  font-size: 15px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--rw-muted);
+  margin: 0 0 10px;
+}
+
+.research-report-finding {
+  border: 1px solid var(--rw-line);
+  border-radius: 10px;
+  background: var(--rw-panel);
+  padding: 14px 16px;
+  margin-bottom: 12px;
+}
+
+.research-report-citation {
+  border-left: 3px solid var(--rw-line-strong);
+  padding-left: 10px;
+  margin: 8px 0;
+  font-size: 12.5px;
+}
+
+.research-report-citation[data-direction="supports"] {
+  border-left-color: var(--rw-supports);
+}
+
+.research-report-citation[data-direction="opposes"] {
+  border-left-color: var(--rw-opposes);
+}
+
+.research-report-citation[data-direction="context"] {
+  border-left-color: var(--rw-context);
+}
+
+.research-report-quote {
+  color: var(--rw-text);
+  margin: 2px 0;
+  overflow-wrap: anywhere;
+}
+
+/* The report is meant to be printed or saved as PDF as-is. */
+@media print {
+  .research-nav,
+  .research-report-actions {
+    display: none !important;
+  }
+
+  .research-root {
+    background: #ffffff;
+  }
+
+  .research-report-shell {
+    max-width: none;
+    padding: 0;
+  }
+
+  .research-report-finding {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+}
+
 /* ---------- narrow screens: tabs instead of squeezed columns ---------- */
 
 .research-tabs {
-  display: none;
+  display: flex;
   gap: 4px;
   padding: 10px 16px 0;
+  overflow-x: auto;
 }
 
 .research-tab {
@@ -476,6 +626,7 @@
   color: var(--rw-muted);
   border-radius: 8px 8px 0 0;
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .research-tab[aria-selected="true"] {
@@ -484,14 +635,21 @@
   font-weight: 650;
 }
 
+/* Desktop keeps the claim rail pinned; only narrow screens need it as a tab. */
+.research-tab-narrow {
+  display: none;
+}
+
 @media (max-width: 1180px) {
-  .research-body {
+  .research-body,
+  .research-body[data-mode="focus"] {
     grid-template-columns: minmax(0, 1fr);
   }
-  .research-tabs {
-    display: flex;
-  }
-  .research-column[data-hidden="true"] {
+  /* The claim rail is a tab of its own once there is no room for a sidebar. */
+  .research-root .research-column[data-narrow-hidden="true"] {
     display: none;
+  }
+  .research-tab-narrow {
+    display: inline-block;
   }
 }

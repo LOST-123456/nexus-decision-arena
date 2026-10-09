@@ -4,7 +4,8 @@ import type {
   EventRepository,
   EvidenceRepository,
   FinalReportRepository,
-  InspectorRepository
+  InspectorRepository,
+  ReviewRepository
 } from "@nexus/db";
 import Fastify, { type FastifyInstance } from "fastify";
 import {
@@ -17,8 +18,10 @@ import { registerEventRoutes } from "./api/routes/events";
 import { registerHumanDecisionRoutes } from "./api/routes/human-decisions";
 import { registerInspectorRoutes } from "./api/routes/inspector";
 import { registerReportRoutes } from "./api/routes/reports";
+import { registerReviewRoutes } from "./api/routes/review";
 import { registerSessionRoutes } from "./api/routes/sessions";
 import { EventBus } from "./execution/event-bus";
+import type { CrossReviewService } from "./research/cross-review-service";
 
 export type ProjectInput = {
   name: string;
@@ -61,6 +64,10 @@ export type AppDependencies = {
   inspector: Pick<InspectorRepository, "getInspector">;
   /** Research evidence and source management. */
   evidence?: EvidenceRepository;
+  /** Cross-examination run records and human fact-check rulings. */
+  reviews?: ReviewRepository;
+  /** Runs cross-examination against a single claim, reusing the arena. */
+  crossReview?: CrossReviewService;
   arena?: Pick<ArenaRepository, "createResearchClaim" | "getSessionArtifacts">;
   reports?: Pick<
     FinalReportRepository,
@@ -136,6 +143,7 @@ export function createApp(
   registerReportRoutes(app, dependencies);
   registerHumanDecisionRoutes(app, dependencies, idempotency, eventBus);
   registerEvidenceRoutes(app, dependencies, idempotency, eventBus);
+  registerReviewRoutes(app, dependencies, idempotency, eventBus);
   registerEventRoutes(app, {
     bus: eventBus,
     repository: dependencies.events

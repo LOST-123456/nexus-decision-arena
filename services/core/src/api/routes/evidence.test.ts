@@ -80,6 +80,7 @@ function buildApp(options: {
     setVerification: unknown;
   }>;
   arena?: Partial<{ createResearchClaim: unknown; getSessionArtifacts: unknown }>;
+  reviews?: Partial<{ listReviews: unknown; listAgentRuns: unknown }>;
   session?: Record<string, unknown> | null;
 }) {
   const role = options.role === undefined ? "reviewer" : options.role;
@@ -104,7 +105,8 @@ function buildApp(options: {
       events: {} as never,
       runSession: {} as never,
       evidence: (options.evidence ?? {}) as never,
-      arena: (options.arena ?? {}) as never
+      arena: (options.arena ?? {}) as never,
+      reviews: options.reviews as never
     },
     undefined,
     { eventBus: new EventBus() }
@@ -576,6 +578,10 @@ describe("research workspace route", () => {
           challenges: [],
           conflicts: []
         })
+      },
+      reviews: {
+        listReviews: vi.fn().mockResolvedValue([]),
+        listAgentRuns: vi.fn().mockResolvedValue([])
       }
     });
 
@@ -594,15 +600,48 @@ describe("research workspace route", () => {
     expect(body.verdicts[0].status).toBe("insufficient_evidence");
     expect(body.verdicts[0].confidence).toBe(0);
     expect(body.summary.openVerdicts).toBe(1);
+    // Cross-examination and human rulings are part of the workspace payload,
+    // even when the session has none yet.
+    expect(body.challenges).toEqual([]);
+    expect(body.agentRuns).toEqual([]);
+    expect(body.reviews).toEqual([]);
   });
 
   it("returns 404 when the session does not exist", async () => {
-    const app = buildApp({ session: null });
+    const app = buildApp({
+      session: null,
+      reviews: {
+        listReviews: vi.fn().mockResolvedValue([]),
+        listAgentRuns: vi.fn().mockResolvedValue([])
+      }
+    });
     const response = await app.inject({
       method: "GET",
       url: `/api/sessions/${SESSION_ID}/research`
     });
     expect(response.statusCode).toBe(404);
+  });
+
+  it("reports 501 when review storage is not wired", async () => {
+    const app = buildApp({
+      evidence: {
+        listEvidence: vi.fn().mockResolvedValue([]),
+        listSources: vi.fn().mockResolvedValue([])
+      },
+      arena: {
+        getSessionArtifacts: vi.fn().mockResolvedValue({
+          claims: [],
+          evidence: [],
+          challenges: [],
+          conflicts: []
+        })
+      }
+    });
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/sessions/${SESSION_ID}/research`
+    });
+    expect(response.statusCode).toBe(501);
   });
 
   it("reports 501 when evidence storage is not wired", async () => {

@@ -118,6 +118,12 @@ function applyContiguousEvent(
     case "EVIDENCE_VERIFICATION_CHANGED": {
       return { ...current, lastSequence: event.sequence };
     }
+    // A human fact-check ruling is an append-only research record. It does not
+    // change the debate phase, and the research surfaces re-read it from the
+    // backend instead of guessing at it here.
+    case "CLAIM_REVIEW_RECORDED": {
+      return { ...current, lastSequence: event.sequence };
+    }
     default: {
       const exhaustiveEvent: never = event.type;
       void exhaustiveEvent;

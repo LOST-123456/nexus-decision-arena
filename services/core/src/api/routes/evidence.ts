@@ -95,7 +95,10 @@ function actorName(
 
 export function registerEvidenceRoutes(
   app: FastifyInstance,
-  dependencies: Pick<AppDependencies, "auth" | "evidence" | "arena" | "sessions">,
+  dependencies: Pick<
+    AppDependencies,
+    "auth" | "evidence" | "reviews" | "arena" | "sessions"
+  >,
   idempotency: IdempotencyStore,
   eventBus: EventBus
 ): void {
@@ -109,12 +112,18 @@ export function registerEvidenceRoutes(
       if (dependencies.auth && !user) {
         return reply.code(401).send({ error: "Authentication required" });
       }
-      if (!dependencies.evidence || !dependencies.arena || !dependencies.sessions) {
+      if (
+        !dependencies.evidence ||
+        !dependencies.arena ||
+        !dependencies.sessions ||
+        !dependencies.reviews
+      ) {
         return notConfigured(reply);
       }
       const service = new ResearchWorkspaceService({
         evidence: dependencies.evidence,
         arena: dependencies.arena,
+        reviews: dependencies.reviews,
         getSession: async (sessionId) => {
           const session = await dependencies.sessions!.getById(sessionId);
           if (!session) return null;

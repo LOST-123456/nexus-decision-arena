@@ -2,6 +2,7 @@ import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import {
   boolean,
   doublePrecision,
+  index,
   integer,
   jsonb,
   pgTable,
@@ -209,6 +210,37 @@ export const challenges = pgTable("challenges", {
   createdAt: timestampColumn("created_at").notNull().defaultNow(),
   updatedAt: timestampColumn("updated_at").notNull().defaultNow()
 });
+
+/** Human fact-check ruling on a single claim. Append-only. */
+export const claimReviews = pgTable(
+  "claim_reviews",
+  {
+    id: uuid("id").primaryKey(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => decisionSessions.id),
+    claimId: uuid("claim_id")
+      .notNull()
+      .references(() => claims.id),
+    outcome: text("outcome").notNull(),
+    rationale: text("rationale").notNull(),
+    reviewer: text("reviewer").notNull(),
+    evidenceIds: jsonb("evidence_ids").notNull(),
+    sourceIds: jsonb("source_ids").notNull(),
+    verdictStatusAtReview: text("verdict_status_at_review").notNull(),
+    verdictConfidenceAtReview: doublePrecision(
+      "verdict_confidence_at_review"
+    ).notNull(),
+    createdAt: timestampColumn("created_at").notNull().defaultNow()
+  },
+  (table) => ({
+    claim: index("claim_reviews_claim_idx").on(table.claimId, table.createdAt),
+    session: index("claim_reviews_session_idx").on(
+      table.sessionId,
+      table.createdAt
+    )
+  })
+);
 
 export const conflicts = pgTable("conflicts", {
   id: uuid("id").primaryKey(),

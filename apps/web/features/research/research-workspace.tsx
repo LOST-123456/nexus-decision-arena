@@ -2,6 +2,11 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  isEvidenceExpired,
+  isEvidenceNotYetEffective,
+  type ClaimReview
+} from "@nexus/shared";
 import { getEvents } from "./api";
 import {
   createEvidence,
@@ -9,12 +14,23 @@ import {
   createSource,
   getEvidenceContext,
   getResearchWorkspace,
+  listClaimReviews,
+  recordClaimReview,
+  runCrossReview,
   setVerification,
+  type CrossReviewResult,
   type EvidenceContext,
   type ResearchWorkspace
 } from "./api";
 import { getCurrentUser, type AuthUser } from "../arena/api-client";
-import { EvidenceTable, SourceDetail, StatusPill, VerdictCard } from "./components";
+import {
+  CrossReviewPanel,
+  EvidenceTable,
+  ReviewCenter,
+  SourceDetail,
+  StatusPill,
+  VerdictCard
+} from "./components";
 import { ClaimForm, EvidenceForm, SourceForm } from "./forms";
 import {
   claimStatusLabel,
@@ -25,13 +41,26 @@ import {
   workflowLabel
 } from "./labels";
 
-type Panel = "claims" | "content" | "detail";
+type Panel = "claims" | "content" | "cross" | "review" | "detail";
 
-const PANELS: Array<{ id: Panel; label: string }> = [
-  { id: "claims", label: "主张" },
+/**
+ * `claims` and `detail` are their own tabs only where the layout collapses: on
+ * a wide screen the claim rail and the source detail are always on screen, so
+ * offering a tab that changes nothing would be a dead control.
+ */
+const PANELS: Array<{ id: Panel; label: string; narrowOnly?: boolean }> = [
+  { id: "claims", label: "主张", narrowOnly: true },
   { id: "content", label: "研究内容" },
-  { id: "detail", label: "来源详情" }
+  { id: "cross", label: "交叉审查" },
+  { id: "review", label: "审核中心" },
+  { id: "detail", label: "来源详情", narrowOnly: true }
 ];
+
+const RESEARCH_MODE: Panel[] = ["claims", "content", "detail"];
+
+function isResearchMode(panel: Panel): boolean {
+  return RESEARCH_MODE.includes(panel);
+}
 
 export function ResearchWorkspace({ sessionId }: { sessionId: string }) {
   const [workspace, setWorkspace] = useState<ResearchWorkspace | null>(null);
@@ -47,6 +76,16 @@ export function ResearchWorkspace({ sessionId }: { sessionId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [history, setHistory] = useState<string[]>([]);
+
+  // Cross-examination: real agent runs, so both progress and outcome are kept.
+  const [crossRunning, setCrossRunning] = useState(false);
+  const [crossError, setCrossError] = useState<string | null>(null);
+  const [crossResult, setCrossResult] = useState<CrossReviewResult | null>(null);
+
+  // Human rulings: append-only, re-read from the backend after every write.
+  const [reviewHistory, setReviewHistory] = useState<ClaimReview[] | null>(null);
+  const [reviewBusy, setReviewBusy] = useState(false);
+  const [reviewError, setReviewError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     const next = await getResearchWorkspace(sessionId);
@@ -72,7 +111,8 @@ export function ResearchWorkspace({ sessionId }: { sessionId: string }) {
               (event) =>
                 event.type === "EVIDENCE_RECORDED" ||
                 event.type === "EVIDENCE_VERIFICATION_CHANGED" ||
-                event.type === "CLAIM_CREATED"
+                event.type === "CLAIM_CREATED" ||
+                event.type === "CLAIM_REVIEW_RECORDED"
             )
             .slice(-8)
             .reverse()
@@ -110,6 +150,28 @@ export function ResearchWorkspace({ sessionId }: { sessionId: string }) {
       cancelled = true;
     };
   }, [sessionId, selectedEvidenceId]);
+
+  // The review panel always shows the backend's own history for the claim, not
+  // a locally guessed list, so a ruling recorded elsewhere still shows up.
+  useEffect(() => {
+    if (panel !== "review" || !selectedClaimId) return;
+    let cancelled = false;
+    setReviewError(null);
+    listClaimReviews(sessionId, selectedClaimId)
+      .then((next) => {
+        if (!cancelled) setReviewHistory(next.reviews);
+      })
+      .catch((cause) => {
+        if (!cancelled) {
+          setReviewError(
+            cause instanceof Error ? cause.message : "无法读取裁定历史"
+          );
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [panel, selectedClaimId, sessionId]);
 
   const claimsById = useMemo(
     () => new Map((workspace?.claims ?? []).map((claim) => [claim.id, claim])),
@@ -149,6 +211,43 @@ export function ResearchWorkspace({ sessionId }: { sessionId: string }) {
     }
   }
 
+  async function startCrossReview() {
+    if (!selectedClaimId) return;
+    setCrossRunning(true);
+    setCrossError(null);
+    setCrossResult(null);
+    try {
+      const result = await runCrossReview(sessionId, selectedClaimId);
+      setCrossResult(result);
+      await reload();
+    } catch (cause) {
+      setCrossError(
+        cause instanceof Error ? cause.message : "交叉审查请求失败"
+      );
+    } finally {
+      setCrossRunning(false);
+    }
+  }
+
+  async function submitReview(
+    outcome: ClaimReview["outcome"],
+    rationale: string
+  ) {
+    if (!selectedClaimId) return;
+    setReviewBusy(true);
+    setReviewError(null);
+    try {
+      await recordClaimReview(sessionId, selectedClaimId, { outcome, rationale });
+      const next = await listClaimReviews(sessionId, selectedClaimId);
+      setReviewHistory(next.reviews);
+      await reload();
+    } catch (cause) {
+      setReviewError(cause instanceof Error ? cause.message : "提交裁定失败");
+    } finally {
+      setReviewBusy(false);
+    }
+  }
+
   if (loadError) {
     return (
       <div className="research-body">
@@ -181,6 +280,43 @@ export function ResearchWorkspace({ sessionId }: { sessionId: string }) {
     ? verdictByClaimId.get(selectedClaimId)
     : undefined;
 
+  const claimEvidence = selectedClaimId
+    ? workspace.evidence.filter((item) => item.claimIds.includes(selectedClaimId))
+    : [];
+  const nonLive = claimEvidence.filter(
+    (item) => isEvidenceExpired(item) || isEvidenceNotYetEffective(item)
+  );
+  const liveForClaim = claimEvidence.filter(
+    (item) => !isEvidenceExpired(item) && !isEvidenceNotYetEffective(item)
+  );
+  const supporting = liveForClaim.filter((item) => item.direction === "supports");
+  const opposing = liveForClaim.filter((item) => item.direction === "opposes");
+  const background = liveForClaim.filter((item) => item.direction === "context");
+
+  const claimChallenges = selectedClaimId
+    ? workspace.challenges.filter(
+        (challenge) => challenge.targetClaimId === selectedClaimId
+      )
+    : [];
+  const claimRuns = selectedClaimId
+    ? workspace.agentRuns.filter(
+        (agentRun) =>
+          agentRun.purpose === "cross_review" &&
+          agentRun.targetClaimId === selectedClaimId
+      )
+    : [];
+  const claimConflicts = selectedClaimId
+    ? workspace.conflicts.filter((conflict) =>
+        conflict.claimIds.includes(selectedClaimId)
+      )
+    : [];
+  const reviewsForClaim =
+    reviewHistory ?? (selectedClaimId
+      ? workspace.reviews.filter((review) => review.claimId === selectedClaimId)
+      : []);
+
+  const focusMode = !isResearchMode(panel);
+
   return (
     <>
       <div
@@ -194,7 +330,7 @@ export function ResearchWorkspace({ sessionId }: { sessionId: string }) {
             key={item.id}
             type="button"
             role="tab"
-            className="research-tab"
+            className={`research-tab${item.narrowOnly ? " research-tab-narrow" : ""}`}
             aria-selected={panel === item.id}
             onClick={() => setPanel(item.id)}
           >
@@ -203,11 +339,16 @@ export function ResearchWorkspace({ sessionId }: { sessionId: string }) {
         ))}
       </div>
 
-      <div className="research-body" data-testid="research-body">
-        {/* ---------- left: claims and flow ---------- */}
+      <div
+        className="research-body"
+        data-testid="research-body"
+        data-mode={focusMode ? "focus" : "research"}
+      >
+        {/* ---------- left: claims and flow (always on screen when wide) ---------- */}
         <div
           className="research-column"
-          data-hidden={panel !== "claims"}
+          data-narrow-hidden={panel !== "claims"}
+          data-testid="claim-rail"
           role="tabpanel"
           aria-label="主张导航"
         >
@@ -282,7 +423,13 @@ export function ResearchWorkspace({ sessionId }: { sessionId: string }) {
                         type="button"
                         className="research-claim-button"
                         aria-pressed={selectedClaimId === claim.id}
-                        onClick={() => setSelectedClaimId(claim.id)}
+                        onClick={() => {
+                          setSelectedClaimId(claim.id);
+                          setCrossResult(null);
+                          setCrossError(null);
+                          setReviewHistory(null);
+                          setReviewError(null);
+                        }}
                       >
                         <span className="research-claim-statement">
                           {claim.statement}
@@ -292,18 +439,8 @@ export function ResearchWorkspace({ sessionId }: { sessionId: string }) {
                             {claimStatusLabel(claim.status)}
                           </StatusPill>
                           {verdict ? (
-                            <StatusPill
-                              tone={
-                                verdict.status === "supported"
-                                  ? "research-pill-verified"
-                                  : verdict.status === "refuted"
-                                    ? "research-pill-rejected"
-                                    : verdict.status === "mixed_evidence"
-                                      ? "research-pill-unverified"
-                                      : "research-pill-neutral"
-                              }
-                            >
-                              {verdictLabel(verdict.status)}
+                            <StatusPill tone="research-pill-neutral">
+                              {verdictLabel(verdict.effectiveStatus)}
                             </StatusPill>
                           ) : null}
                         </span>
@@ -314,128 +451,234 @@ export function ResearchWorkspace({ sessionId }: { sessionId: string }) {
               </ul>
             )}
           </section>
+
+          <section className="research-panel">
+            <div className="research-panel-head">
+              <span className="research-panel-title">核查产出</span>
+            </div>
+            <Link
+              className="research-report-link"
+              href={`/research/${sessionId}/report`}
+              data-testid="fact-check-report-link"
+            >
+              打开 Fact Check Report →
+            </Link>
+            <p className="research-muted" style={{ marginTop: 6 }}>
+              报告只从已持久化的材料、交叉审查与人工裁定生成，并记录材料指纹。
+            </p>
+          </section>
         </div>
 
-        {/* ---------- center: research content ---------- */}
-        <div
-          className="research-column"
-          data-hidden={panel !== "content"}
-          role="tabpanel"
-          aria-label="研究内容"
-        >
-          {selectedClaim && selectedVerdict ? (
+        {/* ---------- main column: research content / cross-review / review ---------- */}
+        <div className="research-column">
+          <div data-hidden={focusMode}>
+            {selectedClaim && selectedVerdict ? (
+              <section className="research-panel" style={{ marginBottom: 12 }}>
+                <div className="research-panel-head">
+                  <span className="research-panel-title">当前主张的结论</span>
+                </div>
+                <p className="research-question">{selectedClaim.statement}</p>
+                <div style={{ marginTop: 8 }}>
+                  <VerdictCard
+                    verdict={selectedVerdict}
+                    claimStatus={claimStatusLabel(selectedClaim.status)}
+                  />
+                </div>
+              </section>
+            ) : null}
+
             <section className="research-panel">
               <div className="research-panel-head">
-                <span className="research-panel-title">当前主张的结论</span>
+                <span className="research-panel-title">
+                  证据材料（{visibleEvidence.length}）
+                </span>
+                <div className="research-actions">
+                  <button
+                    type="button"
+                    className="research-button research-button-secondary"
+                    onClick={() =>
+                      setOpenForm(openForm === "source" ? "none" : "source")
+                    }
+                  >
+                    {openForm === "source" ? "收起来源" : "添加来源"}
+                  </button>
+                  <button
+                    type="button"
+                    className="research-button"
+                    onClick={() =>
+                      setOpenForm(openForm === "evidence" ? "none" : "evidence")
+                    }
+                  >
+                    {openForm === "evidence" ? "收起" : "录入证据"}
+                  </button>
+                </div>
               </div>
-              <p className="research-question">{selectedClaim.statement}</p>
-              <div style={{ marginTop: 8 }}>
-                <VerdictCard
-                  verdict={selectedVerdict}
-                  claimStatus={claimStatusLabel(selectedClaim.status)}
+
+              {openForm === "source" ? (
+                <SourceForm
+                  busy={busy}
+                  error={error}
+                  onSubmit={async (command) => {
+                    const ok = await run(
+                      () => createSource(sessionId, command),
+                      "Create source"
+                    );
+                    if (ok) setOpenForm("none");
+                  }}
                 />
-              </div>
+              ) : null}
+
+              {openForm === "evidence" ? (
+                <EvidenceForm
+                  claims={workspace.claims}
+                  sources={workspace.sources}
+                  defaultClaimId={selectedClaimId}
+                  busy={busy}
+                  error={error}
+                  onSubmit={async (command) => {
+                    const ok = await run(
+                      () => createEvidence(sessionId, command),
+                      "Create evidence"
+                    );
+                    if (ok) setOpenForm("none");
+                  }}
+                />
+              ) : null}
+
+              <EvidenceTable
+                evidence={visibleEvidence}
+                claimsById={claimsById}
+                sourcesById={sourcesById}
+                selectedId={selectedEvidenceId}
+                onSelect={(evidenceId) => {
+                  setSelectedEvidenceId(evidenceId);
+                  setPanel("detail");
+                }}
+                emptyHint={
+                  selectedClaimId
+                    ? "该主张还没有任何证据材料。"
+                    : "还没有证据材料。先添加来源，再录入原文摘录。"
+                }
+              />
             </section>
-          ) : null}
 
-          <section className="research-panel">
-            <div className="research-panel-head">
-              <span className="research-panel-title">
-                证据材料（{visibleEvidence.length}）
-              </span>
-              <div className="research-actions">
-                <button
-                  type="button"
-                  className="research-button research-button-secondary"
-                  onClick={() =>
-                    setOpenForm(openForm === "source" ? "none" : "source")
-                  }
-                >
-                  {openForm === "source" ? "收起来源" : "添加来源"}
-                </button>
-                <button
-                  type="button"
-                  className="research-button"
-                  onClick={() =>
-                    setOpenForm(openForm === "evidence" ? "none" : "evidence")
-                  }
-                >
-                  {openForm === "evidence" ? "收起" : "录入证据"}
-                </button>
+            <section className="research-panel" style={{ marginTop: 12 }}>
+              <div className="research-panel-head">
+                <span className="research-panel-title">最近操作</span>
+                <Link className="research-muted" href={`/research/${sessionId}/evidence`}>
+                  打开 Evidence Explorer →
+                </Link>
               </div>
-            </div>
+              {history.length === 0 ? (
+                <p className="research-muted">暂无证据相关操作记录。</p>
+              ) : (
+                <ul style={{ margin: 0, paddingLeft: 18 }}>
+                  {history.map((entry) => (
+                    <li key={entry} className="research-muted">
+                      {entry}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          </div>
 
-            {openForm === "source" ? (
-              <SourceForm
-                busy={busy}
-                error={error}
-                onSubmit={async (command) => {
-                  const ok = await run(
-                    () => createSource(sessionId, command),
-                    "Create source"
-                  );
-                  if (ok) setOpenForm("none");
-                }}
+          <div data-hidden={panel !== "cross"} data-testid="cross-section">
+            {selectedClaim && selectedVerdict ? (
+              <CrossReviewPanel
+                runs={claimRuns}
+                challenges={claimChallenges}
+                claimId={selectedClaim.id}
+                canRun={canEdit}
+                running={crossRunning}
+                error={crossError}
+                onRun={startCrossReview}
               />
             ) : null}
-
-            {openForm === "evidence" ? (
-              <EvidenceForm
-                claims={workspace.claims}
-                sources={workspace.sources}
-                defaultClaimId={selectedClaimId}
-                busy={busy}
-                error={error}
-                onSubmit={async (command) => {
-                  const ok = await run(
-                    () => createEvidence(sessionId, command),
-                    "Create evidence"
-                  );
-                  if (ok) setOpenForm("none");
-                }}
-              />
+            {crossResult ? (
+              <div className="research-column" style={{ marginTop: 12 }}>
+                <section className="research-panel" data-testid="cross-review-result">
+                  <div className="research-panel-head">
+                    <span className="research-panel-title">本次交叉审查结果</span>
+                    <StatusPill
+                      tone={
+                        crossResult.status === "completed"
+                          ? "research-pill-verified"
+                          : crossResult.status === "partial"
+                            ? "research-pill-unverified"
+                            : "research-pill-rejected"
+                      }
+                    >
+                      {crossResult.status === "completed"
+                        ? "全部完成"
+                        : crossResult.status === "partial"
+                          ? "部分完成"
+                          : "全部失败"}
+                    </StatusPill>
+                  </div>
+                  <p className="research-muted">
+                    {crossResult.runs.length} 次运行，产生{" "}
+                    {crossResult.challenges.length} 项质询，
+                    {crossResult.failures.length} 次失败。
+                  </p>
+                  {crossResult.failures.length > 0 ? (
+                    <ul className="research-plain-list">
+                      {crossResult.failures.map((failure) => (
+                        <li key={failure.runId}>
+                          角色 {failure.roleId.slice(0, 8)} 失败：{failure.reason}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </section>
+              </div>
             ) : null}
+            {!selectedClaim ? (
+              <section className="research-panel">
+                <p className="research-muted">
+                  先在左侧选择一条主张，再发起面向该主张的交叉审查。
+                </p>
+              </section>
+            ) : null}
+          </div>
 
-            <EvidenceTable
-              evidence={visibleEvidence}
-              claimsById={claimsById}
-              sourcesById={sourcesById}
-              selectedId={selectedEvidenceId}
-              onSelect={(evidenceId) => {
-                setSelectedEvidenceId(evidenceId);
-                setPanel("detail");
-              }}
-              emptyHint={
-                selectedClaimId
-                  ? "该主张还没有任何证据材料。"
-                  : "还没有证据材料。先添加来源，再录入原文摘录。"
-              }
-            />
-          </section>
-
-          <section className="research-panel">
-            <div className="research-panel-head">
-              <span className="research-panel-title">最近操作</span>
-              <Link className="research-muted" href={`/research/${sessionId}/evidence`}>
-                打开 Evidence Explorer →
-              </Link>
-            </div>
-            {history.length === 0 ? (
-              <p className="research-muted">暂无证据相关操作记录。</p>
+          <div data-hidden={panel !== "review"} data-testid="review-section">
+            {selectedClaim && selectedVerdict ? (
+              <ReviewCenter
+                claim={selectedClaim}
+                verdict={selectedVerdict}
+                supporting={supporting}
+                opposing={opposing}
+                context={background}
+                excluded={nonLive}
+                conflicts={claimConflicts}
+                runs={claimRuns}
+                challenges={claimChallenges}
+                reviews={reviewsForClaim}
+                sourcesById={sourcesById}
+                canReview={canEdit}
+                busy={reviewBusy}
+                error={reviewError}
+                onSubmitReview={submitReview}
+                onOpenCrossReview={() => setPanel("cross")}
+              />
             ) : (
-              <ul style={{ margin: 0, paddingLeft: 18 }}>
-                {history.map((entry) => (
-                  <li key={entry} className="research-muted">
-                    {entry}
-                  </li>
-                ))}
-              </ul>
+              <section className="research-panel">
+                <p className="research-muted">
+                  先在左侧选择一条主张，再进入审核中心。
+                </p>
+              </section>
             )}
-          </section>
+          </div>
         </div>
 
-        {/* ---------- right: source detail ---------- */}
-        <div data-hidden={panel !== "detail"} role="tabpanel" aria-label="来源详情">
+        {/* ---------- right: source detail (research modes only) ---------- */}
+        <div
+          data-hidden={focusMode}
+          data-narrow-hidden={panel !== "detail"}
+          role="tabpanel"
+          aria-label="来源详情"
+        >
           {context ? (
             <SourceDetail
               evidence={context.evidence}
