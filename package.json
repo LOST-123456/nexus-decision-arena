@@ -9,8 +9,12 @@
     "dev": "corepack pnpm --parallel --filter @nexus/core --filter @nexus/web dev",
     "smoke:provider": "tsx scripts/provider-smoke.ts",
     "test": "corepack pnpm -r --if-present test",
+    "test:unit": "corepack pnpm -r --if-present test:unit",
+    "test:integration": "corepack pnpm -r --if-present test:integration",
     "test:e2e": "corepack pnpm --filter @nexus/web test:e2e",
     "test:stability": "tsx scripts/test-stability.ts",
+    "db:test:create": "corepack pnpm --filter @nexus/db db:test:create",
+    "db:test:migrate": "corepack pnpm --filter @nexus/db db:test:migrate",
     "typecheck": "corepack pnpm -r --if-present typecheck"
   },
   "devDependencies": {

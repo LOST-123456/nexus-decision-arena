@@ -1,15 +1,12 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { newId } from "@nexus/shared";
-import { createDatabase, type Database } from "../client";
+import type { Database } from "../client";
+import { createTestDatabase } from "../testing/test-database";
 import { DecisionSessionRepository } from "./decision-session-repository";
 import { EventRepository } from "./event-repository";
 
-const databaseUrl = process.env.DATABASE_URL;
-if (!databaseUrl) {
-  throw new Error("DATABASE_URL is required for integration tests");
-}
-
-const database: Database = createDatabase(databaseUrl);
+// fail-closed：未配置 TEST_DATABASE_URL 时在建连之前抛错；目标必须是专用测试库。
+const database: Database = createTestDatabase();
 const sessions = new DecisionSessionRepository(database);
 const events = new EventRepository(database);
 

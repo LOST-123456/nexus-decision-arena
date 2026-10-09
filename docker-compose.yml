@@ -4,9 +4,14 @@ services:
     environment:
       POSTGRES_USER: nexus
       POSTGRES_PASSWORD: nexus
+      # 应用库。破坏性集成测试**不使用**它，只能使用 TEST_DATABASE_URL 指定的专用测试库。
       POSTGRES_DB: nexus
     ports:
       - "5432:5432"
+    volumes:
+      # 仅在数据卷首次初始化时执行：额外创建专用测试库 nexus_test。
+      # 若卷已存在，可改用：corepack pnpm db:test:create
+      - ./.docker/postgres-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U nexus -d nexus"]
       interval: 2s

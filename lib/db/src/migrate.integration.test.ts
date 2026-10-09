@@ -4,17 +4,27 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolve } from "node:path";
 import { newId } from "@nexus/shared";
-import { createDatabase } from "./client";
 import { runMigrations } from "./migrate";
+import {
+  assertDisposableDatabaseName,
+  createTestAdminDatabase,
+  createTestDatabaseForUrl,
+  resolveTestDatabaseUrl
+} from "./testing/test-database";
 
-const databaseUrl = process.env.DATABASE_URL;
-if (!databaseUrl) {
-  throw new Error("DATABASE_URL is required for integration tests");
-}
+// fail-closed：未配置 TEST_DATABASE_URL 时在建连之前抛错；目标必须是专用测试库。
+const databaseUrl = resolveTestDatabaseUrl().toString();
 
-const postgresUrl = new URL(databaseUrl);
-postgresUrl.pathname = "/postgres";
-const admin = createDatabase(postgresUrl.toString());
+// 建/删临时库用的管理连接（同主机凭据）。只有在 TEST_DATABASE_URL 合法为测试库时才允许派生。
+const admin = createTestAdminDatabase();
+
+// 一次性临时库：建库前用统一守卫校验库名，确保不会误建/误删受保护库。
+const tempDatabaseUrl = (databaseName: string) => {
+  assertDisposableDatabaseName(databaseName);
+  const url = new URL(databaseUrl);
+  url.pathname = `/${databaseName}`;
+  return url.toString();
+};
 
 afterAll(async () => {
   await admin.end();
@@ -23,10 +33,9 @@ afterAll(async () => {
 describe("migration runner", () => {
   it("applies each migration once, records it, and rejects checksum drift", async () => {
     const databaseName = `nexus_migration_${newId().replaceAll("-", "")}`;
-    const migrationUrl = new URL(databaseUrl);
-    migrationUrl.pathname = `/${databaseName}`;
+    const migrationUrl = tempDatabaseUrl(databaseName);
     await admin.execute(`CREATE DATABASE "${databaseName}"`);
-    const migrationDatabase = createDatabase(migrationUrl.toString());
+    const migrationDatabase = createTestDatabaseForUrl(migrationUrl);
 
     try {
       const migrationDirectory = resolve("migrations");
@@ -91,10 +100,9 @@ describe("migration runner", () => {
   });
   it("serializes concurrent migration runners with an advisory lock", async () => {
     const databaseName = `nexus_migration_${newId().replaceAll("-", "")}`;
-    const migrationUrl = new URL(databaseUrl);
-    migrationUrl.pathname = `/${databaseName}`;
+    const migrationUrl = tempDatabaseUrl(databaseName);
     await admin.execute(`CREATE DATABASE "${databaseName}"`);
-    const migrationDatabase = createDatabase(migrationUrl.toString());
+    const migrationDatabase = createTestDatabaseForUrl(migrationUrl);
     const directory = await mkdtemp(join(tmpdir(), "nexus-migration-"));
 
     try {
@@ -127,10 +135,9 @@ describe("migration runner", () => {
 
   it("rolls back the full migration transaction on failure", async () => {
     const databaseName = `nexus_migration_${newId().replaceAll("-", "")}`;
-    const migrationUrl = new URL(databaseUrl);
-    migrationUrl.pathname = `/${databaseName}`;
+    const migrationUrl = tempDatabaseUrl(databaseName);
     await admin.execute(`CREATE DATABASE "${databaseName}"`);
-    const migrationDatabase = createDatabase(migrationUrl.toString());
+    const migrationDatabase = createTestDatabaseForUrl(migrationUrl);
     const directory = await mkdtemp(join(tmpdir(), "nexus-migration-"));
 
     try {

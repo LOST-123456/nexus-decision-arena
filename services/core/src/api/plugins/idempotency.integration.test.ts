@@ -1,10 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
-import {
-  createDatabase,
-  idempotencyKeys,
-  type Database
-} from "@nexus/db";
+import { createTestDatabase, idempotencyKeys, type Database } from "@nexus/db";
 import {
   IdempotencyConflictError,
   IdempotencyLeaseLostError,
@@ -12,12 +8,8 @@ import {
   PostgresIdempotencyStore
 } from "./idempotency";
 
-const databaseUrl = process.env.DATABASE_URL;
-if (!databaseUrl) {
-  throw new Error("DATABASE_URL is required for integration tests");
-}
-
-const database: Database = createDatabase(databaseUrl);
+// fail-closed：未配置 TEST_DATABASE_URL 时在建连之前抛错；目标必须是专用测试库。
+const database: Database = createTestDatabase();
 
 beforeEach(async () => {
   await database.execute("TRUNCATE idempotency_keys");

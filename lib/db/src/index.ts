@@ -5,3 +5,4 @@ export * from "./repositories/arena-repository";
 export * from "./repositories/event-repository";
 export * from "./repositories/final-report-repository";
 export * from "./repositories/inspector-repository";
+export * from "./testing/test-database";
