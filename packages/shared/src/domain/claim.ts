@@ -54,3 +54,4 @@ export const ClaimSchema = z.object({
 
 export type Claim = z.infer<typeof ClaimSchema>;
 export type ClaimType = z.infer<typeof ClaimTypeSchema>;
+export type ClaimStatus = z.infer<typeof ClaimStatusSchema>;

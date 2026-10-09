@@ -170,4 +170,68 @@ describe("human decision route integration", () => {
         .where(eq(executionEvents.sessionId, sessionId))
     ).resolves.toHaveLength(1);
   });
+
+  it("persists the conflict resolution produced by the human ruling", async () => {
+    const { sessionId, conflictId } = await seedCheckpoint();
+    const app = createTestApp(new EventBus());
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/sessions/${sessionId}/human-decisions`,
+      headers: { "idempotency-key": "write-back" },
+      payload: {
+        conflictId,
+        action: "accept_challenge",
+        rationale: "Challenge evidence is sufficient",
+        affectedClaimIds: [],
+        affectedAgentRoleIds: [],
+        newConclusion: "Limited pilot",
+        operatorId: "operator-1"
+      }
+    });
+
+    expect(response.statusCode).toBe(201);
+    const [conflict] = await database
+      .select()
+      .from(conflicts)
+      .where(eq(conflicts.id, conflictId));
+    expect(conflict?.status).toBe("resolved");
+
+    const body = response.json() as {
+      event: { payload: { writeback: { conflictStatus: string } } };
+    };
+    expect(body.event.payload.writeback.conflictStatus).toBe("resolved");
+  });
+
+  it("rejects a ruling on a conflict that is already resolved", async () => {
+    const { sessionId, conflictId } = await seedCheckpoint();
+    await database
+      .update(conflicts)
+      .set({ status: "resolved" })
+      .where(eq(conflicts.id, conflictId));
+    const app = createTestApp(new EventBus());
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/sessions/${sessionId}/human-decisions`,
+      headers: { "idempotency-key": "already-resolved" },
+      payload: {
+        conflictId,
+        action: "uphold_claim",
+        rationale: "The claim stands",
+        affectedClaimIds: [],
+        affectedAgentRoleIds: [],
+        newConclusion: "Limited pilot",
+        operatorId: "operator-1"
+      }
+    });
+
+    expect(response.statusCode).toBe(409);
+    await expect(
+      database
+        .select()
+        .from(humanDecisions)
+        .where(eq(humanDecisions.sessionId, sessionId))
+    ).resolves.toHaveLength(0);
+  });
 });

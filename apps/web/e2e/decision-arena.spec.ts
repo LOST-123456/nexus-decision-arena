@@ -216,6 +216,22 @@ test("live session streams into the workspace and produces a persisted report", 
   await expectNoHorizontalOverflow(page);
   await captureViewport(page, testInfo.project.name, "live-report", testInfo.repeatEachIndex);
 
+  const sessionView = await page.context().request.get(
+    `/api/sessions/${sessionId}`
+  );
+  expect(sessionView.status()).toBe(200);
+  const view = (await sessionView.json()) as {
+    conflicts: Array<{ id: string; status: string }>;
+    humanDecisions: Array<{ conflictId: string }>;
+  };
+  const [decided] = view.humanDecisions;
+  expect(decided, "the ruling must be persisted").toBeDefined();
+  expect(
+    view.conflicts.find((conflict) => conflict.id === decided?.conflictId)
+      ?.status,
+    "the ruled conflict must leave the open review state"
+  ).toBe("resolved");
+
   const deleted = await page.context().request.delete(`/api/sessions/${sessionId}`);
   expect(deleted.status()).toBe(204);
 });

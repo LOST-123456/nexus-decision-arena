@@ -121,6 +121,25 @@ export class MemoryRunSessionStore implements RunSessionStore {
     this.conflicts.push(structuredClone(conflict));
   }
 
+  async markConflictsInReview(sessionId: string): Promise<number> {
+    let updated = 0;
+    this.conflicts.forEach((conflict, index) => {
+      if (
+        conflict.sessionId === sessionId &&
+        conflict.humanDecisionRequired &&
+        conflict.status === "detected"
+      ) {
+        this.conflicts[index] = {
+          ...conflict,
+          status: "human_review",
+          updatedAt: new Date().toISOString()
+        };
+        updated += 1;
+      }
+    });
+    return updated;
+  }
+
   async withSupplementLock<T>(
     sessionId: string,
     operation: () => Promise<T>

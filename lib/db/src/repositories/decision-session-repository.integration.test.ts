@@ -10,6 +10,7 @@ import {
   claims,
   conflicts,
   decisionSessions,
+  evidence,
   executionEvents,
   humanDecisions,
   projects,
@@ -39,6 +40,10 @@ afterAll(async () => {
 async function seedCheckpoint(options: {
   phase?: string;
   humanDecisionRequired?: boolean;
+  conflictStatus?: string;
+  claimImportance?: number;
+  claimStatus?: string;
+  verificationStatus?: "verified" | "unverified" | "rejected";
 } = {}) {
   const projectId = newId();
   const sessionId = newId();
@@ -107,16 +112,32 @@ async function seedCheckpoint(options: {
     statement: "The growth target lacks evidence.",
     type: "assumption",
     stance: "oppose",
-    importance: 5,
+    importance: options.claimImportance ?? 5,
     confidence: 0.2,
     evidenceIds: [],
-    status: "contested",
+    status: options.claimStatus ?? "contested",
     rootClaimId: claimId,
     revision: 1,
     relations: [],
     createdAt: timestamp,
     updatedAt: timestamp
   });
+  if (options.verificationStatus) {
+    await database.insert(evidence).values({
+      id: newId(),
+      sessionId,
+      claimId,
+      kind: "calculation",
+      title: "Procurement pipeline",
+      content: "Derived from the signed pipeline.",
+      description: "Calculated from the project input.",
+      direction: "supports",
+      reliability: 0.8,
+      verificationStatus: options.verificationStatus,
+      retrievedAt: timestamp,
+      createdBy: "system"
+    });
+  }
   await database.insert(challenges).values({
     id: challengeId,
     sessionId,
@@ -145,7 +166,7 @@ async function seedCheckpoint(options: {
     type: "evidence",
     summary: "Procurement evidence is missing.",
     severity: 5,
-    status: "human_review",
+    status: options.conflictStatus ?? "human_review",
     humanDecisionRequired: options.humanDecisionRequired ?? true,
     resolutionSuggestion: "Adopt the challenge.",
     impactScope: {
@@ -163,13 +184,14 @@ function decision(
   sessionId: string,
   conflictId: string,
   affectedClaimIds: string[],
-  newConclusion = "Limited pilot"
+  newConclusion = "Limited pilot",
+  action: HumanDecision["action"] = "accept_challenge"
 ): HumanDecision {
   return {
     id: newId(),
     sessionId,
     conflictId,
-    action: "accept_challenge",
+    action,
     rationale: "Challenge evidence is sufficient",
     affectedClaimIds,
     affectedAgentRoleIds: [],
@@ -374,5 +396,168 @@ describe("DecisionSessionRepository.recordHumanDecision", () => {
     await expect(
       record(sessionId, secondDecision)
     ).rejects.toBeInstanceOf(SupplementRoundLimitError);
+  });
+});
+
+describe("DecisionSessionRepository.recordHumanDecision write-back", () => {
+  async function statuses(conflictId: string, claimId: string) {
+    const [conflict] = await database
+      .select()
+      .from(conflicts)
+      .where(eq(conflicts.id, conflictId));
+    const [claim] = await database
+      .select()
+      .from(claims)
+      .where(eq(claims.id, claimId));
+    return {
+      conflict: conflict?.status,
+      humanDecisionRequired: conflict?.humanDecisionRequired,
+      claim: claim?.status
+    };
+  }
+
+  it("resolves the conflict and rejects the contested claim when the challenge is adopted", async () => {
+    const { sessionId, conflictId, claimId } = await seedCheckpoint();
+
+    const result = await record(
+      sessionId,
+      decision(sessionId, conflictId, [claimId])
+    );
+
+    await expect(statuses(conflictId, claimId)).resolves.toEqual({
+      conflict: "resolved",
+      humanDecisionRequired: true,
+      claim: "rejected"
+    });
+
+    const payload = result.event.payload as {
+      writeback: { conflictId: string; conflictStatus: string; claimUpdates: unknown[] };
+    };
+    expect(payload.writeback.conflictId).toBe(conflictId);
+    expect(payload.writeback.conflictStatus).toBe("resolved");
+    expect(payload.writeback.claimUpdates).toEqual([
+      { claimId, status: "rejected", reason: "challenge_accepted" }
+    ]);
+  });
+
+  it("records an upheld important claim without verified evidence as supported", async () => {
+    const { sessionId, conflictId, claimId } = await seedCheckpoint({
+      claimImportance: 5
+    });
+
+    await record(
+      sessionId,
+      decision(sessionId, conflictId, [claimId], "Keep the claim", "uphold_claim")
+    );
+
+    await expect(statuses(conflictId, claimId)).resolves.toMatchObject({
+      conflict: "resolved",
+      claim: "supported"
+    });
+  });
+
+  it("accepts an upheld claim once its evidence is verified", async () => {
+    const { sessionId, conflictId, claimId } = await seedCheckpoint({
+      claimImportance: 5,
+      verificationStatus: "verified"
+    });
+
+    await record(
+      sessionId,
+      decision(sessionId, conflictId, [claimId], "Keep the claim", "uphold_claim")
+    );
+
+    await expect(statuses(conflictId, claimId)).resolves.toMatchObject({
+      conflict: "resolved",
+      claim: "accepted"
+    });
+  });
+
+  it("accepts an upheld low-importance claim without verified evidence", async () => {
+    const { sessionId, conflictId, claimId } = await seedCheckpoint({
+      claimImportance: 2
+    });
+
+    await record(
+      sessionId,
+      decision(sessionId, conflictId, [claimId], "Keep the claim", "uphold_claim")
+    );
+
+    await expect(statuses(conflictId, claimId)).resolves.toMatchObject({
+      conflict: "resolved",
+      claim: "accepted"
+    });
+  });
+
+  it("re-opens the conflict and disputes the claim when a supplement is requested", async () => {
+    const { sessionId, conflictId, claimId } = await seedCheckpoint();
+    const requestDecision = decision(
+      sessionId,
+      conflictId,
+      [claimId],
+      "Supplement requested",
+      "request_more_analysis"
+    );
+
+    await repository.recordHumanDecision({
+      decision: requestDecision,
+      transition: {
+        phase: "REASSESSING",
+        operationalStatus: "ACTIVE",
+        conclusion: requestDecision.newConclusion
+      },
+      event: {
+        correlationId: requestDecision.id,
+        type: "SESSION_STATE_CHANGED",
+        payload: {
+          phase: "REASSESSING",
+          operationalStatus: "ACTIVE",
+          currentConclusion: requestDecision.newConclusion
+        }
+      }
+    });
+
+    await expect(statuses(conflictId, claimId)).resolves.toMatchObject({
+      conflict: "detected",
+      claim: "contested"
+    });
+  });
+
+  it("refuses a second ruling on an already resolved conflict", async () => {
+    const { sessionId, conflictId, claimId } = await seedCheckpoint();
+
+    await record(sessionId, decision(sessionId, conflictId, [claimId]));
+    await database
+      .update(decisionSessions)
+      .set({ phase: "HUMAN_REVIEW", operationalStatus: "PAUSED" })
+      .where(eq(decisionSessions.id, sessionId));
+
+    await expect(
+      record(
+        sessionId,
+        decision(sessionId, conflictId, [claimId], "Second ruling")
+      )
+    ).rejects.toBeInstanceOf(HumanDecisionConflictNotEligibleError);
+
+    await expect(
+      database
+        .select()
+        .from(humanDecisions)
+        .where(eq(humanDecisions.sessionId, sessionId))
+    ).resolves.toHaveLength(1);
+  });
+
+  it("leaves an unrelated claim untouched", async () => {
+    const { sessionId, conflictId, claimId } = await seedCheckpoint();
+    const untouched = await seedCheckpoint();
+
+    await record(sessionId, decision(sessionId, conflictId, [claimId]));
+
+    await expect(
+      database
+        .select()
+        .from(claims)
+        .where(eq(claims.id, untouched.claimId))
+    ).resolves.toMatchObject([{ status: "contested" }]);
   });
 });

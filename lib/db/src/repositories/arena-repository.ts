@@ -1,4 +1,4 @@
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import {
   AgentRoleSchema,
   type AgentRole,
@@ -283,6 +283,27 @@ export class ArenaRepository {
 
   async saveConflict(conflict: Conflict): Promise<void> {
     await this.database.insert(conflicts).values(conflict);
+  }
+
+  /**
+   * Marks every conflict that still awaits a human ruling as `human_review`
+   * once the session is paused at the human checkpoint, so the persisted
+   * lifecycle (detected -> human_review -> resolved) reflects reality instead
+   * of leaving `human_review` unreachable outside of fixtures.
+   */
+  async markConflictsInReview(sessionId: string): Promise<number> {
+    const updated = await this.database
+      .update(conflicts)
+      .set({ status: "human_review", updatedAt: new Date().toISOString() })
+      .where(
+        and(
+          eq(conflicts.sessionId, sessionId),
+          eq(conflicts.humanDecisionRequired, true),
+          eq(conflicts.status, "detected")
+        )
+      )
+      .returning({ id: conflicts.id });
+    return updated.length;
   }
 
   async withSupplementLock<T>(

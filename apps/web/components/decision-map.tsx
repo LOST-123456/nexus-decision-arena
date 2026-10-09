@@ -12,6 +12,7 @@ import {
   type NodeProps
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import { isConflictAwaitingHumanDecision } from "@nexus/shared";
 import type { ReplayableSession } from "../features/arena/event-reducer";
 import {
   DECISION_MAP_EDGE_LEGEND,
@@ -127,10 +128,7 @@ export function DecisionMap({
   );
   const humanCheckpoint =
     session.phase === "HUMAN_REVIEW" ||
-    session.conflicts.some(
-      (conflict) =>
-        conflict.humanDecisionRequired || conflict.status === "human_review"
-    );
+    session.conflicts.some(isConflictAwaitingHumanDecision);
   const hasClaims = session.claims.length > 0;
 
   useEffect(() => {

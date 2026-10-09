@@ -11,6 +11,8 @@ export * from "./domain/final-report";
 export * from "./domain/event";
 export * from "./workflow/invariants";
 export * from "./workflow/state-machine";
+export * from "./workflow/conflict-state-machine";
+export * from "./workflow/decision-writeback";
 export * from "./execution/claim-inspector";
 export * from "./execution/session-view";
 export * from "./replay/decision-replay";

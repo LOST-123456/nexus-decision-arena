@@ -1,5 +1,6 @@
 import {
   assertClaimInvariants,
+  isConflictAwaitingHumanDecision,
   newId,
   type AgentRole,
   type Challenge,
@@ -72,6 +73,7 @@ export type RunSessionStore = {
   saveChallenge(challenge: Challenge): Promise<void>;
   updateChallenge(challenge: Challenge): Promise<void>;
   saveConflict(conflict: Conflict): Promise<void>;
+  markConflictsInReview(sessionId: string): Promise<number>;
   getSessionArtifacts(sessionId: string): Promise<SessionArtifacts | null>;
   withSupplementLock<T>(
     sessionId: string,
@@ -286,8 +288,7 @@ export class RunSessionService {
       });
 
       const existingUnresolved = artifacts.conflicts.some(
-        (conflict) =>
-          conflict.humanDecisionRequired && conflict.status !== "resolved"
+        isConflictAwaitingHumanDecision
       );
       const humanReviewRequired =
         existingUnresolved ||
@@ -311,6 +312,7 @@ export class RunSessionService {
             currentConclusion: context.session.currentConclusion
           }
         });
+        await this.runtime!.store.markConflictsInReview(sessionId);
         await this.runtime!.store.setSessionState({
           sessionId,
           phase: "HUMAN_REVIEW",
@@ -596,6 +598,7 @@ export class RunSessionService {
           currentConclusion: postChallengeConclusion
         }
       });
+      await this.runtime!.store.markConflictsInReview(sessionId);
       await this.runtime!.store.setSessionState({
         sessionId,
         phase: "HUMAN_REVIEW",

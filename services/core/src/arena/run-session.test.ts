@@ -91,6 +91,13 @@ describe("run session service", () => {
       .toBeGreaterThanOrEqual(3);
     expect(store.challenges).toHaveLength(5);
     expect(store.conflicts.length).toBeGreaterThanOrEqual(3);
+    const reviewConflicts = store.conflicts.filter(
+      (conflict) => conflict.humanDecisionRequired
+    );
+    expect(reviewConflicts.length).toBeGreaterThan(0);
+    expect(
+      reviewConflicts.every((conflict) => conflict.status === "human_review")
+    ).toBe(true);
     expect(store.events.map((event) => event.type)).toEqual(
       expect.arrayContaining([
         "AGENT_RUN_STARTED",

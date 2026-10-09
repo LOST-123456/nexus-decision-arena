@@ -1,5 +1,10 @@
 import type { Edge, Node } from "@xyflow/react";
-import type { Challenge, Claim, Conflict } from "@nexus/shared";
+import {
+  isConflictAwaitingHumanDecision,
+  type Challenge,
+  type Claim,
+  type Conflict
+} from "@nexus/shared";
 import type { ReplayableSession } from "./event-reducer";
 
 export type DecisionMapStatus =
@@ -313,10 +318,7 @@ export function toDecisionMap(session: ReplayableSession): {
 } {
   const humanCheckpoint =
     session.phase === "HUMAN_REVIEW" ||
-    session.conflicts.some(
-      (conflict) =>
-        conflict.humanDecisionRequired || conflict.status === "human_review"
-    );
+    session.conflicts.some(isConflictAwaitingHumanDecision);
   const visibleClaims = session.claims.slice(0, 5);
   const visibleChallenges = session.challenges.slice(0, 5);
   const visibleClaimIds = new Set(visibleClaims.map((claim) => claim.id));
@@ -383,7 +385,7 @@ export function toDecisionMap(session: ReplayableSession): {
         entityId: conflict.id,
         kind: "conflict",
         meta: `CONFLICT ${conflict.severity}/5`,
-        checkpoint: conflict.humanDecisionRequired
+        checkpoint: isConflictAwaitingHumanDecision(conflict)
       }
     });
   });

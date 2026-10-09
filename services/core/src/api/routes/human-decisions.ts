@@ -4,6 +4,7 @@ import {
   SupplementRoundLimitError
 } from "@nexus/db";
 import {
+  DecisionWritebackError,
   HumanDecisionSchema,
   type HumanDecision
 } from "@nexus/shared";
@@ -172,7 +173,8 @@ export function registerHumanDecisionRoutes(
           error instanceof IdempotencyLeaseLostError ||
           error instanceof SessionNotInHumanReviewError ||
           error instanceof SupplementRoundLimitError ||
-          error instanceof HumanDecisionConflictNotEligibleError
+          error instanceof HumanDecisionConflictNotEligibleError ||
+          error instanceof DecisionWritebackError
         ) {
           return reply.code(409).send({ error: error.message });
         }

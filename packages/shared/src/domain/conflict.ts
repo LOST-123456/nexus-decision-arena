@@ -1,6 +1,12 @@
 import { z } from "zod";
 import { IdSchema, TimestampSchema } from "../ids";
 
+export const ConflictStatusSchema = z.enum([
+  "detected",
+  "human_review",
+  "resolved"
+]);
+
 export const ConflictSchema = z.object({
   id: IdSchema,
   sessionId: IdSchema,
@@ -9,7 +15,7 @@ export const ConflictSchema = z.object({
   type: z.enum(["evidence", "logic", "assumption", "priority"]),
   summary: z.string().min(1),
   severity: z.number().int().min(1).max(5),
-  status: z.enum(["detected", "human_review", "resolved"]),
+  status: ConflictStatusSchema,
   humanDecisionRequired: z.boolean(),
   resolutionSuggestion: z.string().min(1),
   impactScope: z.object({
@@ -23,3 +29,4 @@ export const ConflictSchema = z.object({
 });
 
 export type Conflict = z.infer<typeof ConflictSchema>;
+export type ConflictStatus = z.infer<typeof ConflictStatusSchema>;

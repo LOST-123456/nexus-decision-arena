@@ -5,7 +5,7 @@ import type {
   ExecutionEvent,
   HumanDecision
 } from "@nexus/shared";
-import { DecisionReplay } from "@nexus/shared";
+import { DecisionReplay, isConflictAwaitingHumanDecision } from "@nexus/shared";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { AgentPanel } from "../../components/agent-panel";
@@ -163,7 +163,7 @@ export function SessionWorkspace({ sessionId }: { sessionId: string }) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const primaryConflict = session.conflicts.find(
-    (conflict) => conflict.humanDecisionRequired
+    isConflictAwaitingHumanDecision
   );
   const primaryClaim = session.claims[0];
   const previewInspector = persisted

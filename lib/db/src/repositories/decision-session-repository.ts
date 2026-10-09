@@ -1,6 +1,10 @@
-import { and, count, desc, eq, sql } from "drizzle-orm";
+import { and, count, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import {
+  ConflictStatusSchema,
+  decisionWritebackPlan,
+  IdSchema,
   newId,
+  type ConflictStatus,
   type ExecutionEvent,
   type HumanDecision,
   type SessionView
@@ -308,13 +312,20 @@ export class DecisionSessionRepository {
       }
 
       const [eligibleConflict] = await transaction
-        .select({ id: conflicts.id })
+        .select({
+          id: conflicts.id,
+          status: conflicts.status,
+          claimIds: conflicts.claimIds
+        })
         .from(conflicts)
         .where(
           and(
             eq(conflicts.id, input.decision.conflictId),
             eq(conflicts.sessionId, input.decision.sessionId),
-            eq(conflicts.humanDecisionRequired, true)
+            eq(conflicts.humanDecisionRequired, true),
+            // A terminated conflict cannot be ruled on again; that keeps a
+            // decision from silently contradicting an earlier resolution.
+            ne(conflicts.status, "resolved")
           )
         )
         .limit(1);
@@ -322,6 +333,41 @@ export class DecisionSessionRepository {
       if (!eligibleConflict) {
         throw new HumanDecisionConflictNotEligibleError();
       }
+
+      const conflictClaimIds = IdSchema.array().parse(
+        eligibleConflict.claimIds
+      );
+      const [conflictClaims, conflictEvidence] =
+        conflictClaimIds.length === 0
+          ? [[], []]
+          : await Promise.all([
+              transaction
+                .select()
+                .from(claims)
+                .where(
+                  and(
+                    eq(claims.sessionId, input.decision.sessionId),
+                    inArray(claims.id, conflictClaimIds)
+                  )
+                ),
+              transaction
+                .select()
+                .from(evidence)
+                .where(inArray(evidence.claimId, conflictClaimIds))
+            ]);
+
+      const writeback = decisionWritebackPlan({
+        action: input.decision.action,
+        conflict: {
+          id: eligibleConflict.id,
+          status: ConflictStatusSchema.parse(
+            eligibleConflict.status
+          ) as ConflictStatus,
+          claimIds: conflictClaimIds
+        },
+        claims: parseClaims(conflictClaims),
+        evidence: parseEvidence(conflictEvidence)
+      });
 
       const persistedDecision: HumanDecision = {
         ...input.decision,
@@ -367,13 +413,38 @@ export class DecisionSessionRepository {
         createdAt: persistedDecision.createdAt
       });
 
+      const writebackAt = new Date().toISOString();
+
+      await transaction
+        .update(conflicts)
+        .set({ status: writeback.conflictStatus, updatedAt: writebackAt })
+        .where(
+          and(
+            eq(conflicts.id, writeback.conflictId),
+            eq(conflicts.sessionId, input.decision.sessionId)
+          )
+        );
+
+      for (const update of writeback.claimUpdates) {
+        await transaction
+          .update(claims)
+          .set({ status: update.status, updatedAt: writebackAt })
+          .where(
+            and(
+              eq(claims.id, update.claimId),
+              eq(claims.sessionId, input.decision.sessionId)
+            )
+          );
+      }
+
       const eventPayload =
         input.event.payload !== null &&
         typeof input.event.payload === "object" &&
         !Array.isArray(input.event.payload)
           ? {
               ...(input.event.payload as Record<string, unknown>),
-              humanDecision: persistedDecision
+              humanDecision: persistedDecision,
+              writeback
             }
           : input.event.payload;
 
