@@ -11,7 +11,8 @@ import {
   type ClaimReview,
   type Evidence,
   type ExecutionEvent,
-  type Source
+  type Source,
+  type SourceSnapshot
 } from "@nexus/shared";
 import { createApp } from "../../app";
 import { EventBus } from "../../execution/event-bus";
@@ -68,6 +69,28 @@ function fakeEvent(type: ExecutionEvent["type"], payload: unknown): ExecutionEve
   };
 }
 
+const SNAPSHOT_HASH = "sha256-of-the-capture";
+const ANCHOR_SENTENCE = "出货量同比增长 12%。";
+/** Two paragraphs before the sentence, so the locator has a paragraph to name. */
+const SNAPSHOT_CONTENT = `第一段。\n\n第二段写着${ANCHOR_SENTENCE}\n\n第三段。`;
+
+/** A stored capture, shaped exactly like the repository returns one. */
+function snapshotRecord(content: string = SNAPSHOT_CONTENT): SourceSnapshot {
+  return {
+    id: newId(),
+    sessionId: SESSION_ID,
+    sourceId: SOURCE_ID,
+    canonicalUrl: "https://example.org/report",
+    contentHash: SNAPSHOT_HASH,
+    contentType: "text/html",
+    content,
+    contentBytes: content.length,
+    charCount: content.length,
+    retrievedAt: new Date().toISOString(),
+    createdAt: new Date().toISOString()
+  };
+}
+
 function buildApp(options: {
   role?: Role | null;
   evidence?: Partial<{
@@ -79,6 +102,8 @@ function buildApp(options: {
     getEvidenceContext: unknown;
     updateEvidence: unknown;
     setVerification: unknown;
+    /** The route reads the stored capture to locate an excerpt's anchor. */
+    getCurrentSnapshot: unknown;
   }>;
   arena?: Partial<{ createResearchClaim: unknown; getSessionArtifacts: unknown }>;
   reviews?: Partial<{ listReviews: unknown; listAgentRuns: unknown }>;
@@ -105,7 +130,13 @@ function buildApp(options: {
       inspector: {} as never,
       events: {} as never,
       runSession: {} as never,
-      evidence: (options.evidence ?? {}) as never,
+      evidence: {
+        // Mirrors the repository contract: a source with no stored capture
+        // resolves to null rather than throwing, so the route can record the
+        // excerpt as `unanchored` instead of failing the request.
+        getCurrentSnapshot: vi.fn(async () => null),
+        ...(options.evidence ?? {})
+      } as never,
       arena: (options.arena ?? {}) as never,
       reviews: options.reviews as never
     },
@@ -256,6 +287,86 @@ describe("evidence routes", () => {
       }
     });
     expect(response.statusCode).toBe(400);
+  });
+
+  it("locates an excerpt in the stored capture and ignores the client's own claim", async () => {
+    const createEvidence = vi.fn(async (input: { evidence: Evidence }) => ({
+      evidence: input.evidence,
+      event: fakeEvent("EVIDENCE_RECORDED", {})
+    }));
+    const app = buildApp({
+      evidence: {
+        createEvidence,
+        getCurrentSnapshot: vi.fn(async () => snapshotRecord())
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/sessions/${SESSION_ID}/evidence`,
+      headers: { "idempotency-key": "evidence-anchored" },
+      payload: {
+        kind: "external_reference",
+        title: "Quarterly figures",
+        content: ANCHOR_SENTENCE,
+        description: "Vendor-reported quarterly growth.",
+        sourceId: SOURCE_ID,
+        anchorText: ANCHOR_SENTENCE,
+        // A client must not be able to declare where its own quote sits.
+        locatorStatus: "missing",
+        direction: "supports",
+        reliability: 0.6,
+        claimIds: [CLAIM_ID]
+      }
+    });
+
+    expect(response.statusCode).toBe(201);
+    const passed = createEvidence.mock.calls[0]?.[0] as
+      | { evidence: Evidence }
+      | undefined;
+    expect(passed?.evidence.locatorStatus).toBe("anchored");
+    expect(passed?.evidence.locator).toBe("第 2 段");
+    expect(passed?.evidence.sourceContentHash).toBe(SNAPSHOT_HASH);
+    // Being able to find the sentence is not the same as standing behind it.
+    expect(passed?.evidence.verificationStatus).toBe("unverified");
+  });
+
+  it("records an excerpt the capture does not contain as missing", async () => {
+    const createEvidence = vi.fn(async (input: { evidence: Evidence }) => ({
+      evidence: input.evidence,
+      event: fakeEvent("EVIDENCE_RECORDED", {})
+    }));
+    const app = buildApp({
+      evidence: {
+        createEvidence,
+        getCurrentSnapshot: vi.fn(async () => snapshotRecord("这个页面只有一段别的话。"))
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/sessions/${SESSION_ID}/evidence`,
+      headers: { "idempotency-key": "evidence-missing" },
+      payload: {
+        kind: "external_reference",
+        title: "Quarterly figures",
+        content: ANCHOR_SENTENCE,
+        description: "Vendor-reported quarterly growth.",
+        sourceId: SOURCE_ID,
+        anchorText: ANCHOR_SENTENCE,
+        direction: "supports",
+        reliability: 0.6,
+        claimIds: [CLAIM_ID]
+      }
+    });
+
+    expect(response.statusCode).toBe(201);
+    const passed = createEvidence.mock.calls[0]?.[0] as
+      | { evidence: Evidence }
+      | undefined;
+    expect(passed?.evidence.locatorStatus).toBe("missing");
+    // Losing a locator is not a verdict on the claim.
+    expect(passed?.evidence.verificationStatus).toBe("unverified");
   });
 
   it("blocks viewers from recording evidence", async () => {

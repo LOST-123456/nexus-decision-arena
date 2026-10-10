@@ -7,6 +7,7 @@ import {
 import {
   EvidenceDirectionSchema,
   EvidenceKindSchema,
+  EvidenceLocatorKindSchema,
   EvidenceSchema,
   EvidenceValidityPeriodSchema,
   EvidenceVerificationRequestSchema,
@@ -19,6 +20,7 @@ import {
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { AppDependencies } from "../../app";
+import { planExcerptAnchor } from "../../research/excerpt-anchor";
 import { ResearchWorkspaceService } from "../../research/workspace-service";
 import { deriveUuidV7 } from "../plugins/deterministic-id";
 import type { EventBus } from "../../execution/event-bus";
@@ -36,6 +38,11 @@ export const CreateSourceSchema = SourceDraftSchema;
  * Newly recorded evidence always starts `unverified`. Verification is a
  * separate, attributed act, so nothing that arrives through this endpoint can
  * land in a verified state — including output relayed from a model.
+ *
+ * `locatorStatus` is deliberately not accepted from the client. Whether an
+ * excerpt can be found in the source is something the server checks itself
+ * against the stored text; a client that simply claims "anchored" would make
+ * the whole locator state meaningless.
  */
 export const CreateEvidenceSchema = z.object({
   kind: EvidenceKindSchema,
@@ -45,6 +52,10 @@ export const CreateEvidenceSchema = z.object({
   sourceId: z.string().uuid().optional(),
   sourceRef: z.string().url().optional(),
   locator: z.string().trim().max(240).optional(),
+  /** How the excerpt is anchored: a verbatim quote, a heading, a page … */
+  locatorKind: EvidenceLocatorKindSchema.optional(),
+  /** The exact text the researcher selected in the reader. */
+  anchorText: z.string().trim().min(1).max(4000).optional(),
   direction: EvidenceDirectionSchema,
   reliability: z.number().min(0).max(1),
   claimIds: z.array(z.string().uuid()).min(1),
@@ -104,6 +115,36 @@ export function registerEvidenceRoutes(
 ): void {
   const notConfigured = (reply: { code: (c: number) => { send: (b: unknown) => unknown } }) =>
     reply.code(501).send({ error: "Research evidence storage unavailable" });
+
+  /**
+   * Works out an excerpt's locator state by searching the stored page text.
+   *
+   * Only the server can answer this. The client says *which* sentence the
+   * researcher meant; the server says whether that sentence is really in the
+   * source it is being attributed to. Trusting the client here would make the
+   * locator state decorative, and a citation that cannot be re-found is exactly
+   * what this state exists to catch.
+   */
+  async function planAnchor(input: {
+    sessionId: string;
+    sourceId?: string | undefined;
+    anchorText?: string | undefined;
+    typedLocator?: string | undefined;
+  }) {
+    const snapshot =
+      input.sourceId && dependencies.evidence
+        ? await dependencies.evidence.getCurrentSnapshot(
+            input.sessionId,
+            input.sourceId
+          )
+        : null;
+    return planExcerptAnchor({
+      content: snapshot?.content ?? null,
+      contentHash: snapshot?.contentHash ?? null,
+      anchorText: input.anchorText ?? null,
+      typedLocator: input.typedLocator ?? null
+    });
+  }
 
   app.get<{ Params: { id: string } }>(
     "/api/sessions/:id/research",
@@ -203,7 +244,19 @@ export function registerEvidenceRoutes(
             createdAt: now,
             updatedAt: now
           });
-          return { source: await dependencies.evidence!.createSource(source) };
+          // Registering a source is an audit-relevant act in its own right: a
+          // citation can only be traced back if the registration is recorded.
+          const created = await dependencies.evidence!.createSource(source, {
+            correlationId: source.id,
+            type: "SOURCE_REGISTERED",
+            payload: {
+              sourceId: source.id,
+              kind: source.kind,
+              ...(source.url ? { url: source.url } : {}),
+              registeredBy: actorName(user) ?? "unattributed"
+            }
+          });
+          return { source: created.source, event: created.event };
         });
         return reply.code(201).send(result.response);
       } catch (error) {
@@ -286,6 +339,15 @@ export function registerEvidenceRoutes(
       try {
         const result = await idempotency.execute(key, requestHash, async () => {
           const evidenceId = deriveUuidV7("evidence", key, requestHash);
+          // The anchor is resolved against the stored page text before the row
+          // is built, so an excerpt that cannot be located is recorded as
+          // `missing` instead of arriving flagged as a match.
+          const anchor = await planAnchor({
+            sessionId,
+            sourceId: parsed.data.sourceId,
+            anchorText: parsed.data.anchorText,
+            typedLocator: parsed.data.locator
+          });
           // Creation never marks anything verified; that is a separate act.
           const evidence = EvidenceSchema.parse({
             id: evidenceId,
@@ -297,7 +359,15 @@ export function registerEvidenceRoutes(
             description: parsed.data.description,
             ...(parsed.data.sourceId ? { sourceId: parsed.data.sourceId } : {}),
             ...(parsed.data.sourceRef ? { sourceRef: parsed.data.sourceRef } : {}),
-            ...(parsed.data.locator ? { locator: parsed.data.locator } : {}),
+            ...(anchor.locator ? { locator: anchor.locator } : {}),
+            ...(parsed.data.locatorKind
+              ? { locatorKind: parsed.data.locatorKind }
+              : {}),
+            locatorStatus: anchor.locatorStatus,
+            ...(anchor.anchorText ? { anchorText: anchor.anchorText } : {}),
+            ...(anchor.sourceContentHash
+              ? { sourceContentHash: anchor.sourceContentHash }
+              : {}),
             direction: parsed.data.direction,
             reliability: parsed.data.reliability,
             verificationStatus: "unverified",
@@ -320,6 +390,7 @@ export function registerEvidenceRoutes(
                 kind: evidence.kind,
                 ...(evidence.sourceId ? { sourceId: evidence.sourceId } : {}),
                 verificationStatus: evidence.verificationStatus,
+                locatorStatus: anchor.locatorStatus,
                 createdBy: evidence.createdBy
               }
             }
@@ -420,10 +491,36 @@ export function registerEvidenceRoutes(
 
       try {
         const result = await idempotency.execute(key, requestHash, async () => {
+          // The locator state is recomputed here rather than accepted from the
+          // body: revising the excerpt means the previous answer about whether
+          // it can be found no longer applies to the text being stored.
+          let patch: Parameters<
+            NonNullable<AppDependencies["evidence"]>["updateEvidence"]
+          >[0]["patch"] = parsed.data;
+          if (parsed.data.anchorText !== undefined) {
+            const anchor = await planAnchor({
+              sessionId,
+              sourceId: parsed.data.sourceId,
+              anchorText: parsed.data.anchorText,
+              typedLocator: parsed.data.locator
+            });
+            patch = {
+              ...parsed.data,
+              locator: anchor.locator ?? undefined,
+              locatorStatus: anchor.locatorStatus,
+              anchorText: anchor.anchorText ?? undefined,
+              sourceContentHash: anchor.sourceContentHash ?? undefined
+            };
+          } else if (parsed.data.sourceId !== undefined) {
+            // Pointing the excerpt at a different source invalidates the old
+            // anchor, so the locator state cannot stay `anchored`.
+            patch = { ...parsed.data, locatorStatus: "unanchored" };
+          }
+
           const updated = await dependencies.evidence!.updateEvidence({
             sessionId,
             evidenceId,
-            patch: parsed.data,
+            patch,
             event: {
               correlationId: evidenceId,
               type: "EVIDENCE_RECORDED",

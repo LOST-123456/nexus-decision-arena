@@ -25,6 +25,9 @@ import type { AgentRunner } from "./arena/agent-runner";
 import { ProviderAgentRunner } from "./arena/provider-agent-runner";
 import { EventBus } from "./execution/event-bus";
 import { CrossReviewService } from "./research/cross-review-service";
+import { createPageFetcher } from "./research/page-fetch";
+import { createNodePageTransport, dnsAddressResolver } from "./research/node-page-transport";
+import { SourceImportService } from "./research/source-import-service";
 import { AuthService } from "./auth";
 
 import { dirname, resolve } from "node:path";
@@ -142,6 +145,18 @@ const crossReview = new CrossReviewService({
   maxChallengers: Number(process.env.CROSS_EXAMINATION_MAX_CHALLENGERS ?? 2)
 });
 
+/**
+ * Page retrieval for the research intake.
+ *
+ * Built once for the process so the concurrency limit is actually shared. The
+ * transport pins every connection to the address the guard validated, which is
+ * what stops a page from redirecting the server at its own network.
+ */
+const pageFetcher = createPageFetcher({
+  resolve: dnsAddressResolver,
+  transport: createNodePageTransport()
+});
+
 const app = createApp(
   {
     sessions,
@@ -151,6 +166,13 @@ const app = createApp(
     evidence: researchEvidence,
     reviews: researchReviews,
     crossReview,
+    sourceIntake: new SourceImportService({
+      evidence: researchEvidence,
+      // One fetcher for the process: the concurrency limit is only meaningful
+      // if it is shared, and the address guard is what decides what may be
+      // contacted.
+      fetch: (url) => pageFetcher.fetch(url)
+    }),
     arena,
     reports,
     events,
