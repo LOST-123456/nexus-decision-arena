@@ -499,11 +499,13 @@ export function ResearchWorkspace({
                 busy={busy}
                 error={error}
                 onSubmit={async (command) => {
-                  const ok = await run(
-                    () => createResearchClaim(sessionId, command),
-                    "Create claim"
-                  );
-                  if (ok) setOpenForm("none");
+                    const ok = await run(
+                      () => createResearchClaim(sessionId, command),
+                      "Create claim"
+                    );
+                    // 只关闭「发起提交的那个表单」：提交是异步的（含一次 reload），
+                    // 期间用户可能已打开另一个表单；无条件 setOpenForm("none") 会把后者一并关掉。
+                    if (ok) setOpenForm((current) => (current === "claim" ? "none" : current));
                 }}
               />
             ) : null}
@@ -637,7 +639,8 @@ export function ResearchWorkspace({
                       () => createSource(sessionId, command),
                       "Create source"
                     );
-                    if (ok) setOpenForm("none");
+                    // 见 ClaimForm 上的说明：异步完成后只能关闭来源表单本身。
+                    if (ok) setOpenForm((current) => (current === "source" ? "none" : current));
                   }}
                 />
               ) : null}
@@ -654,7 +657,8 @@ export function ResearchWorkspace({
                       () => createEvidence(sessionId, command),
                       "Create evidence"
                     );
-                    if (ok) setOpenForm("none");
+                    // 见 ClaimForm 上的说明：异步完成后只能关闭证据表单本身。
+                    if (ok) setOpenForm((current) => (current === "evidence" ? "none" : current));
                   }}
                 />
               ) : null}
