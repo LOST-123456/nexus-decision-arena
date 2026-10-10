@@ -16,12 +16,15 @@ import {
   createSource,
   getEvidenceContext,
   getResearchWorkspace,
+  importSource,
   listClaimReviews,
   recordClaimReview,
   runCrossReview,
   setVerification,
   type CrossReviewResult,
   type EvidenceContext,
+  type ImportSourceCommand,
+  type ImportSourceResult,
   type ResearchWorkspace
 } from "./api";
 import { getCurrentUser, type AuthUser } from "../arena/api-client";
@@ -33,30 +36,66 @@ import {
   StatusPill,
   VerdictCard
 } from "./components";
-import { ClaimForm, EvidenceForm, SourceForm } from "./forms";
+import { ClaimForm, EvidenceForm, ImportSourceForm, SourceForm } from "./forms";
+import { SourceReader } from "./source-reader";
 import {
   claimStatusLabel,
+  formatDate,
   pendingVerificationLabel,
+  sourceImportStateLabel,
+  sourceImportStateTone,
+  sourceRetrievalLabel,
+  sourceRetrievalTone,
   verificationLabel,
   verificationTone,
   verdictLabel,
   workflowLabel
 } from "./labels";
 
-type Panel = "claims" | "content" | "cross" | "review" | "detail";
+type Panel = "claims" | "content" | "cross" | "review" | "detail" | "reader";
 
 /**
  * `claims` and `detail` are their own tabs only where the layout collapses: on
  * a wide screen the claim rail and the source detail are always on screen, so
  * offering a tab that changes nothing would be a dead control.
+ *
+ * `reader` is the exception — it is a real destination on every width, because
+ * reading a stored page replaces the whole workspace rather than sitting in a
+ * column beside it.
  */
 const PANELS: Array<{ id: Panel; label: string; narrowOnly?: boolean }> = [
   { id: "claims", label: "主张", narrowOnly: true },
   { id: "content", label: "研究内容" },
   { id: "cross", label: "交叉审查" },
   { id: "review", label: "审核中心" },
-  { id: "detail", label: "来源详情", narrowOnly: true }
+  { id: "detail", label: "来源详情", narrowOnly: true },
+  { id: "reader", label: "原文阅读" }
 ];
+
+/**
+ * One address inside a multi-url import. The state is the workspace's own
+ * progress, kept separate from the stored retrieval status of the source that
+ * comes back: "we finished trying" and "the text was extracted" are different
+ * facts, and a refused url is still a finished attempt.
+ */
+type ImportRow = {
+  url: string;
+  state: "pending" | "running" | "done" | "failed";
+  result?: ImportSourceResult;
+  message?: string;
+};
+
+/** Event types that belong in the workspace's own activity trail. */
+const HISTORY_EVENT_TYPES = new Set([
+  "EVIDENCE_RECORDED",
+  "EVIDENCE_VERIFICATION_CHANGED",
+  "CLAIM_CREATED",
+  "CLAIM_REVIEW_RECORDED",
+  "SOURCE_REGISTERED",
+  "SOURCE_RETRIEVED",
+  "SOURCE_RETRIEVAL_FAILED",
+  "SOURCE_EXCERPTS_RECHECKED"
+]);
 
 const RESEARCH_MODE: Panel[] = ["claims", "content", "detail"];
 
@@ -85,9 +124,17 @@ export function ResearchWorkspace({
   const [selectedEvidenceId, setSelectedEvidenceId] = useState<string | null>(null);
   const [context, setContext] = useState<EvidenceContext | null>(null);
   const [panel, setPanel] = useState<Panel>("content");
-  const [openForm, setOpenForm] = useState<"none" | "claim" | "source" | "evidence">(
-    "none"
-  );
+  const [openForm, setOpenForm] = useState<
+    "none" | "claim" | "source" | "evidence" | "import"
+  >("none");
+  /**
+   * Which source the reader is showing. Kept apart from `selectedEvidenceId`
+   * so closing the reader returns to whatever excerpt the user came from.
+   */
+  const [readerSourceId, setReaderSourceId] = useState<string | null>(null);
+  const [importRows, setImportRows] = useState<ImportRow[] | null>(null);
+  const [importBusy, setImportBusy] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -110,31 +157,35 @@ export function ResearchWorkspace({
     return next;
   }, [sessionId]);
 
+  /**
+   * The activity trail is read back from the event log, never assembled from
+   * what this component happens to have done — otherwise a write made in
+   * another tab, or a refused fetch whose attempt was still recorded, would be
+   * invisible here.
+   */
+  const refreshHistory = useCallback(async () => {
+    const events = await getEvents(sessionId).catch(() => []);
+    setHistory(
+      events
+        .filter((event) => HISTORY_EVENT_TYPES.has(event.type))
+        .slice(-8)
+        .reverse()
+        .map((event) => `#${event.sequence} ${event.type}`)
+    );
+  }, [sessionId]);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const [next, currentUser, events] = await Promise.all([
+        const [next, currentUser] = await Promise.all([
           getResearchWorkspace(sessionId),
-          getCurrentUser().catch(() => null),
-          getEvents(sessionId).catch(() => [])
+          getCurrentUser().catch(() => null)
         ]);
         if (cancelled) return;
         setWorkspace(next);
         setUser(currentUser);
-        setHistory(
-          events
-            .filter(
-              (event) =>
-                event.type === "EVIDENCE_RECORDED" ||
-                event.type === "EVIDENCE_VERIFICATION_CHANGED" ||
-                event.type === "CLAIM_CREATED" ||
-                event.type === "CLAIM_REVIEW_RECORDED"
-            )
-            .slice(-8)
-            .reverse()
-            .map((event) => `#${event.sequence} ${event.type}`)
-        );
+        await refreshHistory();
       } catch (cause) {
         if (!cancelled) {
           setLoadError(
@@ -146,7 +197,7 @@ export function ResearchWorkspace({
     return () => {
       cancelled = true;
     };
-  }, [sessionId]);
+  }, [sessionId, refreshHistory]);
 
   useEffect(() => {
     if (!selectedEvidenceId) {
@@ -241,6 +292,56 @@ export function ResearchWorkspace({
       return false;
     } finally {
       setBusy(false);
+    }
+  }
+
+  /**
+   * Asks the server to read each url and store its text, one at a time.
+   *
+   * A refusal is not a no-op: the attempt is recorded against the source even
+   * when the fetch fails, so the workspace is reloaded at the end regardless and
+   * every row reports its own outcome. Reading them sequentially keeps the load
+   * on one page's server bounded and makes the per-url progress truthful.
+   */
+  async function submitImport(commands: ImportSourceCommand[]) {
+    if (commands.length === 0) return;
+    setImportBusy(true);
+    setImportError(null);
+    setOpenForm((current) => (current === "import" ? "none" : current));
+    setImportRows(commands.map((command) => ({ url: command.url, state: "pending" })));
+
+    for (const [index, command] of commands.entries()) {
+      setImportRows((current) =>
+        (current ?? []).map((row, position) =>
+          position === index ? { ...row, state: "running" } : row
+        )
+      );
+      try {
+        const result = await importSource(sessionId, command);
+        setImportRows((current) =>
+          (current ?? []).map((row, position) =>
+            position === index ? { url: row.url, state: "done", result } : row
+          )
+        );
+      } catch (cause) {
+        const message = cause instanceof Error ? cause.message : "导入该地址失败";
+        setImportRows((current) =>
+          (current ?? []).map((row, position) =>
+            position === index ? { url: row.url, state: "failed", message } : row
+          )
+        );
+      }
+    }
+
+    try {
+      await reload();
+      await refreshHistory();
+    } catch (cause) {
+      setImportError(
+        cause instanceof Error ? cause.message : "导入后刷新工作台失败"
+      );
+    } finally {
+      setImportBusy(false);
     }
   }
 
@@ -417,27 +518,71 @@ export function ResearchWorkspace({
 
   const focusMode = !isResearchMode(panel);
 
+  const tabs = (
+    <div
+      className="research-tabs"
+      role="tablist"
+      aria-label="研究面板"
+      data-testid="research-tabs"
+    >
+      {PANELS.map((item) => (
+        <button
+          key={item.id}
+          type="button"
+          role="tab"
+          className={`research-tab${item.narrowOnly ? " research-tab-narrow" : ""}`}
+          aria-selected={panel === item.id}
+          onClick={() => setPanel(item.id)}
+        >
+          {item.label}
+        </button>
+      ))}
+    </div>
+  );
+
+  // Reading a stored page is a surface of its own, not a column: it gets the
+  // full width so long text is not squeezed, and it keeps the tab bar so the
+  // way back is always visible.
+  if (panel === "reader") {
+    return (
+      <>
+        {tabs}
+        <div className="research-body" data-testid="research-body" data-mode="reader">
+          {readerSourceId ? (
+            <SourceReader
+              sessionId={sessionId}
+              sourceId={readerSourceId}
+              claims={workspace.claims}
+              defaultClaimId={selectedClaimId}
+              canEdit={canEdit}
+              onClose={() => setPanel(selectedEvidenceId ? "detail" : "content")}
+              onChanged={async () => {
+                await reload();
+                await refreshHistory();
+              }}
+              onOpenEvidence={(evidenceId) => {
+                setSelectedEvidenceId(evidenceId);
+                setPanel("detail");
+              }}
+            />
+          ) : (
+            <div className="research-column">
+              <section className="research-panel">
+                <p className="research-muted">
+                  还没有选择要阅读的来源。可以先在「研究内容」里导入网页，或从某条证据的
+                  「来源详情」中点「阅读保存的原文」。
+                </p>
+              </section>
+            </div>
+          )}
+        </div>
+      </>
+    );
+  }
+
   return (
     <>
-      <div
-        className="research-tabs"
-        role="tablist"
-        aria-label="研究面板"
-        data-testid="research-tabs"
-      >
-        {PANELS.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            role="tab"
-            className={`research-tab${item.narrowOnly ? " research-tab-narrow" : ""}`}
-            aria-selected={panel === item.id}
-            onClick={() => setPanel(item.id)}
-          >
-            {item.label}
-          </button>
-        ))}
-      </div>
+      {tabs}
 
       <div
         className="research-body"
@@ -613,6 +758,15 @@ export function ResearchWorkspace({
                     type="button"
                     className="research-button research-button-secondary"
                     onClick={() =>
+                      setOpenForm(openForm === "import" ? "none" : "import")
+                    }
+                  >
+                    {openForm === "import" ? "收起导入" : "导入网页"}
+                  </button>
+                  <button
+                    type="button"
+                    className="research-button research-button-secondary"
+                    onClick={() =>
                       setOpenForm(openForm === "source" ? "none" : "source")
                     }
                   >
@@ -629,6 +783,142 @@ export function ResearchWorkspace({
                   </button>
                 </div>
               </div>
+
+              {openForm === "import" ? (
+                <ImportSourceForm
+                  busy={importBusy}
+                  error={importError}
+                  onSubmit={(commands) => void submitImport(commands)}
+                />
+              ) : null}
+
+              {importRows ? (
+                <div
+                  className="research-panel"
+                  data-testid="import-source-result"
+                  style={{ marginTop: 8, marginBottom: 8 }}
+                >
+                  <div className="research-panel-head">
+                    <span className="research-panel-title">导入结果</span>
+                    <div className="research-actions">
+                      <span className="research-muted">
+                        {importRows.filter((row) => row.state === "done").length} 个成功 ·{" "}
+                        {importRows.filter((row) => row.state === "failed").length} 个失败
+                      </span>
+                      <button
+                        type="button"
+                        className="research-button research-button-secondary"
+                        onClick={() => setImportRows(null)}
+                      >
+                        关闭结果
+                      </button>
+                    </div>
+                  </div>
+                  <ul className="research-plain-list" data-testid="import-source-rows">
+                    {importRows.map((row, index) => {
+                      // Bound to a const so the "read the stored text" button can
+                      // capture this row's source without a non-null assertion.
+                      const result = row.result;
+                      return (
+                        <li
+                          key={`${row.url}-${index}`}
+                          className="research-challenge"
+                          data-import-state={row.state}
+                        >
+                          <div className="research-claim-meta">
+                            <StatusPill tone={sourceImportStateTone(row.state)}>
+                              {sourceImportStateLabel(row.state)}
+                            </StatusPill>
+                            {result ? (
+                              <>
+                                <StatusPill
+                                  tone={sourceRetrievalTone(
+                                    result.source.retrievalStatus
+                                  )}
+                                >
+                                  {sourceRetrievalLabel(result.source.retrievalStatus)}
+                                </StatusPill>
+                                <StatusPill tone="research-pill-neutral">
+                                  {result.reused ? "复用已有来源" : "新建来源"}
+                                </StatusPill>
+                                {result.versionCreated ? (
+                                  <StatusPill tone="research-pill-neutral">
+                                    新建内容版本
+                                  </StatusPill>
+                                ) : null}
+                                {result.truncated ? (
+                                  <StatusPill tone="research-pill-unverified">
+                                    正文已截断
+                                  </StatusPill>
+                                ) : null}
+                              </>
+                            ) : null}
+                          </div>
+                          <div
+                            className="research-muted"
+                            style={{ overflowWrap: "anywhere" }}
+                          >
+                            {row.url}
+                          </div>
+                          {result ? (
+                            <>
+                              <div>
+                                <strong>{result.source.title}</strong>
+                              </div>
+                              <div
+                                className="research-muted"
+                                style={{ overflowWrap: "anywhere" }}
+                              >
+                                最终地址：{result.finalUrl}
+                              </div>
+                              {result.redirects.length > 0 ? (
+                                <div
+                                  className="research-muted"
+                                  style={{ overflowWrap: "anywhere" }}
+                                >
+                                  跳转：{result.redirects.join(" → ")}
+                                </div>
+                              ) : null}
+                              <div
+                                className="research-muted"
+                                style={{ overflowWrap: "anywhere" }}
+                              >
+                                内容哈希：{result.source.contentHash ?? "—"} · 抓取时间：
+                                {formatDate(result.source.retrievedAt)}
+                              </div>
+                              <button
+                                type="button"
+                                className="research-button research-button-secondary"
+                                onClick={() => {
+                                  setReaderSourceId(result.source.id);
+                                  setPanel("reader");
+                                }}
+                              >
+                                阅读保存的原文
+                              </button>
+                            </>
+                          ) : row.state === "failed" ? (
+                            <p className="research-error" role="alert">
+                              {row.message}
+                            </p>
+                          ) : (
+                            <p className="research-muted">
+                              {row.state === "running"
+                                ? "正在抓取，请稍候…"
+                                : "排队等待处理…"}
+                            </p>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  <p className="research-muted" style={{ marginTop: 8 }}>
+                    抓取到的是页面正文纯文本，不代表内容已被核实。请进入原文挑出要引用的
+                    句子，再登记为引用。失败的地址同样会留下来源记录与失败原因，可在
+                    「研究内容」的来源详情里查看。
+                  </p>
+                </div>
+              ) : null}
 
               {openForm === "source" ? (
                 <SourceForm
@@ -781,6 +1071,10 @@ export function ResearchWorkspace({
                 onSubmitReview={submitReview}
                 onOpenCrossReview={() => setPanel("cross")}
                 onGapAction={handleGapAction}
+                onOpenEvidence={(evidenceId) => {
+                  setSelectedEvidenceId(evidenceId);
+                  setPanel("detail");
+                }}
               />
             ) : (
               <section className="research-panel">
@@ -820,6 +1114,10 @@ export function ResearchWorkspace({
                     }),
                   "Verification"
                 );
+              }}
+              onOpenReader={(sourceId) => {
+                setReaderSourceId(sourceId);
+                setPanel("reader");
               }}
             />
           ) : (

@@ -193,5 +193,106 @@ test("narrow viewport degrades to tabs instead of squeezed columns", async ({
     page.getByText("选择一条证据材料即可查看原文、来源元数据与核实记录。")
   ).toBeVisible();
 
+  // The reader is a full-width surface on every viewport; with nothing chosen
+  // yet it must say so rather than render an empty box.
+  await page.getByRole("tab", { name: "原文阅读" }).click();
+  await expect(page.getByText(/还没有选择要阅读的来源/)).toBeVisible();
+
   await expectNoHorizontalOverflow(page);
+});
+
+/**
+ * The url-import path cannot be exercised against the real network here: the
+ * server's own guard would (correctly) refuse anything a test could reach, and
+ * a public page would make the suite depend on the internet. So this test
+ * covers what is verifiable offline — that the entry point exists, that it
+ * states the refusal policy, and that a source with no stored text says so
+ * instead of pretending to have one.
+ */
+test("import entry states its policy and the reader reports missing page text", async ({
+  page
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await loginAsOwner(page);
+  const sessionId = await createResearch(page);
+
+  const claim = await page.context().request.post(
+    `/api/sessions/${sessionId}/claims`,
+    {
+      headers: { "idempotency-key": `e2e-claim-${randomUUID()}` },
+      data: {
+        statement: "该公司上一季度出货量同比增长 12%。",
+        type: "fact",
+        stance: "neutral",
+        importance: 3
+      }
+    }
+  );
+  expect(claim.status()).toBe(201);
+  const { claim: claimBody } = (await claim.json()) as {
+    claim: { id: string };
+  };
+
+  const source = await page.context().request.post(
+    `/api/sessions/${sessionId}/sources`,
+    {
+      headers: { "idempotency-key": `e2e-source-${randomUUID()}` },
+      data: {
+        title: "手工登记的年报",
+        kind: "document",
+        url: "https://example.org/annual-report.pdf",
+        publisher: "示例统计局"
+      }
+    }
+  );
+  expect(source.status()).toBe(201);
+  const { source: sourceBody } = (await source.json()) as {
+    source: { id: string };
+  };
+
+  const evidence = await page.context().request.post(
+    `/api/sessions/${sessionId}/evidence`,
+    {
+      headers: { "idempotency-key": `e2e-evidence-${randomUUID()}` },
+      data: {
+        kind: "external_reference",
+        title: "年报出货量原句",
+        content: "第四季度出货量同比增长 12%。",
+        description: "年报正文原句。",
+        sourceId: sourceBody.id,
+        direction: "supports",
+        reliability: 0.7,
+        claimIds: [claimBody.id]
+      }
+    }
+  );
+  expect(evidence.status()).toBe(201);
+
+  await page.goto(`/research/${sessionId}`);
+  await expect(page.getByTestId("research-body")).toBeVisible();
+
+  await page.getByRole("button", { name: "导入网页" }).click();
+  await expect(page.getByTestId("import-source-form")).toBeVisible();
+  await expect(
+    page.getByText(/内网、本机与云元数据地址一律拒绝/)
+  ).toBeVisible();
+  await page.getByRole("button", { name: "收起导入" }).click();
+  await expect(page.getByTestId("import-source-form")).toHaveCount(0);
+
+  // A manually registered source has no stored page text, and the reader has to
+  // say that plainly rather than showing an empty document.
+  await page.getByRole("button", { name: "年报出货量原句" }).click();
+  await expect(page.getByTestId("source-detail")).toBeVisible();
+  await expect(page.getByTestId("source-detail")).toContainText("未抓取原文");
+
+  await page.getByRole("button", { name: "阅读保存的原文" }).click();
+  await expect(page.getByTestId("source-reader")).toBeVisible();
+  await expect(page.getByTestId("source-reader")).toContainText(
+    "这个来源还没有抓到原文"
+  );
+
+  await expectNoHorizontalOverflow(page);
+
+  await page.getByRole("button", { name: "关闭" }).click();
+  await expect(page.getByTestId("source-detail")).toBeVisible();
 });

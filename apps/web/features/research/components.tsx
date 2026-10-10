@@ -33,13 +33,32 @@ import {
   runPurposeLabel,
   runStatusLabel,
   runStatusTone,
+  locatorStatusLabel,
+  locatorStatusTone,
   sourceKindLabel,
+  sourceRetrievalLabel,
+  sourceRetrievalTone,
   verificationLabel,
   verificationTone,
   verdictLabel,
   verdictRuleLabel,
   verdictTone
 } from "./labels";
+
+/**
+ * The locator state of one excerpt, shown wherever a citation appears.
+ *
+ * This is the visible half of "is this quote still there?": a reader scanning a
+ * claim's evidence can see at a glance which citations can be re-found in the
+ * source and which have gone stale, without leaving the page.
+ */
+export function LocatorPill({ evidence }: { evidence: Evidence }) {
+  return (
+    <StatusPill tone={locatorStatusTone(evidence.locatorStatus)}>
+      {locatorStatusLabel(evidence.locatorStatus)}
+    </StatusPill>
+  );
+}
 
 export function StatusPill({
   tone,
@@ -656,7 +675,8 @@ export function ReviewCenter({
   error,
   onSubmitReview,
   onOpenCrossReview,
-  onGapAction
+  onGapAction,
+  onOpenEvidence
 }: {
   claim: Claim;
   verdict: ClaimVerdict;
@@ -678,6 +698,8 @@ export function ReviewCenter({
   onOpenCrossReview: () => void;
   /** Runs the real operation behind a gap action; absent means read-only. */
   onGapAction?: (action: EvidenceGapAction, gap: EvidenceGap) => void;
+  /** Opens the existing evidence detail for an excerpt in this map. */
+  onOpenEvidence?: ((evidenceId: string) => void) | undefined;
 }) {
   const unresolvedConflicts = conflicts.filter(
     (conflict) => conflict.status !== "resolved"
@@ -687,7 +709,7 @@ export function ReviewCenter({
   function evidenceRow(item: Evidence) {
     const source = item.sourceId ? sourcesById.get(item.sourceId) : undefined;
     return (
-      <li key={item.id} className="research-challenge">
+      <li key={item.id} className="research-challenge" data-evidence-id={item.id}>
         <div className="research-claim-meta">
           <StatusPill tone={verificationTone(item.verificationStatus)}>
             {verificationLabel(item.verificationStatus)}
@@ -698,6 +720,9 @@ export function ReviewCenter({
           <StatusPill tone="research-pill-neutral">
             {evidenceKindLabel(item.kind)}
           </StatusPill>
+          {/* Whether the quote can still be found is a separate question from
+              whether anyone verified it, so it gets its own marker. */}
+          <LocatorPill evidence={item} />
           <span className="research-muted">
             可靠度 {item.reliability.toFixed(2)}
           </span>
@@ -707,13 +732,22 @@ export function ReviewCenter({
         </div>
         <div className="research-excerpt">{item.content}</div>
         <div className="research-muted">
-          来源：
           {source
-            ? `${source.title}${source.publisher ? ` · ${source.publisher}` : ""}`
-            : "未登记来源"}
+            ? `来源：${source.title}${source.publisher ? ` · ${source.publisher}` : ""}`
+            : item.sourceRef
+              ? `仅链接：${item.sourceRef}`
+              : "未登记来源（无法回溯）"}
           {item.locator ? ` · 定位 ${item.locator}` : ""}
-          {item.sourceRef ? ` · ${item.sourceRef}` : ""}
         </div>
+        {onOpenEvidence ? (
+          <button
+            type="button"
+            className="research-button research-button-secondary"
+            onClick={() => onOpenEvidence(item.id)}
+          >
+            打开原始详情
+          </button>
+        ) : null}
       </li>
     );
   }
@@ -954,7 +988,12 @@ export function EvidenceTable({
                   <span className="research-muted">未记录</span>
                 )}
               </td>
-              <td className="research-muted">{item.locator ?? "—"}</td>
+              <td>
+                <div className="research-claim-meta">
+                  <span className="research-muted">{item.locator ?? "—"}</span>
+                </div>
+                <LocatorPill evidence={item} />
+              </td>
               <td>{item.reliability.toFixed(2)}</td>
               <td>
                 <StatusPill tone={verificationTone(item.verificationStatus)}>
@@ -976,7 +1015,8 @@ export function SourceDetail({
   onVerify,
   verifying,
   error,
-  canEdit
+  canEdit,
+  onOpenReader
 }: {
   evidence: Evidence;
   source: Source | null;
@@ -985,6 +1025,8 @@ export function SourceDetail({
   verifying: boolean;
   error: string | null;
   canEdit: boolean;
+  /** Opens the stored page text so the excerpt can be read in context. */
+  onOpenReader?: ((sourceId: string) => void) | undefined;
 }) {
   return (
     <div className="research-column" data-testid="source-detail">
@@ -998,6 +1040,19 @@ export function SourceDetail({
         <blockquote className="research-quote">{evidence.content}</blockquote>
         <p className="research-muted" style={{ marginTop: 8 }}>
           {evidence.description}
+        </p>
+        <div className="research-claim-meta" style={{ marginTop: 8 }}>
+          <LocatorPill evidence={evidence} />
+          {evidence.locator ? (
+            <span className="research-muted">定位：{evidence.locator}</span>
+          ) : null}
+        </div>
+        <p className="research-muted" style={{ marginTop: 6 }}>
+          {evidence.locatorStatus === "missing"
+            ? "这段文字无法在当前保存的原文中定位，引用需要重新确认；这不改变核实结论。"
+            : evidence.locatorStatus === "anchored"
+              ? "这段文字已定位到保存的原文版本。定位不代表已核实。"
+              : "这段摘录尚未与保存的原文做过定位核对。"}
         </p>
         {evidence.verifiedBy ? (
           <dl className="research-facts" style={{ marginTop: 10 }}>
@@ -1015,9 +1070,14 @@ export function SourceDetail({
         <div className="research-panel-head">
           <span className="research-panel-title">来源详情</span>
           {source ? (
-            <StatusPill tone="research-pill-neutral">
-              {sourceKindLabel(source.kind)}
-            </StatusPill>
+            <div className="research-actions">
+              <StatusPill tone={sourceRetrievalTone(source.retrievalStatus)}>
+                {sourceRetrievalLabel(source.retrievalStatus)}
+              </StatusPill>
+              <StatusPill tone="research-pill-neutral">
+                {sourceKindLabel(source.kind)}
+              </StatusPill>
+            </div>
           ) : null}
         </div>
         {source ? (
@@ -1030,6 +1090,8 @@ export function SourceDetail({
               <dd>{source.author ?? "—"}</dd>
               <dt>发布日期</dt>
               <dd>{formatDate(source.publishedAt)}</dd>
+              <dt>抓取时间</dt>
+              <dd>{formatDate(source.retrievedAt)}</dd>
               <dt>链接</dt>
               <dd>
                 {source.url ? (
@@ -1040,9 +1102,29 @@ export function SourceDetail({
                   "—"
                 )}
               </dd>
+              <dt>内容哈希</dt>
+              <dd style={{ overflowWrap: "anywhere" }}>
+                {source.contentHash ?? "—"}
+              </dd>
               <dt>备注</dt>
               <dd>{source.note ?? "—"}</dd>
             </dl>
+            {source.retrievalError ? (
+              <p className="research-error" style={{ marginTop: 8 }} role="alert">
+                上次抓取失败：{source.retrievalError}
+              </p>
+            ) : null}
+            {onOpenReader ? (
+              <div className="research-actions" style={{ marginTop: 8 }}>
+                <button
+                  type="button"
+                  className="research-button research-button-secondary"
+                  onClick={() => onOpenReader(source.id)}
+                >
+                  阅读保存的原文
+                </button>
+              </div>
+            ) : null}
           </>
         ) : (
           <p className="research-muted">

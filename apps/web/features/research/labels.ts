@@ -320,6 +320,96 @@ export function gapActionLabel(action: EvidenceGapAction): string {
   }
 }
 
+/**
+ * Retrieval state is its own axis and is labelled as such: whether the page
+ * could be read says nothing about whether anyone has stood behind an excerpt
+ * from it, so the wording never borrows verification language.
+ */
+export function sourceRetrievalLabel(
+  status: "not_requested" | "pending" | "fetched" | "failed" | undefined
+): string {
+  if (status === "fetched") return "已抓取原文";
+  if (status === "pending") return "抓取中";
+  if (status === "failed") return "抓取失败";
+  return "未抓取原文";
+}
+
+export function sourceRetrievalTone(
+  status: "not_requested" | "pending" | "fetched" | "failed" | undefined
+): string {
+  if (status === "fetched") return "research-pill-verified";
+  if (status === "pending") return "research-pill-unverified";
+  if (status === "failed") return "research-pill-rejected";
+  return "research-pill-neutral";
+}
+
+/**
+ * Locator state, kept separate from verification on purpose: an excerpt can be
+ * located in the page and still be unverified, and it can be verified while the
+ * sentence it quotes has since disappeared.
+ */
+export function locatorStatusLabel(
+  status: "unanchored" | "anchored" | "missing" | undefined
+): string {
+  if (status === "anchored") return "已定位到原文";
+  if (status === "missing") return "无法定位，需重新确认";
+  return "未做定位核对";
+}
+
+export function locatorStatusTone(
+  status: "unanchored" | "anchored" | "missing" | undefined
+): string {
+  if (status === "anchored") return "research-pill-verified";
+  if (status === "missing") return "research-pill-rejected";
+  return "research-pill-neutral";
+}
+
+export function locatorKindLabel(
+  kind:
+    | "quote"
+    | "heading"
+    | "paragraph"
+    | "page"
+    | "timestamp"
+    | "manual"
+    | undefined
+): string {
+  if (kind === "quote") return "原文摘录";
+  if (kind === "heading") return "标题锚点";
+  if (kind === "paragraph") return "段落锚点";
+  if (kind === "page") return "页码";
+  if (kind === "timestamp") return "时间点";
+  if (kind === "manual") return "人工描述";
+  return "—";
+}
+
+/**
+ * Progress of one url inside a multi-url import.
+ *
+ * These are client-side steps of a single request, not a stored status, so they
+ * are named after what the workspace is doing: waiting its turn, being read, or
+ * finished. The stored `retrievalStatus` is shown alongside them rather than
+ * being folded into one label, because "we finished trying" and "we got the
+ * text" are different facts.
+ */
+export function sourceImportStateLabel(
+  state: "pending" | "running" | "done" | "failed"
+): string {
+  if (state === "done") return "已提取";
+  if (state === "failed") return "失败";
+  if (state === "running") return "处理中";
+  return "待处理";
+}
+
+export function sourceImportStateTone(
+  state: "pending" | "running" | "done" | "failed"
+): string {
+  if (state === "done") return "research-pill-verified";
+  if (state === "failed") return "research-pill-rejected";
+  if (state === "running") return "research-pill-unverified";
+  return "research-pill-neutral";
+}
+
 export function formatDate(value: string | null | undefined): string {
   if (!value) return "—";
   const date = new Date(value);

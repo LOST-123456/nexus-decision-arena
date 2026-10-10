@@ -118,6 +118,15 @@ function applyContiguousEvent(
     case "EVIDENCE_VERIFICATION_CHANGED": {
       return { ...current, lastSequence: event.sequence };
     }
+    // Source intake follows the same rule. A retrieval that failed is still an
+    // event worth showing, but it must not be read as evidence arriving, and it
+    // changes nothing about the debate phase.
+    case "SOURCE_REGISTERED":
+    case "SOURCE_RETRIEVED":
+    case "SOURCE_RETRIEVAL_FAILED":
+    case "SOURCE_EXCERPTS_RECHECKED": {
+      return { ...current, lastSequence: event.sequence };
+    }
     // A human fact-check ruling is an append-only research record. It does not
     // change the debate phase, and the research surfaces re-read it from the
     // backend instead of guessing at it here.

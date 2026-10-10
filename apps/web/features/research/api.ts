@@ -8,8 +8,11 @@ import type {
   Conflict,
   Evidence,
   EvidenceGap,
+  EvidenceLocatorKind,
+  EvidenceLocatorStatus,
   ExecutionEvent,
-  Source
+  Source,
+  SourceSnapshot
 } from "@nexus/shared";
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "";
@@ -219,6 +222,8 @@ export type FactCheckReport = {
 export type EvidenceContext = {
   evidence: Evidence;
   source: Source | null;
+  /** The stored page text this excerpt can be checked against, if any. */
+  snapshot: SourceSnapshot | null;
   claims: Claim[];
   conflicts: Conflict[];
 };
@@ -233,6 +238,46 @@ export type CreateSourceCommand = {
   note?: string;
 };
 
+export type ImportSourceCommand = {
+  url: string;
+  title?: string;
+};
+
+export type ImportSourceResult = {
+  source: Source;
+  snapshot: SourceSnapshot | null;
+  /** True when this capture is a content version that was not stored before. */
+  versionCreated: boolean;
+  /** True when a source for this page already existed and was refreshed. */
+  reused: boolean;
+  truncated: boolean;
+  redirects: string[];
+  finalUrl: string;
+};
+
+export type SourceDetailRecord = {
+  source: Source;
+  snapshots: SourceSnapshot[];
+  excerpts: Evidence[];
+  currentSnapshotId: string | null;
+};
+
+export type RecheckResult = {
+  checked: number;
+  anchored: number;
+  missing: number;
+  unchanged: number;
+  skipped: number;
+  items: Array<{
+    evidenceId: string;
+    title: string;
+    locatorStatus: EvidenceLocatorStatus | undefined;
+    verificationStatus: Evidence["verificationStatus"];
+    locator: string | null;
+    current: boolean;
+  }>;
+};
+
 export type CreateEvidenceCommand = {
   kind: "project_input" | "calculation" | "external_reference" | "assumption";
   title: string;
@@ -241,6 +286,12 @@ export type CreateEvidenceCommand = {
   sourceId?: string;
   sourceRef?: string;
   locator?: string;
+  locatorKind?: EvidenceLocatorKind;
+  /**
+   * The exact text selected in the source reader. The server locates it in the
+   * stored page text — the client never gets to declare that it was found.
+   */
+  anchorText?: string;
   direction: "supports" | "opposes" | "context";
   reliability: number;
   claimIds: string[];
@@ -322,6 +373,55 @@ export function createSource(
       body: JSON.stringify(command),
       idempotencyKey: idempotencyKey("source")
     }
+  );
+}
+
+/**
+ * Sends a url to the server to be read and stored.
+ *
+ * The import is asynchronous in the sense that the server has to go and fetch
+ * the page, so the response reports what actually happened: whether a source
+ * already existed for that page, and whether the text was a new version.
+ * A refusal (an unsafe target, a non-text page, a timeout) comes back as a
+ * non-2xx response whose message explains why; the attempt is still recorded
+ * server-side so the workspace can show it.
+ */
+export function importSource(
+  sessionId: string,
+  command: ImportSourceCommand
+): Promise<ImportSourceResult> {
+  return request<ImportSourceResult>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/sources/import`,
+    {
+      method: "POST",
+      body: JSON.stringify(command),
+      idempotencyKey: idempotencyKey("source-import")
+    }
+  );
+}
+
+/** The stored captures and excerpts of one source. */
+export function getSourceDetail(
+  sessionId: string,
+  sourceId: string
+): Promise<SourceDetailRecord> {
+  return request<SourceDetailRecord>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/sources/${encodeURIComponent(sourceId)}`
+  );
+}
+
+/**
+ * Re-checks every excerpt of a source against its current capture. This is how
+ * a page that was rewritten turns a previously fine citation into a visible
+ * "cannot be located" marker.
+ */
+export function recheckSourceExcerpts(
+  sessionId: string,
+  sourceId: string
+): Promise<RecheckResult> {
+  return request<RecheckResult>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/sources/${encodeURIComponent(sourceId)}/recheck`,
+    { method: "POST", idempotencyKey: idempotencyKey("source-recheck") }
   );
 }
 

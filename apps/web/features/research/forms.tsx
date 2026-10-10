@@ -6,7 +6,8 @@ import { claimStatusLabel } from "./labels";
 import type {
   CreateClaimCommand,
   CreateEvidenceCommand,
-  CreateSourceCommand
+  CreateSourceCommand,
+  ImportSourceCommand
 } from "./api";
 
 const numberField = (value: string, fallback: number): number => {
@@ -476,6 +477,93 @@ export function ClaimForm({
       <div className="research-actions">
         <button type="submit" className="research-button" disabled={busy}>
           添加主张
+        </button>
+      </div>
+    </form>
+  );
+}
+
+/**
+ * Registers one or more pages by url, asking the server to read them.
+ *
+ * Distinct from `SourceForm` on purpose: that form records a citation a
+ * researcher already has in hand, while this one asks the server to go and get
+ * the text. Keeping them separate means a slow or refused retrieval can never
+ * be mistaken for a manual registration that simply succeeded.
+ *
+ * Addresses are submitted one per line and read one at a time, so each url gets
+ * its own outcome. A batch that reported one aggregate result would hide which
+ * of five addresses actually failed.
+ */
+export function ImportSourceForm({
+  onSubmit,
+  busy,
+  error
+}: {
+  onSubmit: (commands: ImportSourceCommand[]) => void;
+  busy: boolean;
+  error: string | null;
+}) {
+  const [input, setInput] = useState("");
+  const [title, setTitle] = useState("");
+
+  const urls = input
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  // A single label only makes sense for a single page: applying it to a batch
+  // would give several different sources the same title.
+  const canUseTitle = urls.length === 1 && title.trim().length > 0;
+
+  return (
+    <form
+      className="research-form"
+      data-testid="import-source-form"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (urls.length === 0) return;
+        onSubmit(
+          urls.map((url) => ({ url, ...(canUseTitle ? { title: title.trim() } : {}) }))
+        );
+      }}
+    >
+      <div className="research-field">
+        <label className="research-label" htmlFor="import-url">
+          网页地址（每行一个，可一次导入多个）
+        </label>
+        <textarea
+          id="import-url"
+          className="research-textarea"
+          rows={3}
+          value={input}
+          onChange={(event) => setInput(event.target.value)}
+          placeholder={"https://\nhttps://"}
+          required
+        />
+      </div>
+      <div className="research-field">
+        <label className="research-label" htmlFor="import-title">
+          标题（可选；留空采用网页标题，仅在只填一个地址时生效）
+        </label>
+        <input
+          id="import-title"
+          className="research-input"
+          value={title}
+          onChange={(event) => setTitle(event.target.value)}
+        />
+      </div>
+      <p className="research-muted">
+        服务器逐个读取这些公网 http/https 文本页面；内网、本机与云元数据地址一律拒绝。
+        每个地址的处理结果与失败原因都会记录在对应来源上——导入成功不代表内容已被核实。
+      </p>
+      {error ? (
+        <p className="research-error" role="alert">
+          {error}
+        </p>
+      ) : null}
+      <div className="research-actions">
+        <button type="submit" className="research-button" disabled={busy}>
+          {urls.length > 1 ? `导入 ${urls.length} 个网页` : "导入网页"}
         </button>
       </div>
     </form>

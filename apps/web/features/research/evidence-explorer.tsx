@@ -8,12 +8,15 @@ import {
   type ResearchWorkspace
 } from "./api";
 import { EvidenceTable, SourceDetail, StatusPill } from "./components";
+import { SourceReader } from "./source-reader";
 import {
   claimStatusLabel,
   directionLabel,
   formatDate,
   pendingVerificationLabel,
   sourceKindLabel,
+  sourceRetrievalLabel,
+  sourceRetrievalTone,
   verificationLabel,
   verdictLabel
 } from "./labels";
@@ -35,7 +38,11 @@ export function EvidenceExplorer({ sessionId }: { sessionId: string }) {
   const [context, setContext] = useState<EvidenceContext | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [activeColumn, setActiveColumn] = useState<"list" | "detail">("list");
+  const [activeColumn, setActiveColumn] = useState<"list" | "detail" | "reader">(
+    "list"
+  );
+  /** The source the reader is showing, if it has been opened from a detail. */
+  const [readerSourceId, setReaderSourceId] = useState<string | null>(null);
 
   const reload = useCallback(
     () => getResearchWorkspace(sessionId).then(setWorkspace),
@@ -126,28 +133,77 @@ export function EvidenceExplorer({ sessionId }: { sessionId: string }) {
     );
   }
 
+  const tabs = (
+    <div className="research-tabs" role="tablist" aria-label="证据面板">
+      <button
+        type="button"
+        role="tab"
+        className="research-tab"
+        aria-selected={activeColumn === "list"}
+        onClick={() => setActiveColumn("list")}
+      >
+        证据列表
+      </button>
+      <button
+        type="button"
+        role="tab"
+        className="research-tab"
+        aria-selected={activeColumn === "detail"}
+        onClick={() => setActiveColumn("detail")}
+      >
+        原文与来源
+      </button>
+      <button
+        type="button"
+        role="tab"
+        className="research-tab"
+        aria-selected={activeColumn === "reader"}
+        onClick={() => setActiveColumn("reader")}
+      >
+        原文阅读
+      </button>
+    </div>
+  );
+
+  // The reader replaces the two-column explorer rather than squeezing beside
+  // it: reading stored page text needs width, and this view stays read-only.
+  if (activeColumn === "reader") {
+    return (
+      <>
+        {tabs}
+        <div className="research-body" data-mode="reader">
+          {readerSourceId ? (
+            <SourceReader
+              sessionId={sessionId}
+              sourceId={readerSourceId}
+              claims={workspace.claims}
+              defaultClaimId={null}
+              canEdit={false}
+              onClose={() => setActiveColumn("detail")}
+              onChanged={reload}
+              onOpenEvidence={(evidenceId) => {
+                setSelectedId(evidenceId);
+                setActiveColumn("detail");
+              }}
+            />
+          ) : (
+            <div className="research-column">
+              <section className="research-panel">
+                <p className="research-muted">
+                  还没有选择要阅读的来源。先打开一条证据的「原文与来源」，再点
+                  「阅读保存的原文」。
+                </p>
+              </section>
+            </div>
+          )}
+        </div>
+      </>
+    );
+  }
+
   return (
     <>
-      <div className="research-tabs" role="tablist" aria-label="证据面板">
-        <button
-          type="button"
-          role="tab"
-          className="research-tab"
-          aria-selected={activeColumn === "list"}
-          onClick={() => setActiveColumn("list")}
-        >
-          证据列表
-        </button>
-        <button
-          type="button"
-          role="tab"
-          className="research-tab"
-          aria-selected={activeColumn === "detail"}
-          onClick={() => setActiveColumn("detail")}
-        >
-          原文与来源
-        </button>
-      </div>
+      {tabs}
 
       <div className="research-body" style={{ gridTemplateColumns: "minmax(0,1fr) 380px" }}>
         <div
@@ -258,6 +314,8 @@ export function EvidenceExplorer({ sessionId }: { sessionId: string }) {
                     <th scope="col">类型</th>
                     <th scope="col">发布机构</th>
                     <th scope="col">发布日期</th>
+                    <th scope="col">检索</th>
+                    <th scope="col">原文</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -280,6 +338,27 @@ export function EvidenceExplorer({ sessionId }: { sessionId: string }) {
                       <td className="research-muted">{source.publisher ?? "—"}</td>
                       <td className="research-muted">
                         {formatDate(source.publishedAt)}
+                      </td>
+                      <td>
+                        <StatusPill tone={sourceRetrievalTone(source.retrievalStatus)}>
+                          {sourceRetrievalLabel(source.retrievalStatus)}
+                        </StatusPill>
+                      </td>
+                      <td>
+                        {source.retrievalStatus === "fetched" ? (
+                          <button
+                            type="button"
+                            className="research-button research-button-secondary"
+                            onClick={() => {
+                              setReaderSourceId(source.id);
+                              setActiveColumn("reader");
+                            }}
+                          >
+                            阅读原文
+                          </button>
+                        ) : (
+                          <span className="research-muted">—</span>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -341,6 +420,10 @@ export function EvidenceExplorer({ sessionId }: { sessionId: string }) {
               verifying={false}
               error={error}
               onVerify={() => undefined}
+              onOpenReader={(sourceId) => {
+                setReaderSourceId(sourceId);
+                setActiveColumn("reader");
+              }}
             />
           ) : (
             <div className="research-column">

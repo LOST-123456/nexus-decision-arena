@@ -103,6 +103,14 @@
   grid-template-columns: 300px minmax(0, 1fr);
 }
 
+/*
+ * The source reader is a reading surface rather than a workspace: it takes the
+ * whole content width so a long stored page is not squeezed into a column.
+ */
+.research-body[data-mode="reader"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .research-column {
   min-width: 0;
   display: flex;
