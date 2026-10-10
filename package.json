@@ -8,6 +8,7 @@
     "demo:fixture": "tsx scripts/run-demo.ts",
     "dev": "corepack pnpm --parallel --filter @nexus/core --filter @nexus/web dev",
     "smoke:provider": "tsx scripts/provider-smoke.ts",
+    "provider:gate": "tsx scripts/provider-gate.ts",
     "test": "corepack pnpm -r --if-present test",
     "test:unit": "corepack pnpm -r --if-present test:unit",
     "test:integration": "corepack pnpm -r --if-present test:integration",
