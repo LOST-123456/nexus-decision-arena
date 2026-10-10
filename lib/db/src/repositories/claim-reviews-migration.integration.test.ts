@@ -124,5 +124,5 @@ describe("0006 claim reviews migration", () => {
       await database.end();
       await admin.execute(`DROP DATABASE IF EXISTS "${databaseName}"`);
     }
-  }, 60_000);
+  });
 });

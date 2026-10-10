@@ -233,7 +233,7 @@ describe("0005 evidence sources migration", () => {
       await database.end();
       await admin.execute(`DROP DATABASE IF EXISTS "${databaseName}"`);
     }
-  }, 60_000);
+  });
 
   it("rollback refuses once a human-authored claim exists", async () => {
     const { databaseName, database } = await freshMigratedDatabase();
@@ -262,5 +262,5 @@ describe("0005 evidence sources migration", () => {
       await database.end();
       await admin.execute(`DROP DATABASE IF EXISTS "${databaseName}"`);
     }
-  }, 60_000);
+  });
 });
