@@ -359,3 +359,121 @@ describe("deriveClaimVerdicts", () => {
     expect(verdicts[1]?.status).toBe("unsupported");
   });
 });
+
+describe("verdict · explainability", () => {
+  it("names the evidence it counted, split by direction", () => {
+    const supporting = verified({ direction: "supports" });
+    const opposing = verified({ direction: "opposes", title: "Counter-audit" });
+    const background = verified({ direction: "context", title: "Background" });
+
+    const verdict = deriveClaimVerdict(
+      { id: CLAIM },
+      [supporting, opposing, background],
+      { now: NOW }
+    );
+
+    expect(verdict.basis.supportingEvidenceIds).toEqual([supporting.id]);
+    expect(verdict.basis.opposingEvidenceIds).toEqual([opposing.id]);
+    expect(verdict.basis.contextEvidenceIds).toEqual([background.id]);
+  });
+
+  it("records every excluded row with the reason it was left out", () => {
+    const pending = evidence({ title: "Pending" });
+    const rejected = evidence({
+      title: "Rejected",
+      verificationStatus: "rejected",
+      verifiedBy: "researcher-1",
+      verifiedAt: NOW_ISO,
+      verificationNote: "与原文不符。"
+    });
+    const expired = verified({
+      title: "Expired",
+      validityPeriod: { to: "2025-01-01T00:00:00.000Z" }
+    });
+
+    const verdict = deriveClaimVerdict(
+      { id: CLAIM },
+      [pending, rejected, expired],
+      { now: NOW }
+    );
+
+    expect(verdict.excluded).toEqual(
+      expect.arrayContaining([
+        { evidenceId: pending.id, reason: "unverified" },
+        { evidenceId: rejected.id, reason: "rejected" },
+        { evidenceId: expired.id, reason: "expired" }
+      ])
+    );
+  });
+
+  it("always reports at least one rule hit", () => {
+    const statuses = [
+      deriveClaimVerdict({ id: CLAIM }, [], { now: NOW }),
+      deriveClaimVerdict({ id: CLAIM }, [evidence()], { now: NOW }),
+      deriveClaimVerdict({ id: CLAIM }, [verified()], { now: NOW }),
+      deriveClaimVerdict({ id: CLAIM }, [verified({ direction: "opposes" })], {
+        now: NOW
+      }),
+      deriveClaimVerdict(
+        { id: CLAIM },
+        [verified(), verified({ direction: "opposes" })],
+        { now: NOW }
+      ),
+      deriveClaimVerdict({ id: CLAIM }, [verified({ direction: "context" })], {
+        now: NOW
+      })
+    ];
+
+    for (const verdict of statuses) {
+      expect(verdict.ruleHits.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("maps each rule to the status it produces", () => {
+    expect(deriveClaimVerdict({ id: CLAIM }, [], { now: NOW }).ruleHits).toEqual([
+      "no_evidence"
+    ]);
+    expect(
+      deriveClaimVerdict({ id: CLAIM }, [evidence()], { now: NOW }).ruleHits
+    ).toEqual(["no_verified_evidence"]);
+    expect(
+      deriveClaimVerdict({ id: CLAIM }, [verified()], { now: NOW }).ruleHits
+    ).toEqual(["verified_support_only"]);
+    expect(
+      deriveClaimVerdict({ id: CLAIM }, [verified({ direction: "context" })], {
+        now: NOW
+      }).ruleHits
+    ).toEqual(["verified_context_only"]);
+  });
+
+  it("explains that a blocked conclusion names both rules it fired", () => {
+    const verdict = deriveClaimVerdict({ id: CLAIM }, [verified()], {
+      now: NOW,
+      challenges: [challenge()]
+    });
+
+    expect(verdict.ruleHits).toContain("support_blocked_by_open_challenge");
+    expect(verdict.ruleHits).toContain("verified_support_only");
+  });
+
+  it("states that confidence is a heuristic, never a model's own probability", () => {
+    const verdict = deriveClaimVerdict({ id: CLAIM }, [verified()], { now: NOW });
+
+    expect(verdict.confidenceBasis.length).toBeGreaterThan(0);
+    expect(verdict.confidenceBasis.join(" ")).toContain("不是模型自报的概率");
+  });
+
+  it("exposes the ids of the challenges that blocked the conclusion", () => {
+    const blocker = challenge({ id: newId(), severity: 5 });
+    const verdict = deriveClaimVerdict({ id: CLAIM }, [verified()], {
+      now: NOW,
+      challenges: [blocker]
+    });
+
+    expect(verdict.crossReview.severeUnresolvedChallengeIds).toEqual([
+      blocker.id!
+    ]);
+    expect(verdict.crossReview.unresolvedChallengeIds).toEqual([blocker.id!]);
+  });
+});
+

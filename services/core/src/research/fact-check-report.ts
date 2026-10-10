@@ -9,8 +9,13 @@ import {
   type Conflict,
   type Evidence,
   type EvidenceDirection,
+  type EvidenceGap,
+  type EvidenceGapKind,
   type Source,
-  isConflictAwaitingHumanDecision
+  diagnoseEvidenceGaps,
+  EvidenceGapKindSchema,
+  isConflictAwaitingHumanDecision,
+  matchRequiredEvidence
 } from "@nexus/shared";
 
 export type ReportSessionInput = {
@@ -86,6 +91,32 @@ export type FactCheckFinding = {
   excluded: EvidenceCitation[];
   challenges: ChallengeFinding[];
   runs: AgentRun[];
+  /**
+   * Rule-based diagnoses of what is still missing for this claim. Every entry
+   * reads a persisted fact and names the rows it is about; none of it is a
+   * guess and none of it claims a source was found.
+   */
+  gaps: EvidenceGap[];
+  /** Verdict projection of `gaps`: blocking gaps mean the conclusion is open. */
+  blockingGapCount: number;
+};
+
+/**
+ * The time window the material actually covers, so a reader can tell whether
+ * the conclusion describes the present or an older period.
+ */
+export type MaterialsTimeRange = {
+  /** Publication dates declared by the registered sources. */
+  publishedAt: { earliest: string | null; latest: string | null };
+  /** Declared evidence validity windows. */
+  validity: {
+    earliestFrom: string | null;
+    latestTo: string | null;
+  };
+  /** When the excerpts were retrieved. */
+  retrievedAt: { earliest: string | null; latest: string | null };
+  /** True when no material declares any date at all. */
+  empty: boolean;
 };
 
 export type FactCheckReport = {
@@ -93,6 +124,11 @@ export type FactCheckReport = {
   researchQuestion: string | null;
   generatedAt: string;
   reportVersion: number;
+  /**
+   * The time range the examined material covers. Reported next to
+   * `generatedAt` so a stale conclusion is never read as a current one.
+   */
+  materialsTimeRange: MaterialsTimeRange;
   /** Deterministic fingerprint of the material this version was built from. */
   materialsFingerprint: string;
   workflow: {
@@ -128,6 +164,16 @@ export type FactCheckReport = {
     unresolvedConflicts: Array<{ conflictId: string; summary: string; severity: number }>;
     assumptions: Array<{ claimId: string; statement: string }>;
     unlinkedCitations: Array<{ evidenceId: string; title: string }>;
+    /**
+     * Aggregate of the claim-level diagnoses: how many gaps there are, how
+     * serious, and of which kind. Derived from `findings[].gaps`, never typed
+     * in by hand.
+     */
+    evidenceGaps: {
+      total: number;
+      bySeverity: Record<"blocking" | "important" | "advisory", number>;
+      byKind: Record<EvidenceGapKind, number>;
+    };
   };
   limits: string[];
   /** Links the report back to the exact rows it was generated from. */
@@ -190,19 +236,56 @@ function toCitation(
  * A challenge's `requiredEvidence` is free text written by an agent. It is
  * only reported as satisfied when a registered evidence record actually
  * matches it; otherwise it is listed as an unverified reference.
+ *
+ * The matching rule itself lives in `@nexus/shared` so the gap diagnosis and
+ * the report can never disagree about what counts as registered.
  */
-function matchRequiredEvidence(
+function requiredEvidenceSplit(
   required: readonly string[],
   registered: readonly Evidence[]
 ): { unverifiedReferences: string[] } {
-  const haystack = registered
-    .map((item) => `${item.title} ${item.content} ${item.description}`.toLowerCase())
-    .join("\n");
-  const unverifiedReferences = required.filter((entry) => {
-    const needle = entry.trim().toLowerCase();
-    return needle.length > 0 && !haystack.includes(needle);
-  });
-  return { unverifiedReferences };
+  return {
+    unverifiedReferences: matchRequiredEvidence(required, registered)
+      .unverifiedReferences
+  };
+}
+
+function minMax(values: Array<string | undefined>): {
+  min: string | null;
+  max: string | null;
+} {
+  const present = values
+    .filter((value): value is string => typeof value === "string" && value.length > 0)
+    .sort();
+  return {
+    min: present.length > 0 ? present[0]! : null,
+    max: present.length > 0 ? present[present.length - 1]! : null
+  };
+}
+
+/**
+ * The window the examined material actually covers. Derived from persisted
+ * dates only; a date that was never recorded stays null rather than being
+ * guessed from the report's own generation time.
+ */
+function materialsTimeRange(
+  evidence: readonly Evidence[],
+  sources: readonly Source[]
+): MaterialsTimeRange {
+  const published = minMax(sources.map((source) => source.publishedAt));
+  const retrieved = minMax(evidence.map((item) => item.retrievedAt));
+  const from = minMax(evidence.map((item) => item.validityPeriod?.from));
+  const to = minMax(evidence.map((item) => item.validityPeriod?.to));
+  return {
+    publishedAt: { earliest: published.min, latest: published.max },
+    validity: { earliestFrom: from.min, latestTo: to.max },
+    retrievedAt: { earliest: retrieved.min, latest: retrieved.max },
+    empty:
+      published.min === null &&
+      retrieved.min === null &&
+      from.min === null &&
+      to.max === null
+  };
 }
 
 function fingerprint(parts: {
@@ -280,13 +363,62 @@ export function buildFactCheckReport(
       );
       const live = (item: Evidence) => !isExcluded(item);
 
-      const challenges = input.challenges
-        .filter((challenge) => challenge.targetClaimId === claim.id)
-        .map((challenge) =>
-          toChallengeFinding(challenge, claimEvidence)
-        );
+      const claimChallenges = input.challenges.filter(
+        (challenge) => challenge.targetClaimId === claim.id
+      );
+      const challenges = claimChallenges.map((challenge) =>
+        toChallengeFinding(challenge, claimEvidence)
+      );
 
       const reviews = input.reviews.filter((item) => item.claimId === claim.id);
+
+      const resolvedVerdict: ClaimVerdict =
+        verdict ?? {
+          claimId: claim.id,
+          status: "unsupported",
+          confidence: 0,
+          rationale: "No verdict was derived for this claim.",
+          counts: {
+            total: 0,
+            verified: 0,
+            unverified: 0,
+            rejected: 0,
+            expired: 0,
+            notYetEffective: 0,
+            verifiedSupporting: 0,
+            verifiedOpposing: 0,
+            verifiedContext: 0
+          },
+          needsWork: true,
+          basis: {
+            supportingEvidenceIds: [],
+            opposingEvidenceIds: [],
+            contextEvidenceIds: []
+          },
+          excluded: [],
+          ruleHits: ["no_evidence"],
+          confidenceBasis: ["没有为该主张推导出核查结论。"],
+          openQuestions: [],
+          limits: [],
+          crossReview: {
+            challenges: 0,
+            unresolved: 0,
+            severeUnresolved: 0,
+            unresolvedChallengeIds: [],
+            severeUnresolvedChallengeIds: [],
+            lastReviewedAt: null
+          },
+          review: null,
+          effectiveStatus: "unsupported"
+        };
+
+      const gaps = diagnoseEvidenceGaps({
+        claim,
+        verdict: resolvedVerdict,
+        evidence: claimEvidence,
+        sources: input.sources,
+        challenges: claimChallenges
+      });
 
       return {
         claimId: claim.id,
@@ -295,37 +427,11 @@ export function buildFactCheckReport(
         stance: claim.stance,
         importance: claim.importance,
         claimStatus: claim.status,
-        verdict:
-          verdict ?? {
-            claimId: claim.id,
-            status: "unsupported" as const,
-            confidence: 0,
-            rationale: "No verdict was derived for this claim.",
-            counts: {
-              total: 0,
-              verified: 0,
-              unverified: 0,
-              rejected: 0,
-              expired: 0,
-              notYetEffective: 0,
-              verifiedSupporting: 0,
-              verifiedOpposing: 0,
-              verifiedContext: 0
-            },
-            needsWork: true,
-            openQuestions: [],
-            limits: [],
-            crossReview: {
-              challenges: 0,
-              unresolved: 0,
-              severeUnresolved: 0,
-              lastReviewedAt: null
-            },
-            review: null,
-            effectiveStatus: "unsupported" as const
-          },
+        verdict: resolvedVerdict,
         review: reviews.length > 0 ? reviews[reviews.length - 1]! : null,
         reviewHistory: [...reviews].reverse(),
+        gaps,
+        blockingGapCount: gaps.filter((gap) => gap.severity === "blocking").length,
         supporting: claimEvidence
           .filter(
             (item) =>
@@ -365,6 +471,13 @@ export function buildFactCheckReport(
     });
 
   const allChallengeFindings = findings.flatMap((finding) => finding.challenges);
+  const allGaps = findings.flatMap((finding) => finding.gaps);
+  const gapByKind = Object.fromEntries(
+    EvidenceGapKindSchema.options.map((kind) => [kind, 0])
+  ) as Record<EvidenceGapKind, number>;
+  for (const gap of allGaps) {
+    gapByKind[gap.kind] += 1;
+  }
   const unlinkedCitations = findings
     .flatMap((finding) => [...finding.excluded, ...finding.supporting])
     .filter((citation) => citation.citationStatus === "unlinked")
@@ -384,6 +497,15 @@ export function buildFactCheckReport(
       `${unlinkedCitations.length} 条材料没有来源记录，只能标注为无法追溯。`
     );
   }
+  const blockingGaps = allGaps.filter((gap) => gap.severity === "blocking");
+  if (blockingGaps.length > 0) {
+    limits.add(
+      `有 ${blockingGaps.length} 项阻断性证据缺口：在补齐之前，相关主张不能给出确定性结论。`
+    );
+  }
+  if (allGaps.length > 0 && allGaps.length === blockingGaps.length) {
+    limits.add("本报告中的核查结论均受证据缺口限制，不宜作为最终结论引用。");
+  }
 
   const counts = input.evidence.reduce(
     (accumulator, item) => {
@@ -400,6 +522,7 @@ export function buildFactCheckReport(
     researchQuestion: input.session.researchQuestion,
     generatedAt: input.generatedAt,
     reportVersion: 1,
+    materialsTimeRange: materialsTimeRange(input.evidence, input.sources),
     materialsFingerprint: fingerprint({
       claims: input.claims,
       evidence: input.evidence,
@@ -460,7 +583,17 @@ export function buildFactCheckReport(
           claimId: finding.claimId,
           statement: finding.statement
         })),
-      unlinkedCitations
+      unlinkedCitations,
+      /** Aggregate of every claim-level diagnosis, so the report can be read top-down. */
+      evidenceGaps: {
+        total: allGaps.length,
+        bySeverity: {
+          blocking: blockingGaps.length,
+          important: allGaps.filter((gap) => gap.severity === "important").length,
+          advisory: allGaps.filter((gap) => gap.severity === "advisory").length
+        },
+        byKind: gapByKind
+      }
     },
     limits: [...limits],
     provenance: {
@@ -494,7 +627,7 @@ function toChallengeFinding(
   challenge: Challenge,
   claimEvidence: readonly Evidence[]
 ): ChallengeFinding {
-  const { unverifiedReferences } = matchRequiredEvidence(
+  const { unverifiedReferences } = requiredEvidenceSplit(
     challenge.requiredEvidence,
     claimEvidence
   );

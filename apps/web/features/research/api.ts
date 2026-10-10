@@ -4,8 +4,10 @@ import type {
   Claim,
   ClaimReview,
   ClaimVerdict,
+  ClaimVerdictStatus,
   Conflict,
   Evidence,
+  EvidenceGap,
   ExecutionEvent,
   Source
 } from "@nexus/shared";
@@ -32,6 +34,8 @@ export type ResearchSummary = {
   unverified: number;
   rejected: number;
   openVerdicts: number;
+  needsMoreEvidence: number;
+  blockingGaps: number;
 };
 
 export type ResearchWorkspace = {
@@ -44,6 +48,10 @@ export type ResearchWorkspace = {
   agentRuns: AgentRun[];
   reviews: ClaimReview[];
   verdicts: ClaimVerdict[];
+  /** Rule-based "what is still missing" diagnoses, each tagged with a claimId. */
+  gaps: EvidenceGap[];
+  /** Latest ruling per claim whose outcome was `needs_more_evidence`. */
+  openReviewRequests: ClaimReview[];
   summary: ResearchSummary;
 };
 
@@ -68,6 +76,12 @@ export type CrossReviewResult = {
 export type RecordReviewCommand = {
   outcome: "confirmed" | "rejected" | "needs_more_evidence";
   rationale: string;
+  /**
+   * The verdict the reviewer saw when they made the ruling. The server refuses
+   * the ruling if the derived verdict has since moved, so a stale page cannot
+   * decide a claim nobody actually reviewed.
+   */
+  expectedVerdictStatus: ClaimVerdictStatus;
   evidenceIds?: string[];
   sourceIds?: string[];
 };
@@ -128,6 +142,17 @@ export type ReportFinding = {
   excluded: ReportCitation[];
   challenges: ReportChallenge[];
   runs: AgentRun[];
+  /** Rule-based diagnoses of what this claim is still missing. */
+  gaps: EvidenceGap[];
+  blockingGapCount: number;
+};
+
+/** The window the examined material covers, so a stale report is recognisable. */
+export type MaterialsTimeRange = {
+  publishedAt: { earliest: string | null; latest: string | null };
+  validity: { earliestFrom: string | null; latestTo: string | null };
+  retrievedAt: { earliest: string | null; latest: string | null };
+  empty: boolean;
 };
 
 export type FactCheckReport = {
@@ -135,6 +160,7 @@ export type FactCheckReport = {
   researchQuestion: string | null;
   generatedAt: string;
   reportVersion: number;
+  materialsTimeRange: MaterialsTimeRange;
   materialsFingerprint: string;
   workflow: {
     phase: string;
@@ -172,6 +198,11 @@ export type FactCheckReport = {
     }>;
     assumptions: Array<{ claimId: string; statement: string }>;
     unlinkedCitations: Array<{ evidenceId: string; title: string }>;
+    evidenceGaps: {
+      total: number;
+      bySeverity: { blocking: number; important: number; advisory: number };
+      byKind: Record<string, number>;
+    };
   };
   limits: string[];
   provenance: {

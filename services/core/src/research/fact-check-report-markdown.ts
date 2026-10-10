@@ -1,4 +1,9 @@
-import { reviewOutcomeLabel, type ClaimVerdictStatus } from "@nexus/shared";
+import {
+  reviewOutcomeLabel,
+  type ClaimVerdictStatus,
+  type EvidenceGap,
+  type EvidenceGapSeverity
+} from "@nexus/shared";
 import type { EvidenceCitation, FactCheckReport } from "./fact-check-report";
 
 const STATUS_TEXT: Record<ClaimVerdictStatus, string> = {
@@ -10,6 +15,36 @@ const STATUS_TEXT: Record<ClaimVerdictStatus, string> = {
   mixed_evidence: "证据相互冲突",
   inconclusive: "交叉审查后仍未确定"
 };
+
+const GAP_SEVERITY_TEXT: Record<EvidenceGapSeverity, string> = {
+  blocking: "阻断",
+  important: "重要",
+  advisory: "提示"
+};
+
+function formatDate(value: string | null): string {
+  return value ?? "未记录";
+}
+
+function gapLine(gap: EvidenceGap): string[] {
+  const lines = [
+    `- [${GAP_SEVERITY_TEXT[gap.severity]}] ${gap.message}`
+  ];
+  for (const detail of gap.detail) {
+    lines.push(`  - ${detail}`);
+  }
+  if (gap.evidenceIds.length > 0) {
+    lines.push(`  - 涉及材料：${gap.evidenceIds.join("、")}`);
+  }
+  if (gap.challengeIds.length > 0) {
+    lines.push(`  - 涉及质询：${gap.challengeIds.join("、")}`);
+  }
+  for (const suggestion of gap.suggestions) {
+    // `status` is "suggested" by construction; nothing here was searched.
+    lines.push(`  - 建议（待验证，未执行检索）：${suggestion.label}`);
+  }
+  return lines;
+}
 
 const VERIFICATION_TEXT: Record<EvidenceCitation["verificationStatus"], string> = {
   verified: "已核实",
@@ -64,6 +99,17 @@ export function renderFactCheckReportMarkdown(
   lines.push(
     `- 核查范围：${report.scope.claims} 条主张 / ${report.scope.evidence} 条材料 / ${report.scope.sources} 条来源 / ${report.scope.challenges} 项质询 / ${report.scope.reviews} 次人工复核`
   );
+  lines.push(
+    `- 所用资料时间范围：发布 ${formatDate(report.materialsTimeRange.publishedAt.earliest)} ~ ${formatDate(report.materialsTimeRange.publishedAt.latest)}；获取 ${formatDate(report.materialsTimeRange.retrievedAt.earliest)} ~ ${formatDate(report.materialsTimeRange.retrievedAt.latest)}`
+  );
+  lines.push(
+    `- 资料有效期范围：${formatDate(report.materialsTimeRange.validity.earliestFrom)} ~ ${formatDate(report.materialsTimeRange.validity.latestTo)}`
+  );
+  if (report.gaps.evidenceGaps.total > 0) {
+    lines.push(
+      `- 证据缺口：阻断 ${report.gaps.evidenceGaps.bySeverity.blocking} 项 / 重要 ${report.gaps.evidenceGaps.bySeverity.important} 项 / 提示 ${report.gaps.evidenceGaps.bySeverity.advisory} 项`
+    );
+  }
   lines.push("");
 
   lines.push("## 结论概览", "");
@@ -93,6 +139,28 @@ export function renderFactCheckReportMarkdown(
       `- 主张类型：${finding.type}；内部状态：${finding.claimStatus}`
     );
     lines.push(`- 结论理由：${finding.verdict.rationale}`);
+    lines.push(`- 命中规则：${finding.verdict.ruleHits.join("、")}`);
+    if (finding.verdict.basis.supportingEvidenceIds.length > 0) {
+      lines.push(
+        `- 参与判断的支持材料：${finding.verdict.basis.supportingEvidenceIds.join("、")}`
+      );
+    }
+    if (finding.verdict.basis.opposingEvidenceIds.length > 0) {
+      lines.push(
+        `- 参与判断的反对材料：${finding.verdict.basis.opposingEvidenceIds.join("、")}`
+      );
+    }
+    if (finding.verdict.basis.contextEvidenceIds.length > 0) {
+      lines.push(
+        `- 参与判断的背景材料：${finding.verdict.basis.contextEvidenceIds.join("、")}`
+      );
+    }
+    for (const exclusion of finding.verdict.excluded) {
+      lines.push(`- 排除材料 ${exclusion.evidenceId}：${exclusion.reason}`);
+    }
+    for (const basis of finding.verdict.confidenceBasis) {
+      lines.push(`- 把握度依据：${basis}`);
+    }
     for (const limit of finding.verdict.limits) {
       lines.push(`- 局限：${limit}`);
     }
@@ -166,6 +234,14 @@ export function renderFactCheckReportMarkdown(
         lines.push(
           `- ${run.startedAt} · ${run.purpose} · ${run.status}${run.error ? `：${run.error}` : ""}`
         );
+      }
+      lines.push("");
+    }
+
+    if (finding.gaps.length > 0) {
+      lines.push("**证据缺口与建议补充材料**", "");
+      for (const gap of finding.gaps) {
+        lines.push(...gapLine(gap));
       }
       lines.push("");
     }

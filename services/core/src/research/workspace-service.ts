@@ -5,6 +5,7 @@ import {
 } from "@nexus/db";
 import {
   deriveClaimVerdicts,
+  diagnoseEvidenceGaps,
   type AgentRun,
   type Challenge,
   type Claim,
@@ -12,6 +13,7 @@ import {
   type ClaimVerdict,
   type Conflict,
   type Evidence,
+  type EvidenceGap,
   type Source,
   summarizeVerification
 } from "@nexus/shared";
@@ -41,6 +43,17 @@ export type ResearchWorkspace = {
    * human rulings.
    */
   verdicts: ClaimVerdict[];
+  /**
+   * Rule-based diagnoses of what each claim is still missing. Flattened with
+   * `claimId` on every entry so the UI can attach them to the right claim.
+   */
+  gaps: EvidenceGap[];
+  /**
+   * Reviews whose outcome was `needs_more_evidence`, latest per claim. These
+   * are the open requests a researcher still has to act on — a persisted,
+   * traceable item rather than a passing notification.
+   */
+  openReviewRequests: ClaimReview[];
   summary: {
     claims: number;
     evidence: number;
@@ -54,6 +67,10 @@ export type ResearchWorkspace = {
     rejected: number;
     /** Claims that still have material which could change their verdict. */
     openVerdicts: number;
+    /** Claims whose latest human ruling asked for more evidence. */
+    needsMoreEvidence: number;
+    /** Total blocking gaps across all claims. */
+    blockingGaps: number;
   };
 };
 
@@ -102,6 +119,38 @@ export class ResearchWorkspaceService {
     });
     const counts = summarizeVerification(evidence);
 
+    // Gaps are derived from the same verdict projection the UI shows, so a
+    // "what is missing" diagnosis can never contradict the stated conclusion.
+    const verdictByClaimId = new Map(
+      verdicts.map((verdict) => [verdict.claimId, verdict])
+    );
+    const gaps: EvidenceGap[] = claims.flatMap((claim) => {
+      const verdict = verdictByClaimId.get(claim.id);
+      if (!verdict) return [];
+      return diagnoseEvidenceGaps({
+        claim,
+        verdict,
+        evidence: evidence.filter((item) => item.claimIds.includes(claim.id)),
+        sources,
+        challenges: challenges.filter(
+          (challenge) => challenge.targetClaimId === claim.id
+        )
+      });
+    });
+
+    // The latest ruling per claim, kept only when it explicitly asked for more
+    // material: that is the open request a researcher has to close.
+    const latestReviewByClaim = new Map<string, ClaimReview>();
+    for (const review of reviews) {
+      const current = latestReviewByClaim.get(review.claimId);
+      if (!current || review.createdAt > current.createdAt) {
+        latestReviewByClaim.set(review.claimId, review);
+      }
+    }
+    const openReviewRequests = [...latestReviewByClaim.values()].filter(
+      (review) => review.outcome === "needs_more_evidence"
+    );
+
     return {
       session,
       claims,
@@ -112,6 +161,8 @@ export class ResearchWorkspaceService {
       agentRuns,
       reviews,
       verdicts,
+      gaps,
+      openReviewRequests,
       summary: {
         claims: claims.length,
         evidence: evidence.length,
@@ -125,7 +176,9 @@ export class ResearchWorkspaceService {
         verified: counts.verified,
         unverified: counts.unverified,
         rejected: counts.rejected,
-        openVerdicts: verdicts.filter((verdict) => verdict.needsWork).length
+        openVerdicts: verdicts.filter((verdict) => verdict.needsWork).length,
+        needsMoreEvidence: openReviewRequests.length,
+        blockingGaps: gaps.filter((gap) => gap.severity === "blocking").length
       }
     };
   }

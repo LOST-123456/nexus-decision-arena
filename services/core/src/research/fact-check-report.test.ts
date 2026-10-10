@@ -412,6 +412,119 @@ describe("fact-check report · traceability", () => {
   });
 });
 
+describe("fact-check report · explainability and gaps", () => {
+  it("names the evidence that took part, split by direction", () => {
+    const report = build({
+      evidence: [
+        evidenceFixture(),
+        evidenceFixture({
+          id: newId(),
+          direction: "opposes",
+          title: "Contradicting audit"
+        }),
+        evidenceFixture({
+          id: newId(),
+          direction: "context",
+          title: "Background note"
+        })
+      ],
+      challenges: [],
+      reviews: []
+    });
+    const basis = report.findings[0]!.verdict.basis;
+
+    expect(basis.supportingEvidenceIds).toEqual([EVIDENCE_ID]);
+    expect(basis.opposingEvidenceIds).toHaveLength(1);
+    expect(basis.contextEvidenceIds).toHaveLength(1);
+  });
+
+  it("records every excluded row with the reason it was left out", () => {
+    const unchecked = evidenceFixture({
+      id: newId(),
+      verificationStatus: "unverified",
+      verifiedBy: undefined,
+      verificationNote: undefined
+    });
+    const stale = evidenceFixture({
+      id: newId(),
+      validityPeriod: { to: "2020-01-01T00:00:00.000Z" }
+    });
+    const report = build({
+      evidence: [evidenceFixture(), unchecked, stale],
+      challenges: [],
+      reviews: []
+    });
+
+    expect(report.findings[0]!.verdict.excluded).toEqual(
+      expect.arrayContaining([
+        { evidenceId: unchecked.id, reason: "unverified" },
+        { evidenceId: stale.id, reason: "expired" }
+      ])
+    );
+  });
+
+  it("reports at least one rule hit and a stated confidence basis", () => {
+    const report = build();
+    const verdict = report.findings[0]!.verdict;
+
+    expect(verdict.ruleHits.length).toBeGreaterThan(0);
+    expect(verdict.confidenceBasis.join(" ")).toContain("不是模型自报的概率");
+  });
+
+  it("reports the time range the examined material actually covers", () => {
+    const report = build();
+
+    expect(report.materialsTimeRange.empty).toBe(false);
+    expect(report.materialsTimeRange.retrievedAt.earliest).toBe(NOW_ISO);
+    // No source declares a publication date, so none is invented.
+    expect(report.materialsTimeRange.publishedAt.earliest).toBeNull();
+  });
+
+  it("marks the time range empty when no material declares any date", () => {
+    const report = build({ evidence: [], sources: [], challenges: [], reviews: [] });
+
+    expect(report.materialsTimeRange.empty).toBe(true);
+  });
+
+  it("gathers a rule-based gap list for each claim", () => {
+    const report = build();
+    const finding = report.findings[0]!;
+
+    // A severe unresolved challenge and an unanswered demand are both present.
+    expect(finding.gaps.map((gap) => gap.kind)).toEqual(
+      expect.arrayContaining(["unresolved_dispute", "unmapped_reference"])
+    );
+    expect(finding.blockingGapCount).toBeGreaterThan(0);
+    for (const gap of finding.gaps) {
+      expect(gap.claimId).toBe(CLAIM_ID);
+      expect(gap.actions.length).toBeGreaterThan(0);
+      for (const proposal of gap.suggestions) {
+        expect(proposal.status).toBe("suggested");
+      }
+    }
+  });
+
+  it("aggregates gaps by severity and kind", () => {
+    const report = build();
+    const summary = report.gaps.evidenceGaps;
+
+    expect(summary.total).toBeGreaterThan(0);
+    expect(summary.bySeverity.blocking).toBeGreaterThan(0);
+    expect(summary.byKind.unresolved_dispute).toBe(1);
+    expect(summary.total).toBe(
+      summary.bySeverity.blocking +
+        summary.bySeverity.important +
+        summary.bySeverity.advisory
+    );
+  });
+
+  it("says so in the limits when gaps block the conclusions", () => {
+    const report = build();
+
+    expect(report.limits.join(" ")).toContain("阻断性证据缺口");
+  });
+});
+
 describe("markdown rendering", () => {
   it("states the question, scope, verdicts and traceability", () => {
     const markdown = renderFactCheckReportMarkdown(build());
@@ -475,5 +588,15 @@ describe("markdown rendering", () => {
     );
 
     expect(markdown).toContain("Transport timeout");
+  });
+
+  it("states the material time range and the per-claim gaps", () => {
+    const markdown = renderFactCheckReportMarkdown(build());
+
+    expect(markdown).toContain("所用资料时间范围");
+    expect(markdown).toContain("资料有效期范围");
+    expect(markdown).toContain("**证据缺口与建议补充材料**");
+    expect(markdown).toContain("建议（待验证，未执行检索）");
+    expect(markdown).toContain("命中规则");
   });
 });

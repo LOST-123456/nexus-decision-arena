@@ -5,7 +5,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   isEvidenceExpired,
   isEvidenceNotYetEffective,
-  type ClaimReview
+  type ClaimReview,
+  type EvidenceGap,
+  type EvidenceGapAction
 } from "@nexus/shared";
 import { getEvents } from "./api";
 import {
@@ -62,7 +64,21 @@ function isResearchMode(panel: Panel): boolean {
   return RESEARCH_MODE.includes(panel);
 }
 
-export function ResearchWorkspace({ sessionId }: { sessionId: string }) {
+export function ResearchWorkspace({
+  sessionId,
+  initialIntent
+}: {
+  sessionId: string;
+  /**
+   * A gap action carried over from the report. Applied once, after the
+   * workspace has loaded, so the form the action names is the one that opens.
+   */
+  initialIntent?: {
+    action: EvidenceGapAction;
+    claimId: string;
+    evidenceIds: string[];
+  } | null;
+}) {
   const [workspace, setWorkspace] = useState<ResearchWorkspace | null>(null);
   const [user, setUser] = useState<AuthUser | null>(null);
   const [selectedClaimId, setSelectedClaimId] = useState<string | null>(null);
@@ -76,6 +92,7 @@ export function ResearchWorkspace({ sessionId }: { sessionId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [history, setHistory] = useState<string[]>([]);
+  const [intentApplied, setIntentApplied] = useState(false);
 
   // Cross-examination: real agent runs, so both progress and outcome are kept.
   const [crossRunning, setCrossRunning] = useState(false);
@@ -173,6 +190,22 @@ export function ResearchWorkspace({ sessionId }: { sessionId: string }) {
     };
   }, [panel, selectedClaimId, sessionId]);
 
+  // A gap action carried over from the report is applied exactly once, after
+  // the workspace data is loaded, so it opens a form that really exists for
+  // that claim. An intent naming an unknown claim is ignored, not guessed at.
+  useEffect(() => {
+    if (intentApplied || !initialIntent || !workspace) return;
+    if (!workspace.claims.some((claim) => claim.id === initialIntent.claimId)) {
+      return;
+    }
+    setIntentApplied(true);
+    applyGapAction(initialIntent.action, {
+      claimId: initialIntent.claimId,
+      evidenceIds: initialIntent.evidenceIds
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [intentApplied, initialIntent, workspace]);
+
   const claimsById = useMemo(
     () => new Map((workspace?.claims ?? []).map((claim) => [claim.id, claim])),
     [workspace]
@@ -211,13 +244,14 @@ export function ResearchWorkspace({ sessionId }: { sessionId: string }) {
     }
   }
 
-  async function startCrossReview() {
-    if (!selectedClaimId) return;
+  async function startCrossReview(targetClaimId?: string) {
+    const claimId = targetClaimId ?? selectedClaimId;
+    if (!claimId) return;
     setCrossRunning(true);
     setCrossError(null);
     setCrossResult(null);
     try {
-      const result = await runCrossReview(sessionId, selectedClaimId);
+      const result = await runCrossReview(sessionId, claimId);
       setCrossResult(result);
       await reload();
     } catch (cause) {
@@ -234,10 +268,22 @@ export function ResearchWorkspace({ sessionId }: { sessionId: string }) {
     rationale: string
   ) {
     if (!selectedClaimId) return;
+    // The ruling is written against the verdict that is on screen right now.
+    // If the derived verdict has moved on since then, the server rejects it
+    // instead of attaching the ruling to a conclusion nobody reviewed.
+    const verdict = verdictByClaimId.get(selectedClaimId);
+    if (!verdict) {
+      setReviewError("该主张当前没有可复核的核查结论。");
+      return;
+    }
     setReviewBusy(true);
     setReviewError(null);
     try {
-      await recordClaimReview(sessionId, selectedClaimId, { outcome, rationale });
+      await recordClaimReview(sessionId, selectedClaimId, {
+        outcome,
+        rationale,
+        expectedVerdictStatus: verdict.status
+      });
       const next = await listClaimReviews(sessionId, selectedClaimId);
       setReviewHistory(next.reviews);
       await reload();
@@ -246,6 +292,57 @@ export function ResearchWorkspace({ sessionId }: { sessionId: string }) {
     } finally {
       setReviewBusy(false);
     }
+  }
+
+  /**
+   * A gap action opens the real surface that would close it. Nothing is
+   * simulated: recording a source opens the source form, verifying opens the
+   * excerpt's verification panel, and re-running cross-examination starts a
+   * new agent run through the same backend path as the panel's own button.
+   */
+  function applyGapAction(
+    action: EvidenceGapAction,
+    target: { claimId: string; evidenceIds: readonly string[] }
+  ) {
+    switch (action) {
+      case "record_source":
+      case "add_primary_source":
+        setSelectedClaimId(target.claimId);
+        setPanel("content");
+        setOpenForm("source");
+        break;
+      case "add_supporting_evidence":
+      case "add_opposing_evidence":
+        setSelectedClaimId(target.claimId);
+        setPanel("content");
+        setOpenForm("evidence");
+        break;
+      case "verify_evidence": {
+        setSelectedClaimId(target.claimId);
+        const evidence = target.evidenceIds[0];
+        if (evidence) {
+          setSelectedEvidenceId(evidence);
+          setPanel("detail");
+        } else {
+          setPanel("content");
+        }
+        break;
+      }
+      case "run_cross_review":
+        setSelectedClaimId(target.claimId);
+        setPanel("cross");
+        void startCrossReview(target.claimId);
+        break;
+      default:
+        break;
+    }
+  }
+
+  function handleGapAction(action: EvidenceGapAction, gap: EvidenceGap) {
+    applyGapAction(action, {
+      claimId: gap.claimId,
+      evidenceIds: gap.evidenceIds
+    });
   }
 
   if (loadError) {
@@ -314,6 +411,9 @@ export function ResearchWorkspace({ sessionId }: { sessionId: string }) {
     reviewHistory ?? (selectedClaimId
       ? workspace.reviews.filter((review) => review.claimId === selectedClaimId)
       : []);
+  const gapsForClaim = selectedClaimId
+    ? workspace.gaps.filter((gap) => gap.claimId === selectedClaimId)
+    : [];
 
   const focusMode = !isResearchMode(panel);
 
@@ -366,6 +466,19 @@ export function ResearchWorkspace({ sessionId }: { sessionId: string }) {
               {pendingVerificationLabel(workspace.summary.unverified)} ·{" "}
               {workspace.summary.openVerdicts} 条主张仍有待处理材料
             </p>
+            {workspace.summary.blockingGaps > 0 ||
+            workspace.summary.needsMoreEvidence > 0 ? (
+              <p
+                className="research-muted"
+                data-testid="blocking-gaps-summary"
+                style={{ marginTop: 4 }}
+              >
+                阻断性证据缺口 {workspace.summary.blockingGaps} 项
+                {workspace.summary.needsMoreEvidence > 0
+                  ? ` · ${workspace.summary.needsMoreEvidence} 条主张被要求补充证据`
+                  : ""}
+              </p>
+            ) : null}
           </section>
 
           <section className="research-panel">
@@ -422,6 +535,7 @@ export function ResearchWorkspace({ sessionId }: { sessionId: string }) {
                       <button
                         type="button"
                         className="research-claim-button"
+                        data-claim-id={claim.id}
                         aria-pressed={selectedClaimId === claim.id}
                         onClick={() => {
                           setSelectedClaimId(claim.id);
@@ -592,7 +706,7 @@ export function ResearchWorkspace({ sessionId }: { sessionId: string }) {
                 canRun={canEdit}
                 running={crossRunning}
                 error={crossError}
-                onRun={startCrossReview}
+                onRun={() => startCrossReview()}
               />
             ) : null}
             {crossResult ? (
@@ -651,6 +765,7 @@ export function ResearchWorkspace({ sessionId }: { sessionId: string }) {
                 opposing={opposing}
                 context={background}
                 excluded={nonLive}
+                gaps={gapsForClaim}
                 conflicts={claimConflicts}
                 runs={claimRuns}
                 challenges={claimChallenges}
@@ -661,6 +776,7 @@ export function ResearchWorkspace({ sessionId }: { sessionId: string }) {
                 error={reviewError}
                 onSubmitReview={submitReview}
                 onOpenCrossReview={() => setPanel("cross")}
+                onGapAction={handleGapAction}
               />
             ) : (
               <section className="research-panel">

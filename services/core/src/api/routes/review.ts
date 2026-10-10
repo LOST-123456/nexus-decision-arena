@@ -43,6 +43,24 @@ function actorName(
   return fallback?.trim() ? fallback.trim() : null;
 }
 
+/**
+ * A ruling is made about a specific derived verdict. If the verdict has moved
+ * on since the reviewer's page was rendered, the ruling would silently apply
+ * to a conclusion nobody reviewed, so the server refuses it instead of
+ * accepting a stale decision.
+ */
+export class StaleVerdictError extends Error {
+  constructor(
+    readonly expected: string,
+    readonly actual: string
+  ) {
+    super(
+      `页面显示的事实核查结论（${expected}）已过期：当前自动推导的结论为 ${actual}。请刷新后重新复核。`
+    );
+    this.name = "StaleVerdictError";
+  }
+}
+
 export function registerReviewRoutes(
   app: FastifyInstance,
   dependencies: Pick<
@@ -235,6 +253,16 @@ export function registerReviewRoutes(
             throw new ReviewClaimNotFoundError(claimId);
           }
 
+          // Refuse a ruling written against a verdict that has since changed:
+          // the reviewer would otherwise be ruling on a conclusion that no
+          // longer exists, without seeing the difference.
+          if (verdict.status !== parsed.data.expectedVerdictStatus) {
+            throw new StaleVerdictError(
+              parsed.data.expectedVerdictStatus,
+              verdict.status
+            );
+          }
+
           const reviewId = deriveUuidV7("claim-review", key, requestHash);
           const createdAt = new Date().toISOString();
           const review = ClaimReviewSchema.parse({
@@ -296,6 +324,14 @@ export function registerReviewRoutes(
         }
         if (error instanceof ReviewReferenceError) {
           return reply.code(400).send({ error: error.message });
+        }
+        if (error instanceof StaleVerdictError) {
+          return reply.code(409).send({
+            error: error.message,
+            code: "stale_verdict",
+            expected: error.expected,
+            actual: error.actual
+          });
         }
         if (error instanceof z.ZodError) {
           return reply.code(400).send({

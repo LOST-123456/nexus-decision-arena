@@ -40,8 +40,48 @@ export const ClaimVerdictStatusSchema = z.enum([
 
 export type ClaimVerdictStatus = z.infer<typeof ClaimVerdictStatusSchema>;
 
+/**
+ * Which rule produced the verdict. A conclusion has to be explainable without
+ * re-reading prose, so every verdict records the rule it fired; nothing is
+ * inferred by a consumer from the status string alone.
+ */
+export const ClaimVerdictRuleSchema = z.enum([
+  /** No material is attached at all. */
+  "no_evidence",
+  /** Material exists but not one excerpt has been verified. */
+  "no_verified_evidence",
+  /** Verified support and verified opposition both exist. */
+  "verified_support_and_opposition",
+  /** Verified support exists, but an unresolved severe challenge blocks it. */
+  "support_blocked_by_open_challenge",
+  /** Verified opposition exists, but an unresolved severe challenge blocks it. */
+  "opposition_blocked_by_open_challenge",
+  /** Verified support only, nothing opposing, no blocking challenge. */
+  "verified_support_only",
+  /** Verified opposition only, nothing supporting, no blocking challenge. */
+  "verified_opposition_only",
+  /** Only verified background material. */
+  "verified_context_only"
+]);
+
+export type ClaimVerdictRule = z.infer<typeof ClaimVerdictRuleSchema>;
+
+/** Why one excerpt did not take part in the verdict. */
+export const ClaimVerdictExclusionSchema = z.object({
+  evidenceId: IdSchema,
+  reason: z.enum(["unverified", "rejected", "expired", "not_yet_effective"])
+});
+
+export type ClaimVerdictExclusion = z.infer<typeof ClaimVerdictExclusionSchema>;
+
 /** Minimal shape of a cross-examination challenge the verdict rules consume. */
 export type VerdictChallengeSignal = {
+  /**
+   * Only used to explain *which* challenge blocked a conclusion. Callers that
+   * cannot supply ids still get a correct verdict, just a less specific
+   * explanation.
+   */
+  id?: string;
   targetClaimId: string;
   status: "open" | "answered" | "validating" | "resolved" | "unresolved";
   severity: number;
@@ -88,6 +128,27 @@ export const ClaimVerdictSchema = z.object({
   }),
   /** True when material exists that could still change the verdict. */
   needsWork: z.boolean(),
+  /**
+   * Which excerpts actually took part, split by the direction they were counted
+   * in. A verdict that cannot name its inputs cannot be audited.
+   */
+  basis: z.object({
+    supportingEvidenceIds: z.array(IdSchema).default([]),
+    opposingEvidenceIds: z.array(IdSchema).default([]),
+    contextEvidenceIds: z.array(IdSchema).default([])
+  }),
+  /**
+   * Excerpts that were deliberately left out, each with the reason. Material
+   * does not disappear silently: an omission is recorded.
+   */
+  excluded: z.array(ClaimVerdictExclusionSchema).default([]),
+  /** The rules that fired, most significant first. Never empty. */
+  ruleHits: z.array(ClaimVerdictRuleSchema).min(1),
+  /**
+   * How the confidence number was produced. This is an evidence-weight
+   * heuristic, NOT a calibrated probability, and never a model's self-report.
+   */
+  confidenceBasis: z.array(z.string()).default([]),
   /** Challenge questions that cross-examination left unanswered. */
   openQuestions: z.array(z.string()).default([]),
   /** Why the conclusion cannot be stated more broadly. */
@@ -98,12 +159,16 @@ export const ClaimVerdictSchema = z.object({
       challenges: z.number().int().min(0),
       unresolved: z.number().int().min(0),
       severeUnresolved: z.number().int().min(0),
+      unresolvedChallengeIds: z.array(IdSchema).default([]),
+      severeUnresolvedChallengeIds: z.array(IdSchema).default([]),
       lastReviewedAt: TimestampSchema.nullable().default(null)
     })
     .default({
       challenges: 0,
       unresolved: 0,
       severeUnresolved: 0,
+      unresolvedChallengeIds: [],
+      severeUnresolvedChallengeIds: [],
       lastReviewedAt: null
     }),
   /** Latest human ruling, if any. The full history is kept separately. */
@@ -209,6 +274,8 @@ export type CrossReviewSummary = {
   challenges: number;
   unresolved: number;
   severeUnresolved: number;
+  unresolvedChallengeIds: string[];
+  severeUnresolvedChallengeIds: string[];
   lastReviewedAt: string | null;
   openQuestions: string[];
 };
@@ -231,11 +298,18 @@ export function summarizeCrossReview(
     .map((challenge) => challenge.createdAt)
     .filter((value): value is string => typeof value === "string")
     .sort();
+  const idsOf = (items: readonly VerdictChallengeSignal[]): string[] =>
+    items
+      .map((challenge) => challenge.id)
+      .filter((value): value is string => typeof value === "string")
+      .sort();
 
   return {
     challenges: challenges.length,
     unresolved: unresolved.length,
     severeUnresolved: severeUnresolved.length,
+    unresolvedChallengeIds: idsOf(unresolved),
+    severeUnresolvedChallengeIds: idsOf(severeUnresolved),
     lastReviewedAt: timestamps.length > 0 ? timestamps[timestamps.length - 1]! : null,
     openQuestions: unresolved
       .slice()
@@ -332,10 +406,35 @@ export function deriveClaimVerdict(
     counts,
     limits,
     openQuestions: crossReview.openQuestions,
+    basis: {
+      supportingEvidenceIds: supports.map((item) => item.id).sort(),
+      opposingEvidenceIds: opposes.map((item) => item.id).sort(),
+      contextEvidenceIds: context.map((item) => item.id).sort()
+    },
+    excluded: related
+      .map((item) => {
+        if (isEvidenceExpired(item, now)) {
+          return { evidenceId: item.id, reason: "expired" as const };
+        }
+        if (isEvidenceNotYetEffective(item, now)) {
+          return { evidenceId: item.id, reason: "not_yet_effective" as const };
+        }
+        if (item.verificationStatus === "rejected") {
+          return { evidenceId: item.id, reason: "rejected" as const };
+        }
+        if (item.verificationStatus === "unverified") {
+          return { evidenceId: item.id, reason: "unverified" as const };
+        }
+        return null;
+      })
+      .filter((entry): entry is ClaimVerdictExclusion => entry !== null)
+      .sort((left, right) => left.evidenceId.localeCompare(right.evidenceId)),
     crossReview: {
       challenges: crossReview.challenges,
       unresolved: crossReview.unresolved,
       severeUnresolved: crossReview.severeUnresolved,
+      unresolvedChallengeIds: crossReview.unresolvedChallengeIds,
+      severeUnresolvedChallengeIds: crossReview.severeUnresolvedChallengeIds,
       lastReviewedAt: crossReview.lastReviewedAt
     },
     review: review
@@ -353,20 +452,23 @@ export function deriveClaimVerdict(
   const derived = deriveBaseStatus(
     { counts },
     {
-    related: related.length,
-    supports,
-    opposes,
-    context,
-    crossReview,
-    expired,
-    notYetEffective
-  });
+      related: related.length,
+      supports,
+      opposes,
+      context,
+      crossReview,
+      expired,
+      notYetEffective
+    }
+  );
 
   return ClaimVerdictSchema.parse({
     ...base,
     status: derived.status,
     confidence: derived.confidence,
     rationale: derived.rationale,
+    ruleHits: derived.ruleHits,
+    confidenceBasis: derived.confidenceBasis,
     needsWork:
       related.length === 0 ||
       verified.length === 0 ||
@@ -392,7 +494,13 @@ function deriveBaseStatus(
     expired: number;
     notYetEffective: number;
   }
-): { status: ClaimVerdictStatus; confidence: number; rationale: string } {
+): {
+  status: ClaimVerdictStatus;
+  confidence: number;
+  rationale: string;
+  ruleHits: ClaimVerdictRule[];
+  confidenceBasis: string[];
+} {
   const { counts } = base;
   const excludedParts: string[] = [];
   if (input.expired > 0) {
@@ -417,7 +525,9 @@ function deriveBaseStatus(
       status: "unsupported",
       confidence: 0,
       rationale:
-        "No evidence is attached to this claim, so no conclusion can be drawn."
+        "No evidence is attached to this claim, so no conclusion can be drawn.",
+      ruleHits: ["no_evidence"],
+      confidenceBasis: ["没有任何关联材料参与判断，把握度为 0。"]
     };
   }
 
@@ -429,7 +539,12 @@ function deriveBaseStatus(
         `${input.related} evidence item(s) are attached but none is verified, ` +
         "so the claim stays unresolved." +
         excludedNote +
-        pendingNote
+        pendingNote,
+      ruleHits: ["no_verified_evidence"],
+      confidenceBasis: [
+        `已核实材料 0 条，无法形成方向性结论；${input.related} 条材料中有 ${counts.unverified} 条尚未核实。`,
+        "Agent 之间是否一致不参与本条判定。"
+      ]
     };
   }
 
@@ -447,7 +562,12 @@ function deriveBaseStatus(
         `${input.supports.length} verified item(s) support and ${input.opposes.length} oppose ` +
         "this claim; the disagreement is unresolved." +
         excludedNote +
-        pendingNote
+        pendingNote,
+      ruleHits: ["verified_support_and_opposition"],
+      confidenceBasis: [
+        `已核实支持 ${input.supports.length} 条（可靠度合计 ${supportWeight.toFixed(2)}）与已核实反对 ${input.opposes.length} 条（合计 ${opposeWeight.toFixed(2)}）并存。`,
+        `把握度 = min(0.6, 0.2 + 0.3 × 权重差比 ${spread.toFixed(2)})，上限 0.6；这是证据权重的启发式，不是统计概率。`
+      ]
     };
   }
 
@@ -457,6 +577,9 @@ function deriveBaseStatus(
     const confidence = clamp01(
       Math.min(MAX_CONFIDENCE, 0.35 + 0.4 * depth + 0.2 * breadth)
     );
+    const formula =
+      `把握度 = min(0.95, 0.35 + 0.4 × 深度 ${depth.toFixed(2)} + 0.2 × 广度 ${breadth.toFixed(2)}) = ${confidence.toFixed(2)}；` +
+      "由已核实证据的可靠度与条数推导，不是模型自报的概率。";
     if (input.crossReview.severeUnresolved > 0) {
       return {
         status: "inconclusive",
@@ -466,7 +589,15 @@ function deriveBaseStatus(
           `${input.crossReview.severeUnresolved} high-severity challenge(s) from cross-examination ` +
           "are still open, so the support cannot be asserted." +
           excludedNote +
-          pendingNote
+          pendingNote,
+        ruleHits: [
+          "support_blocked_by_open_challenge",
+          "verified_support_only"
+        ],
+        confidenceBasis: [
+          formula,
+          `存在 ${input.crossReview.severeUnresolved} 项严重度 ≥ ${SEVERE_CHALLENGE_THRESHOLD} 且未解决的质询，把握度被压到 ${INCONCLUSIVE_CONFIDENCE} 以下。`
+        ]
       };
     }
     return {
@@ -475,7 +606,9 @@ function deriveBaseStatus(
       rationale:
         `${input.supports.length} verified item(s) support this claim and none opposes it.` +
         excludedNote +
-        pendingNote
+        pendingNote,
+      ruleHits: ["verified_support_only"],
+      confidenceBasis: [formula]
     };
   }
 
@@ -485,6 +618,9 @@ function deriveBaseStatus(
     const confidence = clamp01(
       Math.min(MAX_CONFIDENCE, 0.35 + 0.4 * depth + 0.2 * breadth)
     );
+    const formula =
+      `把握度 = min(0.95, 0.35 + 0.4 × 深度 ${depth.toFixed(2)} + 0.2 × 广度 ${breadth.toFixed(2)}) = ${confidence.toFixed(2)}；` +
+      "由已核实证据的可靠度与条数推导，不是模型自报的概率。";
     if (input.crossReview.severeUnresolved > 0) {
       return {
         status: "inconclusive",
@@ -494,7 +630,15 @@ function deriveBaseStatus(
           `${input.crossReview.severeUnresolved} high-severity challenge(s) are still open, ` +
           "so the contradiction cannot be asserted." +
           excludedNote +
-          pendingNote
+          pendingNote,
+        ruleHits: [
+          "opposition_blocked_by_open_challenge",
+          "verified_opposition_only"
+        ],
+        confidenceBasis: [
+          formula,
+          `存在 ${input.crossReview.severeUnresolved} 项严重度 ≥ ${SEVERE_CHALLENGE_THRESHOLD} 且未解决的质询，把握度被压到 ${INCONCLUSIVE_CONFIDENCE} 以下。`
+        ]
       };
     }
     return {
@@ -503,7 +647,9 @@ function deriveBaseStatus(
       rationale:
         `${input.opposes.length} verified item(s) contradict this claim and none supports it.` +
         excludedNote +
-        pendingNote
+        pendingNote,
+      ruleHits: ["verified_opposition_only"],
+      confidenceBasis: [formula]
     };
   }
 
@@ -514,7 +660,11 @@ function deriveBaseStatus(
       `Only background material (${input.context.length} verified item(s)) was found; ` +
       "it neither supports nor contradicts the claim." +
       excludedNote +
-      pendingNote
+      pendingNote,
+    ruleHits: ["verified_context_only"],
+    confidenceBasis: [
+      "只有背景材料参与判断，不构成支持或反对；固定给最低把握度 0.1。"
+    ]
   };
 }
 

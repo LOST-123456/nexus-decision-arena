@@ -44,7 +44,13 @@ export const ClaimReviewDraftSchema = z.object({
   outcome: ClaimReviewOutcomeSchema,
   rationale: z.string().trim().min(10).max(4000),
   evidenceIds: z.array(z.string().uuid()).default([]),
-  sourceIds: z.array(z.string().uuid()).default([])
+  sourceIds: z.array(z.string().uuid()).default([]),
+  /**
+   * The derived verdict the reviewer was looking at. Required, and the server
+   * refuses the ruling when it no longer matches: a stale page must not be able
+   * to rule on a conclusion that has since changed.
+   */
+  expectedVerdictStatus: ClaimVerdictStatusSchema
 });
 
 export type ClaimReviewDraft = z.infer<typeof ClaimReviewDraftSchema>;

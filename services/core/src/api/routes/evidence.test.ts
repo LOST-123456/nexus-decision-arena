@@ -8,6 +8,7 @@ import {
 import {
   newId,
   type Claim,
+  type ClaimReview,
   type Evidence,
   type ExecutionEvent,
   type Source
@@ -605,6 +606,79 @@ describe("research workspace route", () => {
     expect(body.challenges).toEqual([]);
     expect(body.agentRuns).toEqual([]);
     expect(body.reviews).toEqual([]);
+    // The gap diagnosis travels with the workspace so the UI can show what is
+    // missing next to the conclusion it limits.
+    expect(body.gaps.length).toBeGreaterThan(0);
+    expect(body.gaps.map((gap: { kind: string }) => gap.kind)).toContain(
+      "no_verified_support"
+    );
+    expect(body.summary.blockingGaps).toBeGreaterThan(0);
+    expect(body.openReviewRequests).toEqual([]);
+  });
+
+  it("surfaces a human request for more evidence as a tracked item", async () => {
+    const claim: Claim = {
+      id: CLAIM_ID,
+      sessionId: SESSION_ID,
+      lens: "market",
+      statement: "Shipments grew 12% year over year.",
+      type: "fact",
+      stance: "support",
+      importance: 4,
+      confidence: 0.5,
+      evidenceIds: [],
+      status: "proposed",
+      rootClaimId: CLAIM_ID,
+      revision: 1,
+      relations: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    const review: ClaimReview = {
+      id: newId(),
+      sessionId: SESSION_ID,
+      claimId: CLAIM_ID,
+      outcome: "needs_more_evidence",
+      rationale: "还缺采购记录，暂不能确认。",
+      reviewer: "Researcher One (researcher)",
+      evidenceIds: [],
+      sourceIds: [],
+      verdictStatusAtReview: "insufficient_evidence",
+      verdictConfidenceAtReview: 0,
+      createdAt: new Date().toISOString()
+    };
+    const app = buildApp({
+      evidence: {
+        listEvidence: vi.fn().mockResolvedValue([evidenceRecord()]),
+        listSources: vi.fn().mockResolvedValue([])
+      },
+      arena: {
+        getSessionArtifacts: vi.fn().mockResolvedValue({
+          claims: [claim],
+          evidence: [],
+          challenges: [],
+          conflicts: []
+        })
+      },
+      reviews: {
+        listReviews: vi.fn().mockResolvedValue([review]),
+        listAgentRuns: vi.fn().mockResolvedValue([])
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/sessions/${SESSION_ID}/research`
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.openReviewRequests).toHaveLength(1);
+    expect(body.summary.needsMoreEvidence).toBe(1);
+    // The demand becomes a persisted, traceable gap, not a passing message.
+    expect(body.gaps.map((gap: { kind: string }) => gap.kind)).toContain(
+      "review_requires_more_evidence"
+    );
   });
 
   it("returns 404 when the session does not exist", async () => {

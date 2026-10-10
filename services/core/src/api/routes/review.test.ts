@@ -468,7 +468,11 @@ describe("human claim review route", () => {
       method: "POST",
       url: `/api/sessions/${SESSION_ID}/claims/${CLAIM_ID}/reviews`,
       headers: { "idempotency-key": "r1" },
-      payload: { outcome: "confirmed", rationale: "looks right to me" }
+      payload: {
+        outcome: "confirmed",
+        rationale: "looks right to me",
+        expectedVerdictStatus: "supported"
+      }
     });
     expect(anonResponse.statusCode).toBe(401);
 
@@ -477,7 +481,11 @@ describe("human claim review route", () => {
       method: "POST",
       url: `/api/sessions/${SESSION_ID}/claims/${CLAIM_ID}/reviews`,
       headers: { "idempotency-key": "r2" },
-      payload: { outcome: "confirmed", rationale: "looks right to me" }
+      payload: {
+        outcome: "confirmed",
+        rationale: "looks right to me",
+        expectedVerdictStatus: "supported"
+      }
     });
     expect(viewerResponse.statusCode).toBe(403);
   });
@@ -488,7 +496,11 @@ describe("human claim review route", () => {
       method: "POST",
       url: `/api/sessions/${SESSION_ID}/claims/${CLAIM_ID}/reviews`,
       headers: { "idempotency-key": "r3" },
-      payload: { outcome: "confirmed", rationale: "ok" }
+      payload: {
+        outcome: "confirmed",
+        rationale: "ok",
+        expectedVerdictStatus: "supported"
+      }
     });
     expect(response.statusCode).toBe(400);
   });
@@ -499,7 +511,11 @@ describe("human claim review route", () => {
       method: "POST",
       url: `/api/sessions/${SESSION_ID}/claims/${CLAIM_ID}/reviews`,
       headers: { "idempotency-key": "r4" },
-      payload: { outcome: "approved", rationale: "This is a long enough reason." }
+      payload: {
+        outcome: "approved",
+        rationale: "This is a long enough reason.",
+        expectedVerdictStatus: "supported"
+      }
     });
     expect(response.statusCode).toBe(400);
   });
@@ -517,6 +533,7 @@ describe("human claim review route", () => {
       payload: {
         outcome: "confirmed",
         rationale: "与年报第 14 页逐字核对一致。",
+        expectedVerdictStatus: "supported",
         reviewer: "Someone Else (admin)"
       }
     });
@@ -539,6 +556,7 @@ describe("human claim review route", () => {
       payload: {
         outcome: "rejected",
         rationale: "原始报表口径与主张不一致。",
+        expectedVerdictStatus: "supported",
         evidenceIds: [EVIDENCE_ID],
         sourceIds: [SOURCE_ID]
       }
@@ -548,6 +566,50 @@ describe("human claim review route", () => {
     expect(body.review.verdictStatusAtReview).toBe("supported");
     expect(body.review.verdictConfidenceAtReview).toBeGreaterThan(0);
     expect(body.review.evidenceIds).toEqual([EVIDENCE_ID]);
+  });
+
+  it("refuses a ruling written against a verdict that has since changed", async () => {
+    const createReview = vi.fn(async (input: { review: ClaimReview }) => ({
+      review: input.review,
+      event: fakeEvent("CLAIM_REVIEW_RECORDED", {})
+    }));
+    const app = reviewApp({ createReview });
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/sessions/${SESSION_ID}/claims/${CLAIM_ID}/reviews`,
+      headers: { "idempotency-key": "r6-stale" },
+      payload: {
+        outcome: "confirmed",
+        rationale: "页面显示为证据不足时提交的裁定。",
+        // The page thought the claim was unresolved; it is in fact supported.
+        expectedVerdictStatus: "insufficient_evidence"
+      }
+    });
+    expect(response.statusCode).toBe(409);
+    const body = response.json<{
+      code: string;
+      expected: string;
+      actual: string;
+    }>();
+    expect(body.code).toBe("stale_verdict");
+    expect(body.expected).toBe("insufficient_evidence");
+    expect(body.actual).toBe("supported");
+    // Nothing was written: a stale ruling never reaches storage.
+    expect(createReview).not.toHaveBeenCalled();
+  });
+
+  it("requires the reviewer to state the verdict they saw", async () => {
+    const app = reviewApp({});
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/sessions/${SESSION_ID}/claims/${CLAIM_ID}/reviews`,
+      headers: { "idempotency-key": "r6-missing-expected" },
+      payload: {
+        outcome: "confirmed",
+        rationale: "This rationale is long enough to pass."
+      }
+    });
+    expect(response.statusCode).toBe(400);
   });
 
   it("returns 404 when the claim is not part of this session", async () => {
@@ -560,7 +622,8 @@ describe("human claim review route", () => {
       headers: { "idempotency-key": "r7" },
       payload: {
         outcome: "confirmed",
-        rationale: "This rationale is long enough to pass."
+        rationale: "This rationale is long enough to pass.",
+        expectedVerdictStatus: "supported"
       }
     });
     expect(response.statusCode).toBe(404);
@@ -579,6 +642,7 @@ describe("human claim review route", () => {
       payload: {
         outcome: "confirmed",
         rationale: "This rationale is long enough to pass.",
+        expectedVerdictStatus: "supported",
         evidenceIds: [newId()]
       }
     });
@@ -597,7 +661,8 @@ describe("human claim review route", () => {
       headers: { "idempotency-key": "r9" },
       payload: {
         outcome: "needs_more_evidence",
-        rationale: "还缺采购记录，暂不能确认。"
+        rationale: "还缺采购记录，暂不能确认。",
+        expectedVerdictStatus: "supported"
       }
     };
     const first = await app.inject(request);

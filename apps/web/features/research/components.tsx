@@ -9,6 +9,8 @@ import type {
   ClaimVerdict,
   Conflict,
   Evidence,
+  EvidenceGap,
+  EvidenceGapAction,
   Source
 } from "@nexus/shared";
 import {
@@ -19,7 +21,12 @@ import {
   directionLabel,
   directionTone,
   evidenceKindLabel,
+  exclusionReasonLabel,
   formatDate,
+  gapActionLabel,
+  gapKindLabel,
+  gapSeverityLabel,
+  gapSeverityTone,
   resolutionStrategyLabel,
   reviewOutcomeLabel,
   reviewOutcomeTone,
@@ -30,6 +37,7 @@ import {
   verificationLabel,
   verificationTone,
   verdictLabel,
+  verdictRuleLabel,
   verdictTone
 } from "./labels";
 
@@ -139,8 +147,161 @@ export function VerdictCard({
             <div className="research-muted">{verdict.review.rationale}</div>
           </div>
         ) : null}
+
+        {/*
+          Why this conclusion, in checkable terms: which rule fired, which
+          excerpts took part, which were left out and why, and how the
+          confidence number was produced. Native <details> keeps it keyboard
+          reachable without adding a widget.
+        */}
+        <details
+          className="research-disclosure"
+          data-testid={`${scope}-explain`}
+          style={{ marginTop: 10 }}
+        >
+          <summary>结论依据（可核对）</summary>
+          <div className="research-label" style={{ marginTop: 6 }}>
+            命中规则
+          </div>
+          <ul className="research-plain-list">
+            {verdict.ruleHits.map((rule) => (
+              <li key={rule} title={rule}>
+                {verdictRuleLabel(rule)}
+              </li>
+            ))}
+          </ul>
+
+          <div className="research-label" style={{ marginTop: 6 }}>
+            参与判断的证据
+          </div>
+          <ul className="research-plain-list">
+            <li>
+              支持：{verdict.basis.supportingEvidenceIds.length} 条
+              {verdict.basis.supportingEvidenceIds.length > 0
+                ? `（${verdict.basis.supportingEvidenceIds.join("、")}）`
+                : ""}
+            </li>
+            <li>
+              反对：{verdict.basis.opposingEvidenceIds.length} 条
+              {verdict.basis.opposingEvidenceIds.length > 0
+                ? `（${verdict.basis.opposingEvidenceIds.join("、")}）`
+                : ""}
+            </li>
+            <li>
+              背景：{verdict.basis.contextEvidenceIds.length} 条
+              {verdict.basis.contextEvidenceIds.length > 0
+                ? `（${verdict.basis.contextEvidenceIds.join("、")}）`
+                : ""}
+            </li>
+          </ul>
+
+          {verdict.excluded.length > 0 ? (
+            <>
+              <div className="research-label" style={{ marginTop: 6 }}>
+                被排除的证据
+              </div>
+              <ul className="research-plain-list" data-testid={`${scope}-excluded`}>
+                {verdict.excluded.map((entry) => (
+                  <li key={entry.evidenceId}>
+                    {entry.evidenceId}：{exclusionReasonLabel(entry.reason)}
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : null}
+
+          {verdict.confidenceBasis.length > 0 ? (
+            <>
+              <div className="research-label" style={{ marginTop: 6 }}>
+                把握度依据
+              </div>
+              <ul className="research-plain-list">
+                {verdict.confidenceBasis.map((basis) => (
+                  <li key={basis}>{basis}</li>
+                ))}
+              </ul>
+            </>
+          ) : null}
+        </details>
       </div>
     </div>
+  );
+}
+
+/**
+ * The evidence gaps for one claim, each with the real actions that would close
+ * it. A gap is a diagnosis of what is missing; the suggestions it carries were
+ * never searched and are labelled as such everywhere they appear.
+ */
+export function EvidenceGapList({
+  gaps,
+  canAct,
+  onAction,
+  scope = "gap"
+}: {
+  gaps: EvidenceGap[];
+  canAct: boolean;
+  /** Runs the real operation behind a gap action; absent means read-only. */
+  onAction?: ((action: EvidenceGapAction, gap: EvidenceGap) => void) | undefined;
+  scope?: string;
+}) {
+  if (gaps.length === 0) {
+    return (
+      <p className="research-muted">当前没有检查到证据缺口。</p>
+    );
+  }
+  const ordered = [...gaps].sort((left, right) => {
+    const rank = { blocking: 0, important: 1, advisory: 2 } as const;
+    return rank[left.severity] - rank[right.severity];
+  });
+  return (
+    <ul className="research-plain-list" data-testid={`${scope}-list`}>
+      {ordered.map((gap) => (
+        <li key={gap.id} className="research-challenge">
+          <div className="research-claim-meta">
+            <StatusPill tone={gapSeverityTone(gap.severity)}>
+              {gapSeverityLabel(gap.severity)}
+            </StatusPill>
+            <StatusPill tone="research-pill-neutral">
+              {gapKindLabel(gap.kind)}
+            </StatusPill>
+          </div>
+          <div>{gap.message}</div>
+          {gap.detail.length > 0 ? (
+            <ul className="research-plain-list research-muted">
+              {gap.detail.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          ) : null}
+          {gap.suggestions.length > 0 ? (
+            <div className="research-muted">
+              建议（待验证，未执行检索）：
+              {gap.suggestions.map((item) => item.label).join("；")}
+            </div>
+          ) : null}
+          <div className="research-actions">
+            {gap.actions.map((action) => (
+              <button
+                key={action}
+                type="button"
+                className="research-button research-button-secondary"
+                disabled={!canAct || !onAction}
+                onClick={() => onAction?.(action, gap)}
+                data-testid={`${scope}-action-${action}`}
+              >
+                {gapActionLabel(action)}
+              </button>
+            ))}
+            {!canAct ? (
+              <span className="research-muted">
+                只读：当前角色不能执行补充操作。
+              </span>
+            ) : null}
+          </div>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -484,6 +645,7 @@ export function ReviewCenter({
   opposing,
   context,
   excluded,
+  gaps,
   conflicts,
   runs,
   challenges,
@@ -493,7 +655,8 @@ export function ReviewCenter({
   busy,
   error,
   onSubmitReview,
-  onOpenCrossReview
+  onOpenCrossReview,
+  onGapAction
 }: {
   claim: Claim;
   verdict: ClaimVerdict;
@@ -501,6 +664,8 @@ export function ReviewCenter({
   opposing: Evidence[];
   context: Evidence[];
   excluded: Evidence[];
+  /** Rule-based diagnoses of what this claim is still missing. */
+  gaps: EvidenceGap[];
   conflicts: Conflict[];
   runs: AgentRun[];
   challenges: Challenge[];
@@ -511,6 +676,8 @@ export function ReviewCenter({
   error: string | null;
   onSubmitReview: (outcome: ClaimReview["outcome"], rationale: string) => void;
   onOpenCrossReview: () => void;
+  /** Runs the real operation behind a gap action; absent means read-only. */
+  onGapAction?: (action: EvidenceGapAction, gap: EvidenceGap) => void;
 }) {
   const unresolvedConflicts = conflicts.filter(
     (conflict) => conflict.status !== "resolved"
@@ -680,6 +847,24 @@ export function ReviewCenter({
           </ul>
         </section>
       ) : null}
+
+      <section className="research-panel">
+        <div className="research-panel-head">
+          <span className="research-panel-title">
+            证据缺口与建议补充材料（{gaps.length}）
+          </span>
+        </div>
+        <p className="research-muted">
+          以下诊断由已持久化的材料、来源、质询与人工裁定推导，不是模型猜测；
+          每条建议都标注为「待验证」，不代表已经检索到来源。
+        </p>
+        <EvidenceGapList
+          gaps={gaps}
+          canAct={canReview}
+          onAction={onGapAction}
+          scope="review-gap"
+        />
+      </section>
 
       <ReviewPanel
         verdict={verdict}

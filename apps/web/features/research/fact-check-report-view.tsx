@@ -2,12 +2,17 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import type { ClaimVerdictStatus } from "@nexus/shared";
+import type { ClaimVerdictStatus, EvidenceGap } from "@nexus/shared";
 import {
   citationStatusLabel,
   citationStatusTone,
   directionLabel,
+  exclusionReasonLabel,
   formatDate,
+  gapActionLabel,
+  gapKindLabel,
+  gapSeverityLabel,
+  gapSeverityTone,
   reviewOutcomeLabel,
   reviewOutcomeTone,
   runPurposeLabel,
@@ -17,15 +22,93 @@ import {
   verificationLabel,
   verificationTone,
   verdictLabel,
+  verdictRuleLabel,
   verdictTone
 } from "./labels";
 import {
   factCheckReportMarkdownUrl,
   getFactCheckReport,
   type FactCheckReport,
+  type MaterialsTimeRange,
   type ReportCitation
 } from "./api";
 import { StatusPill } from "./components";
+
+function rangeText(range: MaterialsTimeRange): string {
+  if (range.empty) {
+    return "资料未记录任何日期";
+  }
+  return [
+    `发布 ${formatDate(range.publishedAt.earliest)} ~ ${formatDate(range.publishedAt.latest)}`,
+    `获取 ${formatDate(range.retrievedAt.earliest)} ~ ${formatDate(range.retrievedAt.latest)}`,
+    `有效期 ${formatDate(range.validity.earliestFrom)} ~ ${formatDate(range.validity.latestTo)}`
+  ].join(" · ");
+}
+
+/** One gap as the report presents it: what is missing and the next step. */
+function ReportGapBlock({
+  gap,
+  sessionId
+}: {
+  gap: EvidenceGap;
+  sessionId: string;
+}) {
+  return (
+    <li
+      className="research-report-gap"
+      data-testid="report-gap"
+      data-claim-id={gap.claimId}
+    >
+      <div className="research-claim-meta">
+        <StatusPill tone={gapSeverityTone(gap.severity)}>
+          {gapSeverityLabel(gap.severity)}
+        </StatusPill>
+        <StatusPill tone="research-pill-neutral">
+          {gapKindLabel(gap.kind)}
+        </StatusPill>
+      </div>
+      <div>{gap.message}</div>
+      {gap.detail.length > 0 ? (
+        <ul className="research-plain-list research-muted">
+          {gap.detail.map((line) => (
+            <li key={line}>{line}</li>
+          ))}
+        </ul>
+      ) : null}
+      {gap.suggestions.length > 0 ? (
+        <div className="research-muted">
+          建议（待验证，未执行检索）：
+          {gap.suggestions.map((item) => item.label).join("；")}
+        </div>
+      ) : null}
+      {/*
+        Each action is a real navigation: the workspace opens the form that
+        would close this gap, for this exact claim. It is not a decorative
+        button that only reports success.
+      */}
+      <div className="research-actions research-report-gap-actions">
+        {gap.actions.map((action) => {
+          const query = new URLSearchParams({
+            intent: action,
+            claimId: gap.claimId
+          });
+          if (gap.evidenceIds[0]) {
+            query.set("evidenceId", gap.evidenceIds[0]);
+          }
+          return (
+            <Link
+              key={action}
+              className="research-button research-button-secondary"
+              href={`/research/${sessionId}?${query.toString()}`}
+            >
+              {gapActionLabel(action)}
+            </Link>
+          );
+        })}
+      </div>
+    </li>
+  );
+}
 
 function CitationBlock({ citation }: { citation: ReportCitation }) {
   return (
@@ -145,11 +228,21 @@ export function FactCheckReportView({ sessionId }: { sessionId: string }) {
             生成时间 {report.generatedAt} · 报告版本 v{report.reportVersion} ·
             材料指纹 <code>{report.materialsFingerprint}</code>
           </p>
+          <p className="research-muted" data-testid="report-time-range">
+            所用资料时间范围：{rangeText(report.materialsTimeRange)}
+          </p>
           <p className="research-muted">
             核查范围：{report.scope.claims} 条主张 / {report.scope.evidence} 条材料 /{" "}
             {report.scope.sources} 个来源 / {report.scope.challenges} 项质询 /{" "}
             {report.scope.reviews} 条人工裁定 / {report.scope.agentRuns} 次 Agent 运行
           </p>
+          {report.gaps.evidenceGaps.total > 0 ? (
+            <p className="research-muted" data-testid="report-gap-summary">
+              证据缺口：阻断 {report.gaps.evidenceGaps.bySeverity.blocking} 项 /
+              重要 {report.gaps.evidenceGaps.bySeverity.important} 项 / 提示{" "}
+              {report.gaps.evidenceGaps.bySeverity.advisory} 项
+            </p>
+          ) : null}
         </div>
         <div className="research-report-actions">
           <button
@@ -200,6 +293,7 @@ export function FactCheckReportView({ sessionId }: { sessionId: string }) {
               key={finding.claimId}
               className="research-report-finding"
               data-testid="report-finding"
+              data-claim-id={finding.claimId}
             >
               <div className="research-claim-meta">
                 <StatusPill tone={verdictTone(finding.verdict.status)}>
@@ -217,6 +311,64 @@ export function FactCheckReportView({ sessionId }: { sessionId: string }) {
               </div>
               <p className="research-question">{finding.statement}</p>
               <p className="research-muted">{finding.verdict.rationale}</p>
+
+              {/* Why this conclusion: rule, inputs, exclusions, confidence. */}
+              <details className="research-disclosure">
+                <summary>结论依据（可核对）</summary>
+                <div className="research-label" style={{ marginTop: 6 }}>
+                  命中规则
+                </div>
+                <ul className="research-plain-list">
+                  {finding.verdict.ruleHits.map((rule) => (
+                    <li key={rule} title={rule}>
+                      {verdictRuleLabel(rule)}
+                    </li>
+                  ))}
+                </ul>
+                <div className="research-label">参与判断的证据</div>
+                <ul className="research-plain-list">
+                  <li>
+                    支持 {finding.verdict.basis.supportingEvidenceIds.length} 条
+                    {finding.verdict.basis.supportingEvidenceIds.length > 0
+                      ? `（${finding.verdict.basis.supportingEvidenceIds.join("、")}）`
+                      : ""}
+                  </li>
+                  <li>
+                    反对 {finding.verdict.basis.opposingEvidenceIds.length} 条
+                    {finding.verdict.basis.opposingEvidenceIds.length > 0
+                      ? `（${finding.verdict.basis.opposingEvidenceIds.join("、")}）`
+                      : ""}
+                  </li>
+                  <li>
+                    背景 {finding.verdict.basis.contextEvidenceIds.length} 条
+                    {finding.verdict.basis.contextEvidenceIds.length > 0
+                      ? `（${finding.verdict.basis.contextEvidenceIds.join("、")}）`
+                      : ""}
+                  </li>
+                </ul>
+                {finding.verdict.excluded.length > 0 ? (
+                  <>
+                    <div className="research-label">被排除的证据及原因</div>
+                    <ul className="research-plain-list">
+                      {finding.verdict.excluded.map((entry) => (
+                        <li key={entry.evidenceId}>
+                          {entry.evidenceId}：{exclusionReasonLabel(entry.reason)}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                ) : null}
+                {finding.verdict.confidenceBasis.length > 0 ? (
+                  <>
+                    <div className="research-label">把握度依据</div>
+                    <ul className="research-plain-list">
+                      {finding.verdict.confidenceBasis.map((basis) => (
+                        <li key={basis}>{basis}</li>
+                      ))}
+                    </ul>
+                  </>
+                ) : null}
+              </details>
 
               {finding.verdict.openQuestions.length > 0 ? (
                 <div>
@@ -334,6 +486,27 @@ export function FactCheckReportView({ sessionId }: { sessionId: string }) {
                 <p className="research-muted">尚未有人工复核记录。</p>
               )}
 
+              {finding.gaps.length > 0 ? (
+                <>
+                  <div className="research-label">
+                    证据缺口与建议补充材料（{finding.gaps.length}，其中阻断{" "}
+                    {finding.blockingGapCount}）
+                  </div>
+                  <ul
+                    className="research-report-gaps"
+                    data-testid="report-finding-gaps"
+                  >
+                    {finding.gaps.map((gap) => (
+                      <ReportGapBlock
+                        key={gap.id}
+                        gap={gap}
+                        sessionId={report.sessionId}
+                      />
+                    ))}
+                  </ul>
+                </>
+              ) : null}
+
               <div className="research-muted" data-testid="report-finding-provenance">
                 追踪：主张 {finding.claimId} · 证据{" "}
                 {finding.supporting.length +
@@ -388,6 +561,21 @@ export function FactCheckReportView({ sessionId }: { sessionId: string }) {
 
       <section className="research-report-section" data-testid="report-gaps">
         <h2>证据不足、冲突与假设</h2>
+        {report.gaps.evidenceGaps.total > 0 ? (
+          <>
+            <div className="research-label">缺口类型统计</div>
+            <ul className="research-plain-list">
+              {Object.entries(report.gaps.evidenceGaps.byKind)
+                .filter(([, count]) => count > 0)
+                .map(([kind, count]) => (
+                  <li key={kind}>
+                    {gapKindLabel(kind as Parameters<typeof gapKindLabel>[0])}：
+                    {count}
+                  </li>
+                ))}
+            </ul>
+          </>
+        ) : null}
         <div className="research-label">
           证据不足的主张（{report.gaps.insufficientEvidence.length}）
         </div>
@@ -440,6 +628,10 @@ export function FactCheckReportView({ sessionId }: { sessionId: string }) {
 
       <section className="research-report-section">
         <h2>局限性与时间范围</h2>
+        <p className="research-muted">
+          本报告所依据资料的时间范围：{rangeText(report.materialsTimeRange)}
+          。资料未覆盖当前时间时，结论只在其覆盖范围内成立。
+        </p>
         {report.limits.length === 0 ? (
           <p className="research-muted">本次报告没有额外限制说明。</p>
         ) : (

@@ -21,4 +21,5 @@ export * from "./verification/claim-verdict";
 export * from "./verification/claim-review";
 export * from "./verification/review-outcome";
 export * from "./verification/evidence-verification";
+export * from "./verification/evidence-gaps";
 export * from "./replay/decision-replay";
