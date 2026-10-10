@@ -403,6 +403,161 @@ export const executionEvents = pgTable(
   })
 );
 
+/**
+ * Model-proposed material awaiting a human ruling.
+ *
+ * These tables are deliberately outside the domain: nothing that derives a
+ * verdict reads them, so a suggestion cannot change what the research
+ * currently concludes. `createdClaimId` / `createdEvidenceId` point *at* the
+ * real rows an acceptance produced — they never stand in for them.
+ */
+export const claimExtractionRuns = pgTable(
+  "claim_extraction_runs",
+  {
+    id: uuid("id").primaryKey(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => decisionSessions.id),
+    sourceId: uuid("source_id")
+      .notNull()
+      .references(() => sources.id, { onDelete: "cascade" }),
+    snapshotId: uuid("snapshot_id")
+      .notNull()
+      .references(() => sourceSnapshots.id, { onDelete: "cascade" }),
+    status: text("status").notNull(),
+    failureCode: text("failure_code"),
+    failureMessage: text("failure_message"),
+    provider: text("provider").notNull(),
+    model: text("model").notNull(),
+    inputHash: text("input_hash").notNull(),
+    promptVersion: text("prompt_version").notNull(),
+    segmentationVersion: text("segmentation_version").notNull(),
+    charCount: integer("char_count").notNull().default(0),
+    segmentCount: integer("segment_count").notNull().default(0),
+    candidateClaimCount: integer("candidate_claim_count").notNull().default(0),
+    candidateEvidenceCount: integer("candidate_evidence_count")
+      .notNull()
+      .default(0),
+    anchorMatched: integer("anchor_matched").notNull().default(0),
+    anchorMissing: integer("anchor_missing").notNull().default(0),
+    attempt: integer("attempt").notNull().default(1),
+    correlationId: uuid("correlation_id").notNull(),
+    createdBy: text("created_by").notNull(),
+    startedAt: timestampColumn("started_at").notNull(),
+    completedAt: timestampColumn("completed_at"),
+    createdAt: timestampColumn("created_at").notNull().defaultNow(),
+    updatedAt: timestampColumn("updated_at").notNull().defaultNow()
+  },
+  (table) => ({
+    input: uniqueIndex("claim_extraction_runs_input_idx").on(
+      table.sessionId,
+      table.sourceId,
+      table.snapshotId,
+      table.inputHash
+    ),
+    source: index("claim_extraction_runs_source_idx").on(
+      table.sessionId,
+      table.sourceId,
+      table.createdAt
+    )
+  })
+);
+
+export const claimCandidates = pgTable(
+  "claim_candidates",
+  {
+    id: uuid("id").primaryKey(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => decisionSessions.id),
+    runId: uuid("run_id")
+      .notNull()
+      .references(() => claimExtractionRuns.id, { onDelete: "cascade" }),
+    sourceId: uuid("source_id")
+      .notNull()
+      .references(() => sources.id, { onDelete: "cascade" }),
+    snapshotId: uuid("snapshot_id")
+      .notNull()
+      .references(() => sourceSnapshots.id, { onDelete: "cascade" }),
+    segmentIndex: integer("segment_index").notNull(),
+    statement: text("statement").notNull(),
+    type: text("type").notNull(),
+    context: text("context"),
+    qualifiers: jsonb("qualifiers").notNull(),
+    uncertainty: jsonb("uncertainty").notNull(),
+    rationale: text("rationale").notNull(),
+    suggestedImportance: integer("suggested_importance").notNull(),
+    status: text("status").notNull().default("proposed"),
+    createdClaimId: uuid("created_claim_id").references((): AnyPgColumn => claims.id),
+    rejectReason: text("reject_reason"),
+    decidedBy: text("decided_by"),
+    decidedAt: timestampColumn("decided_at"),
+    createdAt: timestampColumn("created_at").notNull().defaultNow(),
+    updatedAt: timestampColumn("updated_at").notNull().defaultNow()
+  },
+  (table) => ({
+    run: index("claim_candidates_run_idx").on(table.runId, table.segmentIndex),
+    source: index("claim_candidates_source_idx").on(
+      table.sessionId,
+      table.sourceId,
+      table.status
+    )
+  })
+);
+
+export const evidenceCandidates = pgTable(
+  "evidence_candidates",
+  {
+    id: uuid("id").primaryKey(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => decisionSessions.id),
+    runId: uuid("run_id")
+      .notNull()
+      .references(() => claimExtractionRuns.id, { onDelete: "cascade" }),
+    sourceId: uuid("source_id")
+      .notNull()
+      .references(() => sources.id, { onDelete: "cascade" }),
+    snapshotId: uuid("snapshot_id")
+      .notNull()
+      .references(() => sourceSnapshots.id, { onDelete: "cascade" }),
+    segmentIndex: integer("segment_index").notNull(),
+    claimCandidateId: uuid("claim_candidate_id")
+      .notNull()
+      .references(() => claimCandidates.id, { onDelete: "cascade" }),
+    excerpt: text("excerpt").notNull(),
+    title: text("title").notNull(),
+    direction: text("direction").notNull(),
+    locatorKind: text("locator_kind").notNull(),
+    /** Decided against the stored capture, never taken from model output. */
+    locatorStatus: text("locator_status").notNull(),
+    locator: text("locator"),
+    anchorText: text("anchor_text"),
+    sourceContentHash: text("source_content_hash"),
+    suggestedReliability: doublePrecision("suggested_reliability").notNull(),
+    rationale: text("rationale").notNull(),
+    uncertainty: jsonb("uncertainty").notNull(),
+    status: text("status").notNull().default("proposed"),
+    createdEvidenceId: uuid("created_evidence_id").references(
+      () => evidence.id
+    ),
+    rejectReason: text("reject_reason"),
+    decidedBy: text("decided_by"),
+    decidedAt: timestampColumn("decided_at"),
+    createdAt: timestampColumn("created_at").notNull().defaultNow(),
+    updatedAt: timestampColumn("updated_at").notNull().defaultNow()
+  },
+  (table) => ({
+    claimCandidate: index("evidence_candidates_claim_candidate_idx").on(
+      table.claimCandidateId
+    ),
+    run: index("evidence_candidates_run_idx").on(
+      table.runId,
+      table.segmentIndex
+    )
+  })
+);
+
 export const idempotencyKeys = pgTable("idempotency_keys", {
   key: text("key").primaryKey(),
   requestHash: text("request_hash").notNull(),

@@ -1,9 +1,12 @@
 import {
   AgentRoleSchema,
   ChallengeSchema,
-  ClaimSchema,
+  ClaimCandidateSchema,
+  ClaimExtractionRunSchema,
   ClaimReviewSchema,
+  ClaimSchema,
   ConflictSchema,
+  EvidenceCandidateSchema,
   EvidenceSchema,
   HumanDecisionSchema,
   SourceSchema,
@@ -11,9 +14,12 @@ import {
   type AgentRole,
   type Challenge,
   type Claim,
+  type ClaimCandidate,
+  type ClaimExtractionRun,
   type ClaimReview,
   type Conflict,
   type Evidence,
+  type EvidenceCandidate,
   type HumanDecision,
   type Source,
   type SourceSnapshot
@@ -138,5 +144,58 @@ export function parseClaimReviews(rows: readonly unknown[]): ClaimReview[] {
       const value = record(row);
       return { ...value, createdAt: iso(value.createdAt) };
     })
+  );
+}
+
+/**
+ * PostgreSQL answers with `null` for "absent"; TypeScript answers with
+ * `undefined`. Rows from the candidate tables carry a lot of optional columns,
+ * so instead of repeating a null check on every field these three parsers drop
+ * the nulls once, here, and let `optional()` mean absent.
+ */
+function absent(value: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, entry]) => entry !== null)
+  );
+}
+
+function withRunDates(value: Record<string, unknown>) {
+  return {
+    ...absent(value),
+    startedAt: iso(value.startedAt),
+    ...(value.completedAt ? { completedAt: iso(value.completedAt) } : {}),
+    createdAt: iso(value.createdAt),
+    updatedAt: iso(value.updatedAt)
+  };
+}
+
+function withCandidateDates(value: Record<string, unknown>) {
+  return {
+    ...absent(value),
+    ...(value.decidedAt ? { decidedAt: iso(value.decidedAt) } : {}),
+    createdAt: iso(value.createdAt),
+    updatedAt: iso(value.updatedAt)
+  };
+}
+
+export function parseClaimExtractionRuns(
+  rows: readonly unknown[]
+): ClaimExtractionRun[] {
+  return ClaimExtractionRunSchema.array().parse(
+    rows.map((row) => withRunDates(record(row)))
+  );
+}
+
+export function parseClaimCandidates(rows: readonly unknown[]): ClaimCandidate[] {
+  return ClaimCandidateSchema.array().parse(
+    rows.map((row) => withCandidateDates(record(row)))
+  );
+}
+
+export function parseEvidenceCandidates(
+  rows: readonly unknown[]
+): EvidenceCandidate[] {
+  return EvidenceCandidateSchema.array().parse(
+    rows.map((row) => withCandidateDates(record(row)))
   );
 }

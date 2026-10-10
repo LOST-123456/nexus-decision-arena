@@ -1,4 +1,13 @@
+import { candidateClaimTypeToClaimType } from "@nexus/shared";
 import type {
+  CandidateClaimType,
+  CandidateDecision,
+  CandidateStatus,
+  ClaimCandidate,
+  ClaimExtractionResult,
+  ClaimExtractionRun,
+  EvidenceCandidate,
+  ExtractionFailureCode,
   AgentRun,
   Challenge,
   Claim,
@@ -14,7 +23,6 @@ import type {
   Source,
   SourceSnapshot
 } from "@nexus/shared";
-
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 export type ResearchSessionState = {
@@ -313,6 +321,32 @@ export type CreateClaimCommand = {
   confidence?: number;
 };
 
+/**
+ * Candidate review — what an analysis proposed and how the researcher ruled.
+ *
+ * A candidate is a proposal, not material. Accepting one is recorded here; the
+ * claim and excerpt themselves are created through `createResearchClaim` and
+ * `createEvidence` below, so there is exactly one write path into the domain and
+ * an accepted excerpt still arrives `unverified` like any other.
+ */
+export type AnalysisError = { error: string; code?: ExtractionFailureCode };
+
+export type AcceptCandidateResult = {
+  claimId: string;
+  evidenceIds: string[];
+  verificationStatuses: Evidence["verificationStatus"][];
+};
+
+export class AnalysisFailedError extends Error {
+  constructor(
+    message: string,
+    readonly code?: ExtractionFailureCode
+  ) {
+    super(message);
+    this.name = "AnalysisFailedError";
+  }
+}
+
 async function request<T>(
   path: string,
   init?: RequestInit & { idempotencyKey?: string }
@@ -576,3 +610,228 @@ export function getFactCheckReport(
 export function factCheckReportMarkdownUrl(sessionId: string): string {
   return `${apiUrl}/api/sessions/${encodeURIComponent(sessionId)}/fact-check-report?format=markdown&download=1`;
 }
+
+/**
+ * Why this route gets its own fetch instead of the shared `request()`.
+ *
+ * A failed analysis carries a machine-readable `code` alongside its message, so
+ * the workspace can say "the model timed out, try again" rather than a bare
+ * error. Losing that code would turn a retryable failure into a dead end.
+ */
+async function requestWithFailureCode<T>(
+  path: string,
+  init: RequestInit & { idempotencyKey?: string }
+): Promise<T> {
+  const { idempotencyKey, ...rest } = init;
+  // Same rule as `request()`: a POST with no body must not claim a JSON
+  // content-type, or the API answers 400 before the route is ever reached.
+  const hasBody = rest.body !== undefined && rest.body !== null;
+  const response = await fetch(`${apiUrl}${path}`, {
+    cache: "no-store",
+    ...rest,
+    headers: {
+      ...(hasBody ? { "content-type": "application/json" } : {}),
+      ...(idempotencyKey ? { "idempotency-key": idempotencyKey } : {}),
+      ...(rest.headers ?? {})
+    }
+  });
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as {
+      error?: string;
+      code?: ExtractionFailureCode;
+    } | null;
+    throw new AnalysisFailedError(
+      payload?.error ?? `Request failed: ${response.status}`,
+      payload?.code
+    );
+  }
+  return response.json() as Promise<T>;
+}
+
+/**
+ * Asks the backend to read the saved capture and propose claims.
+ *
+ * Safe to call twice: the server recognises an identical question and returns
+ * the earlier answer instead of producing a second copy of the same candidates.
+ */
+export function extractClaims(
+  sessionId: string,
+  sourceId: string
+): Promise<ClaimExtractionResult> {
+  return requestWithFailureCode<ClaimExtractionResult>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/sources/${encodeURIComponent(sourceId)}/extract-claims`,
+    { method: "POST", idempotencyKey: idempotencyKey("claim-extraction") }
+  );
+}
+
+export function listExtractionRuns(
+  sessionId: string,
+  sourceId: string
+): Promise<{ runs: ClaimExtractionRun[] }> {
+  const query = new URLSearchParams({ sourceId });
+  return request<{ runs: ClaimExtractionRun[] }>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/extraction-runs?${query}`
+  );
+}
+
+export function getExtractionRun(
+  sessionId: string,
+  runId: string
+): Promise<ClaimExtractionResult> {
+  return request<ClaimExtractionResult>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/extraction-runs/${encodeURIComponent(runId)}`
+  );
+}
+
+/** Records the ruling only; see `acceptClaimCandidate` for the writes. */
+export function recordCandidateDecisions(
+  sessionId: string,
+  runId: string,
+  decisions: CandidateDecision[]
+): Promise<ClaimExtractionResult> {
+  return request<ClaimExtractionResult>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/extraction-runs/${encodeURIComponent(runId)}/decisions`,
+    {
+      method: "POST",
+      body: JSON.stringify({ decisions }),
+      idempotencyKey: idempotencyKey("candidate-decisions")
+    }
+  );
+}
+
+/**
+ * Turns one candidate claim into a real claim, plus an excerpt for each of its
+ * candidate excerpts that the researcher kept.
+ *
+ * Every idempotency key is derived from the candidate id, so pressing "accept"
+ * twice cannot create two claims — the second call replays the first response.
+ * The excerpt is fingerprinted by the server against the stored capture, so an
+ * accepted quote is recorded as located only if it really is there. Neither step
+ * verifies it; that stays a separate human act.
+ */
+export async function acceptClaimCandidate(input: {
+  sessionId: string;
+  candidate: ClaimCandidate;
+  statement: string;
+  evidence: EvidenceCandidate[];
+  sourceTitle: string;
+  snapshotHash: string | null;
+}): Promise<AcceptCandidateResult> {
+  const { sessionId, candidate, statement, evidence, sourceTitle, snapshotHash } =
+    input;
+  const { claim } = await createResearchClaimRaw(
+    sessionId,
+    {
+      statement,
+      lens: "research",
+      type: candidateClaimTypeToClaimType(candidate.type),
+      stance: "neutral",
+      importance: candidate.suggestedImportance
+    },
+    `extract-claim-${candidate.id}`
+  );
+
+  const evidenceIds: string[] = [];
+  const verificationStatuses: Evidence["verificationStatus"][] = [];
+  for (const item of evidence) {
+    const created = await createEvidenceRaw(
+      sessionId,
+      {
+        kind: "external_reference",
+        title: item.title,
+        content: item.excerpt,
+        description: `由 AI 辅助分析从《${sourceTitle}》提出${
+          snapshotHash ? `（版本 ${snapshotHash.slice(0, 8)}）` : ""
+        }，尚未核实`,
+        sourceId: candidate.sourceId,
+        locatorKind: "quote",
+        anchorText: item.excerpt,
+        direction: item.direction,
+        reliability: item.suggestedReliability,
+        claimIds: [claim.id]
+      },
+      `extract-evidence-${item.id}`
+    );
+    evidenceIds.push(created.evidence.id);
+    verificationStatuses.push(created.evidence.verificationStatus);
+  }
+
+  return { claimId: claim.id, evidenceIds, verificationStatuses };
+}
+
+/**
+ * Same as `acceptClaimCandidate`, but attaches the excerpt to a claim the
+ * researcher already has rather than creating a new one.
+ */
+export async function acceptEvidenceCandidate(input: {
+  sessionId: string;
+  claimId: string;
+  candidate: EvidenceCandidate;
+  sourceTitle: string;
+  snapshotHash: string | null;
+}): Promise<{ evidenceId: string; verificationStatus: Evidence["verificationStatus"] }> {
+  const { sessionId, claimId, candidate, sourceTitle, snapshotHash } = input;
+  const created = await createEvidenceRaw(
+    sessionId,
+    {
+      kind: "external_reference",
+      title: candidate.title,
+      content: candidate.excerpt,
+      description: `由 AI 辅助分析从《${sourceTitle}》提出${
+        snapshotHash ? `（版本 ${snapshotHash.slice(0, 8)}）` : ""
+      }，尚未核实`,
+      sourceId: candidate.sourceId,
+      locatorKind: "quote",
+      anchorText: candidate.excerpt,
+      direction: candidate.direction,
+      reliability: candidate.suggestedReliability,
+      claimIds: [claimId]
+    },
+    `extract-evidence-${candidate.id}`
+  );
+  return {
+    evidenceId: created.evidence.id,
+    verificationStatus: created.evidence.verificationStatus
+  };
+}
+
+function createResearchClaimRaw(
+  sessionId: string,
+  command: CreateClaimCommand,
+  key: string
+): Promise<{ claim: Claim; event: ExecutionEvent }> {
+  return request<{ claim: Claim; event: ExecutionEvent }>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/claims`,
+    {
+      method: "POST",
+      body: JSON.stringify(command),
+      idempotencyKey: key
+    }
+  );
+}
+
+function createEvidenceRaw(
+  sessionId: string,
+  command: CreateEvidenceCommand,
+  key: string
+): Promise<{ evidence: Evidence; event: ExecutionEvent }> {
+  return request<{ evidence: Evidence; event: ExecutionEvent }>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/evidence`,
+    {
+      method: "POST",
+      body: JSON.stringify(command),
+      idempotencyKey: key
+    }
+  );
+}
+
+export type {
+  CandidateClaimType,
+  CandidateDecision,
+  CandidateStatus,
+  ClaimCandidate,
+  ClaimExtractionResult,
+  ClaimExtractionRun,
+  EvidenceCandidate,
+  ExtractionFailureCode
+};

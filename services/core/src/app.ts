@@ -20,9 +20,11 @@ import { registerInspectorRoutes } from "./api/routes/inspector";
 import { registerReportRoutes } from "./api/routes/reports";
 import { registerReviewRoutes } from "./api/routes/review";
 import { registerSessionRoutes } from "./api/routes/sessions";
+import { registerClaimExtractionRoutes } from "./api/routes/claim-extraction";
 import { registerSourceIntakeRoutes } from "./api/routes/source-intake";
 import { EventBus } from "./execution/event-bus";
 import type { CrossReviewService } from "./research/cross-review-service";
+import type { ClaimExtractionService } from "./research/claim-extraction-service";
 import type { SourceImportService } from "./research/source-import-service";
 
 export type ProjectInput = {
@@ -72,6 +74,8 @@ export type AppDependencies = {
   crossReview?: CrossReviewService;
   /** Imports a page and keeps the failure record when it cannot be read. */
   sourceIntake?: SourceImportService;
+  /** Suggests claims and excerpts from a saved capture for a person to rule on. */
+  claimExtraction?: ClaimExtractionService;
   arena?: Pick<ArenaRepository, "createResearchClaim" | "getSessionArtifacts">;
   reports?: Pick<
     FinalReportRepository,
@@ -147,6 +151,7 @@ export function createApp(
   registerReportRoutes(app, dependencies);
   registerHumanDecisionRoutes(app, dependencies, idempotency, eventBus);
   registerEvidenceRoutes(app, dependencies, idempotency, eventBus);
+  registerClaimExtractionRoutes(app, dependencies, idempotency);
   registerSourceIntakeRoutes(app, dependencies, idempotency);
   registerReviewRoutes(app, dependencies, idempotency, eventBus);
   registerEventRoutes(app, {

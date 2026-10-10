@@ -11,6 +11,7 @@ export * from "./domain/conflict";
 export * from "./domain/human-decision";
 export * from "./domain/final-report";
 export * from "./domain/event";
+export * from "./domain/claim-extraction";
 export * from "./workflow/invariants";
 export * from "./workflow/state-machine";
 export * from "./workflow/conflict-state-machine";

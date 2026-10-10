@@ -1016,7 +1016,8 @@ export function SourceDetail({
   verifying,
   error,
   canEdit,
-  onOpenReader
+  onOpenReader,
+  onOpenAnalysis
 }: {
   evidence: Evidence;
   source: Source | null;
@@ -1027,6 +1028,8 @@ export function SourceDetail({
   canEdit: boolean;
   /** Opens the stored page text so the excerpt can be read in context. */
   onOpenReader?: ((sourceId: string) => void) | undefined;
+  /** Opens the AI candidate review for this source. */
+  onOpenAnalysis?: ((sourceId: string) => void) | undefined;
 }) {
   return (
     <div className="research-column" data-testid="source-detail">
@@ -1114,15 +1117,27 @@ export function SourceDetail({
                 上次抓取失败：{source.retrievalError}
               </p>
             ) : null}
-            {onOpenReader ? (
+            {onOpenReader || onOpenAnalysis ? (
               <div className="research-actions" style={{ marginTop: 8 }}>
-                <button
-                  type="button"
-                  className="research-button research-button-secondary"
-                  onClick={() => onOpenReader(source.id)}
-                >
-                  阅读保存的原文
-                </button>
+                {onOpenReader ? (
+                  <button
+                    type="button"
+                    className="research-button research-button-secondary"
+                    onClick={() => onOpenReader(source.id)}
+                  >
+                    阅读保存的原文
+                  </button>
+                ) : null}
+                {onOpenAnalysis ? (
+                  <button
+                    type="button"
+                    className="research-button research-button-secondary"
+                    onClick={() => onOpenAnalysis(source.id)}
+                    data-testid="open-source-analysis"
+                  >
+                    AI 拆解候选主张
+                  </button>
+                ) : null}
               </div>
             ) : null}
           </>

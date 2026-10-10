@@ -1,4 +1,9 @@
+import { CANDIDATE_CLAIM_TYPE_LABELS } from "@nexus/shared";
 import type {
+  CandidateClaimType,
+  CandidateStatus,
+  ClaimExtractionRun,
+  ExtractionFailureCode,
   AgentRun,
   Challenge,
   ClaimReviewOutcome,
@@ -407,6 +412,72 @@ export function sourceImportStateTone(
   if (state === "done") return "research-pill-verified";
   if (state === "failed") return "research-pill-rejected";
   if (state === "running") return "research-pill-unverified";
+  return "research-pill-neutral";
+}
+
+/**
+ * What stage an AI-assisted analysis is at.
+ *
+ * Deliberately separate from any domain status: an extraction task is about
+ * whether the *suggestion engine* got an answer, which says nothing about the
+ * claims themselves. A task that failed must never read like a claim being
+ * rejected.
+ */
+export function extractionRunStatusLabel(
+  status: ClaimExtractionRun["status"]
+): string {
+  if (status === "running") return "分析中";
+  if (status === "succeeded") return "已完成";
+  if (status === "failed") return "失败";
+  return "排队中";
+}
+
+export function extractionRunStatusTone(
+  status: ClaimExtractionRun["status"]
+): string {
+  if (status === "succeeded") return "research-pill-verified";
+  if (status === "failed") return "research-pill-rejected";
+  if (status === "running") return "research-pill-unverified";
+  return "research-pill-neutral";
+}
+
+/**
+ * Turns a failure code into the sentence a researcher needs.
+ *
+ * Every code names something different to do next, which is why none of them
+ * collapse into "the analysis failed": a timeout is retryable, a refused answer
+ * is not, and an empty page is not a failure at all.
+ */
+export function extractionFailureLabel(
+  code: ExtractionFailureCode
+): string {
+  if (code === "no_snapshot") return "这个来源还没有抓到原文";
+  if (code === "empty_content") return "保存的原文里没有可分析的段落";
+  if (code === "provider_unavailable") return "模型不可用（未配置凭据或无法连接）";
+  if (code === "timeout") return "模型响应超时";
+  if (code === "aborted") return "分析已被取消";
+  if (code === "refused") return "模型拒绝回答";
+  if (code === "empty_output") return "模型返回了空响应";
+  if (code === "invalid_json") return "模型返回的内容不是合法 JSON";
+  if (code === "schema_rejected") return "模型返回了不合约定结构的 JSON";
+  if (code === "storage_unavailable") return "候选未能保存到数据库";
+  return "分析失败";
+}
+
+/** The candidate's own taxonomy, wider than the formal claim types. */
+export function candidateClaimTypeLabel(type: CandidateClaimType): string {
+  return CANDIDATE_CLAIM_TYPE_LABELS[type] ?? type;
+}
+
+export function candidateStatusLabel(status: CandidateStatus): string {
+  if (status === "accepted") return "已采纳";
+  if (status === "rejected") return "已拒绝";
+  return "待处理";
+}
+
+export function candidateStatusTone(status: CandidateStatus): string {
+  if (status === "accepted") return "research-pill-verified";
+  if (status === "rejected") return "research-pill-rejected";
   return "research-pill-neutral";
 }
 

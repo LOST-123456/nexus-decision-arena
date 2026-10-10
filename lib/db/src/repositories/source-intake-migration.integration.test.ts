@@ -87,6 +87,35 @@ async function ledger(database: TestDatabase): Promise<string[]> {
   return rows.map((row) => row.filename);
 }
 
+/**
+ * Rolls back every migration applied after `filename`, newest first.
+ *
+ * A down script only undoes its own migration, so it must not know about
+ * objects a later migration adds: 0007's `DROP TABLE source_snapshots` cannot
+ * be expected to cope with the candidate tables 0008 points at it. To exercise
+ * the 0007 down script as what it claims to be — a rollback that runs while
+ * 0007 is the head — the chain above it has to be unwound first.
+ *
+ * The list comes from the ledger, not from a hard-coded filename, so adding a
+ * migration does not silently invalidate this test again.
+ */
+async function rollbackMigrationsAfter(
+  database: TestDatabase,
+  filename: string
+): Promise<void> {
+  const rows = (await database.execute(
+    sql.raw(
+      `select filename from schema_migrations where filename > '${filename}' order by filename desc`
+    )
+  )) as unknown as Array<{ filename: string }>;
+  for (const row of rows) {
+    const downFile = `rollback/${row.filename.replace(/\.sql$/, ".down.sql")}`;
+    for (const statement of await statements(downFile)) {
+      await database.execute(sql.raw(statement));
+    }
+  }
+}
+
 async function freshMigratedDatabase(): Promise<{
   databaseName: string;
   database: TestDatabase;
@@ -97,6 +126,7 @@ async function freshMigratedDatabase(): Promise<{
   const database = createTestDatabaseForUrl(tempDatabaseUrl(databaseName));
   const applied = (await runMigrations(database, resolve("migrations"))).applied;
   expect(applied).toContain("0007_source_intake.sql");
+  await rollbackMigrationsAfter(database, "0007_source_intake.sql");
   return { databaseName, database };
 }
 

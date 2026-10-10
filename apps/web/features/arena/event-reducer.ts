@@ -127,6 +127,15 @@ function applyContiguousEvent(
     case "SOURCE_EXCERPTS_RECHECKED": {
       return { ...current, lastSequence: event.sequence };
     }
+    // Analysis produces candidates, not material: a result here changes nothing
+    // about the debate phase or the verdict inputs, so it must not be folded
+    // into the session state any more than a failed retrieval would be.
+    case "CLAIM_EXTRACTION_STARTED":
+    case "CLAIM_EXTRACTION_COMPLETED":
+    case "CLAIM_EXTRACTION_FAILED":
+    case "CLAIM_CANDIDATES_DECIDED": {
+      return { ...current, lastSequence: event.sequence };
+    }
     // A human fact-check ruling is an append-only research record. It does not
     // change the debate phase, and the research surfaces re-read it from the
     // backend instead of guessing at it here.

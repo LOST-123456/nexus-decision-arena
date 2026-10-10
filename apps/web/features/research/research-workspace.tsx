@@ -37,6 +37,7 @@ import {
   VerdictCard
 } from "./components";
 import { ClaimForm, EvidenceForm, ImportSourceForm, SourceForm } from "./forms";
+import { ClaimCandidatesPanel } from "./claim-candidates";
 import { SourceReader } from "./source-reader";
 import {
   claimStatusLabel,
@@ -52,7 +53,14 @@ import {
   workflowLabel
 } from "./labels";
 
-type Panel = "claims" | "content" | "cross" | "review" | "detail" | "reader";
+type Panel =
+  | "claims"
+  | "content"
+  | "cross"
+  | "review"
+  | "detail"
+  | "reader"
+  | "analyze";
 
 /**
  * `claims` and `detail` are their own tabs only where the layout collapses: on
@@ -69,7 +77,8 @@ const PANELS: Array<{ id: Panel; label: string; narrowOnly?: boolean }> = [
   { id: "cross", label: "交叉审查" },
   { id: "review", label: "审核中心" },
   { id: "detail", label: "来源详情", narrowOnly: true },
-  { id: "reader", label: "原文阅读" }
+  { id: "reader", label: "原文阅读" },
+  { id: "analyze", label: "AI 拆解" }
 ];
 
 /**
@@ -94,7 +103,11 @@ const HISTORY_EVENT_TYPES = new Set([
   "SOURCE_REGISTERED",
   "SOURCE_RETRIEVED",
   "SOURCE_RETRIEVAL_FAILED",
-  "SOURCE_EXCERPTS_RECHECKED"
+  "SOURCE_EXCERPTS_RECHECKED",
+  "CLAIM_EXTRACTION_STARTED",
+  "CLAIM_EXTRACTION_COMPLETED",
+  "CLAIM_EXTRACTION_FAILED",
+  "CLAIM_CANDIDATES_DECIDED"
 ]);
 
 const RESEARCH_MODE: Panel[] = ["claims", "content", "detail"];
@@ -132,6 +145,8 @@ export function ResearchWorkspace({
    * so closing the reader returns to whatever excerpt the user came from.
    */
   const [readerSourceId, setReaderSourceId] = useState<string | null>(null);
+  /** Which source the AI candidate review is working on. */
+  const [analyzeSourceId, setAnalyzeSourceId] = useState<string | null>(null);
   const [importRows, setImportRows] = useState<ImportRow[] | null>(null);
   const [importBusy, setImportBusy] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
@@ -580,6 +595,52 @@ export function ResearchWorkspace({
     );
   }
 
+  // Candidate review gets its own full-width surface for the same reason the
+  // reader does: comparing a candidate against the page text it came from is
+  // not something to do in a narrow column.
+  if (panel === "analyze") {
+    return (
+      <>
+        {tabs}
+        <div
+          className="research-body"
+          data-testid="research-body"
+          data-mode="analyze"
+        >
+          {analyzeSourceId ? (
+            <ClaimCandidatesPanel
+              sessionId={sessionId}
+              sourceId={analyzeSourceId}
+              sourceTitle={
+                workspace.sources.find((source) => source.id === analyzeSourceId)
+                  ?.title ?? ""
+              }
+              claims={workspace.claims.map((claim) => ({
+                id: claim.id,
+                statement: claim.statement
+              }))}
+              canEdit={canEdit}
+              onClose={() => setPanel("content")}
+              onChanged={async () => {
+                await reload();
+                await refreshHistory();
+              }}
+            />
+          ) : (
+            <div className="research-column">
+              <section className="research-panel">
+                <p className="research-muted">
+                  还没有选择要分析的来源。先在「研究内容」里导入网页，再从导入结果中点
+                  「AI 拆解候选主张」。
+                </p>
+              </section>
+            </div>
+          )}
+        </div>
+      </>
+    );
+  }
+
   return (
     <>
       {tabs}
@@ -896,6 +957,17 @@ export function ResearchWorkspace({
                               >
                                 阅读保存的原文
                               </button>
+                              <button
+                                type="button"
+                                className="research-button research-button-secondary"
+                                onClick={() => {
+                                  setAnalyzeSourceId(result.source.id);
+                                  setPanel("analyze");
+                                }}
+                                data-testid="open-analysis"
+                              >
+                                AI 拆解候选主张
+                              </button>
                             </>
                           ) : row.state === "failed" ? (
                             <p className="research-error" role="alert">
@@ -1118,6 +1190,10 @@ export function ResearchWorkspace({
               onOpenReader={(sourceId) => {
                 setReaderSourceId(sourceId);
                 setPanel("reader");
+              }}
+              onOpenAnalysis={(sourceId) => {
+                setAnalyzeSourceId(sourceId);
+                setPanel("analyze");
               }}
             />
           ) : (

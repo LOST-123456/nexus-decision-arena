@@ -6,9 +6,10 @@ import {
   EvidenceRepository,
   FinalReportRepository,
   InspectorRepository,
-  ReviewRepository
+  ReviewRepository,
+  ClaimExtractionRepository
 } from "@nexus/db";
-import { OpenAiCompatibleProvider } from "@nexus/llm";
+import { OpenAiCompatibleProvider, type LlmProvider } from "@nexus/llm";
 import { createApp } from "./app";
 import { PostgresIdempotencyStore } from "./api/plugins/idempotency";
 import { CrossExaminationService } from "./arena/cross-examination";
@@ -25,6 +26,8 @@ import type { AgentRunner } from "./arena/agent-runner";
 import { ProviderAgentRunner } from "./arena/provider-agent-runner";
 import { EventBus } from "./execution/event-bus";
 import { CrossReviewService } from "./research/cross-review-service";
+import { ClaimExtractionService } from "./research/claim-extraction-service";
+import { DeterministicExtractionProvider } from "./research/deterministic-extraction-provider";
 import { createPageFetcher } from "./research/page-fetch";
 import { createNodePageTransport, dnsAddressResolver } from "./research/node-page-transport";
 import { SourceImportService } from "./research/source-import-service";
@@ -70,6 +73,8 @@ let createCrossExamination: () => CrossExaminationService;
 let createChallengePlans:
   | NonNullable<RunSessionRuntime["createChallengePlans"]>
   | undefined;
+/** Which model does the claim-extraction pass, and under what name. */
+let extractionProvider: { name: string; model: string; provider: LlmProvider };
 
 if (mode === "mock") {
   const fixtures = await loadDeterministicFixtures();
@@ -81,6 +86,12 @@ if (mode === "mock") {
     );
   createChallengePlans = (roles, claims, runIdByRoleId) =>
     deterministicRunner.createChallengePlans(roles, claims, runIdByRoleId);
+  const deterministicExtraction = new DeterministicExtractionProvider();
+  extractionProvider = {
+    name: deterministicExtraction.name,
+    model: deterministicExtraction.model,
+    provider: deterministicExtraction
+  };
 } else if (mode === "openai-compatible") {
   if (
     !process.env.LLM_BASE_URL ||
@@ -104,8 +115,13 @@ if (mode === "mock") {
     );
   createChallengePlans = (roles, claims, runIdByRoleId) =>
     providerRunner.createChallengePlans(roles, claims, runIdByRoleId);
+  extractionProvider = {
+    name: "OpenAI-compatible",
+    model: process.env.LLM_MODEL ?? "unknown",
+    provider
+  };
 } else {
-  throw new Error(`Unsupported LLM_MODE: ${mode}`);
+    throw new Error(`Unsupported LLM_MODE: ${mode}`);
 }
 
 const runSession = new RunSessionService(agentRunner, {
@@ -172,6 +188,13 @@ const app = createApp(
       // if it is shared, and the address guard is what decides what may be
       // contacted.
       fetch: (url) => pageFetcher.fetch(url)
+    }),
+    claimExtraction: new ClaimExtractionService({
+      provider: extractionProvider.provider,
+      providerName: extractionProvider.name,
+      model: extractionProvider.model,
+      runs: new ClaimExtractionRepository(database),
+      evidence: researchEvidence
     }),
     arena,
     reports,

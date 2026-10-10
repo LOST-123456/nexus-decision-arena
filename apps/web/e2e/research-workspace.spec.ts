@@ -198,6 +198,9 @@ test("narrow viewport degrades to tabs instead of squeezed columns", async ({
   await page.getByRole("tab", { name: "原文阅读" }).click();
   await expect(page.getByText(/还没有选择要阅读的来源/)).toBeVisible();
 
+  await page.getByRole("tab", { name: "AI 拆解" }).click();
+  await expect(page.getByText(/还没有选择要分析的来源/)).toBeVisible();
+
   await expectNoHorizontalOverflow(page);
 });
 
@@ -295,4 +298,99 @@ test("import entry states its policy and the reader reports missing page text", 
 
   await page.getByRole("button", { name: "关闭" }).click();
   await expect(page.getByTestId("source-detail")).toBeVisible();
+});
+
+/**
+ * The candidate review surface, checked as far as it can be without a model.
+ *
+ * Two things are being proved here, and both are the ones a user would notice:
+ *  1. the surface states up front that proposals are not material yet and that
+ *     accepting one still leaves it unverified;
+ *  2. asking for an analysis of a source that has no stored page produces a
+ *     usable refusal rather than an empty list — "analysis found nothing" and
+ *     "there was nothing to analyse" must not look the same.
+ *
+ * What is deliberately not covered: whether a real model proposes sensible
+ * claims. That needs credentials this environment does not have, so it stays
+ * reported as NOT RUN rather than asserted behind a mock.
+ */
+test("candidate review states its contract and refuses a source with no stored page", async ({
+  page
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await loginAsOwner(page);
+  const sessionId = await createResearch(page);
+
+  const claim = await page.context().request.post(
+    `/api/sessions/${sessionId}/claims`,
+    {
+      headers: { "idempotency-key": `e2e-claim-${randomUUID()}` },
+      data: {
+        statement: "该公司上一季度出货量同比增长 12%。",
+        type: "fact",
+        stance: "neutral",
+        importance: 3
+      }
+    }
+  );
+  expect(claim.status()).toBe(201);
+  const { claim: claimBody } = (await claim.json()) as {
+    claim: { id: string };
+  };
+
+  const source = await page.context().request.post(
+    `/api/sessions/${sessionId}/sources`,
+    {
+      headers: { "idempotency-key": `e2e-source-${randomUUID()}` },
+      data: { title: "手工登记的年报", kind: "document", publisher: "示例统计局" }
+    }
+  );
+  expect(source.status()).toBe(201);
+  const { source: sourceBody } = (await source.json()) as {
+    source: { id: string };
+  };
+
+  const evidence = await page.context().request.post(
+    `/api/sessions/${sessionId}/evidence`,
+    {
+      headers: { "idempotency-key": `e2e-evidence-${randomUUID()}` },
+      data: {
+        kind: "external_reference",
+        title: "年报出货量原句",
+        content: "第四季度出货量同比增长 12%。",
+        description: "年报正文原句。",
+        sourceId: sourceBody.id,
+        direction: "supports",
+        reliability: 0.7,
+        claimIds: [claimBody.id]
+      }
+    }
+  );
+  expect(evidence.status()).toBe(201);
+
+  await page.goto(`/research/${sessionId}`);
+  await page.getByRole("button", { name: "年报出货量原句" }).click();
+  await expect(page.getByTestId("source-detail")).toBeVisible();
+
+  await page.getByTestId("open-source-analysis").click();
+  await expect(page.getByTestId("claim-candidates")).toBeVisible();
+
+  // The contract, stated where the researcher can see it before doing anything.
+  await expect(page.getByTestId("claim-candidates")).toContainText(
+    "候选不会进入任何结论或统计"
+  );
+  await expect(page.getByTestId("claim-candidates")).toContainText(
+    "仍然是未核实"
+  );
+
+  await page.getByTestId("analyze-source").click();
+
+  // A source with no stored page must be refused with something actionable,
+  // not answered with an empty candidate list.
+  await expect(page.getByTestId("analysis-error")).toContainText(
+    "这个来源还没有抓到原文"
+  );
+  await expect(page.getByTestId("candidate-list")).toHaveCount(0);
+
+  await expectNoHorizontalOverflow(page);
 });

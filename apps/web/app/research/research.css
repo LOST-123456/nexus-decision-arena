@@ -107,8 +107,15 @@
  * The source reader is a reading surface rather than a workspace: it takes the
  * whole content width so a long stored page is not squeezed into a column.
  */
-.research-body[data-mode="reader"] {
+.research-body[data-mode="reader"],
+.research-body[data-mode="analyze"] {
   grid-template-columns: minmax(0, 1fr);
+}
+
+/* Keep a highlighted quote readable inside `<pre>` without forcing overflow. */
+.research-body[data-mode="analyze"] mark {
+  border-radius: 3px;
+  padding: 0 2px;
 }
 
 .research-column {
