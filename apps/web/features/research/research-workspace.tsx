@@ -38,6 +38,7 @@ import {
 } from "./components";
 import { ClaimForm, EvidenceForm, ImportSourceForm, SourceForm } from "./forms";
 import { ClaimCandidatesPanel } from "./claim-candidates";
+import { CitationReviewPanel } from "./citation-review";
 import { SourceReader } from "./source-reader";
 import {
   claimStatusLabel,
@@ -60,7 +61,8 @@ type Panel =
   | "review"
   | "detail"
   | "reader"
-  | "analyze";
+  | "analyze"
+  | "citations";
 
 /**
  * `claims` and `detail` are their own tabs only where the layout collapses: on
@@ -78,7 +80,8 @@ const PANELS: Array<{ id: Panel; label: string; narrowOnly?: boolean }> = [
   { id: "review", label: "审核中心" },
   { id: "detail", label: "来源详情", narrowOnly: true },
   { id: "reader", label: "原文阅读" },
-  { id: "analyze", label: "AI 拆解" }
+  { id: "analyze", label: "AI 拆解" },
+  { id: "citations", label: "引用核查" }
 ];
 
 /**
@@ -107,7 +110,10 @@ const HISTORY_EVENT_TYPES = new Set([
   "CLAIM_EXTRACTION_STARTED",
   "CLAIM_EXTRACTION_COMPLETED",
   "CLAIM_EXTRACTION_FAILED",
-  "CLAIM_CANDIDATES_DECIDED"
+  "CLAIM_CANDIDATES_DECIDED",
+  "CITATION_INTEGRITY_CHECKED",
+  "SUPPORT_ASSESSMENT_RECORDED",
+  "CITATION_CORRECTION_RECORDED"
 ]);
 
 const RESEARCH_MODE: Panel[] = ["claims", "content", "detail"];
@@ -636,6 +642,43 @@ export function ResearchWorkspace({
               </section>
             </div>
           )}
+        </div>
+      </>
+    );
+  }
+
+  // Citation review also gets the full width: each row carries the quote, the
+  // source context, and two independent states, which is too much for a column.
+  if (panel === "citations") {
+    return (
+      <>
+        {tabs}
+        <div
+          className="research-body"
+          data-testid="research-body"
+          data-mode="analyze"
+        >
+          <div className="research-column">
+            <CitationReviewPanel
+              sessionId={sessionId}
+              evidence={workspace.evidence}
+              claims={workspace.claims.map((claim) => ({
+                id: claim.id,
+                statement: claim.statement
+              }))}
+              sourcesById={new Map(
+                workspace.sources.map((source) => [
+                  source.id,
+                  { id: source.id, title: source.title }
+                ])
+              )}
+              canEdit={canEdit}
+              onChanged={async () => {
+                await reload();
+                await refreshHistory();
+              }}
+            />
+          </div>
         </div>
       </>
     );

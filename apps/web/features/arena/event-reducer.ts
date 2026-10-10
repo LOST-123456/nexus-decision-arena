@@ -136,6 +136,14 @@ function applyContiguousEvent(
     case "CLAIM_CANDIDATES_DECIDED": {
       return { ...current, lastSequence: event.sequence };
     }
+    // Citation checks and support assessments are advisory records about an
+    // excerpt. They change neither the phase nor the verdict inputs, so they
+    // only advance the replay cursor.
+    case "CITATION_INTEGRITY_CHECKED":
+    case "SUPPORT_ASSESSMENT_RECORDED":
+    case "CITATION_CORRECTION_RECORDED": {
+      return { ...current, lastSequence: event.sequence };
+    }
     // A human fact-check ruling is an append-only research record. It does not
     // change the debate phase, and the research surfaces re-read it from the
     // backend instead of guessing at it here.

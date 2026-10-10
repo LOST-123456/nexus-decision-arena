@@ -21,10 +21,12 @@ import { registerReportRoutes } from "./api/routes/reports";
 import { registerReviewRoutes } from "./api/routes/review";
 import { registerSessionRoutes } from "./api/routes/sessions";
 import { registerClaimExtractionRoutes } from "./api/routes/claim-extraction";
+import { registerCitationReviewRoutes } from "./api/routes/citation-review";
 import { registerSourceIntakeRoutes } from "./api/routes/source-intake";
 import { EventBus } from "./execution/event-bus";
 import type { CrossReviewService } from "./research/cross-review-service";
 import type { ClaimExtractionService } from "./research/claim-extraction-service";
+import type { CitationReviewService } from "./research/citation-review-service";
 import type { SourceImportService } from "./research/source-import-service";
 
 export type ProjectInput = {
@@ -76,6 +78,11 @@ export type AppDependencies = {
   sourceIntake?: SourceImportService;
   /** Suggests claims and excerpts from a saved capture for a person to rule on. */
   claimExtraction?: ClaimExtractionService;
+  /**
+   * Checks whether citations still resolve (deterministic) and how each excerpt
+   * bears on its claim (model-assisted advice).
+   */
+  citationReview?: CitationReviewService;
   arena?: Pick<ArenaRepository, "createResearchClaim" | "getSessionArtifacts">;
   reports?: Pick<
     FinalReportRepository,
@@ -152,6 +159,7 @@ export function createApp(
   registerHumanDecisionRoutes(app, dependencies, idempotency, eventBus);
   registerEvidenceRoutes(app, dependencies, idempotency, eventBus);
   registerClaimExtractionRoutes(app, dependencies, idempotency);
+  registerCitationReviewRoutes(app, dependencies, idempotency);
   registerSourceIntakeRoutes(app, dependencies, idempotency);
   registerReviewRoutes(app, dependencies, idempotency, eventBus);
   registerEventRoutes(app, {

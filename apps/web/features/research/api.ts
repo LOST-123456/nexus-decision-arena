@@ -12,6 +12,10 @@ import type {
   Challenge,
   Claim,
   ClaimReview,
+  ClaimSupportAssessment,
+  ClaimSupportSummary,
+  CitationIntegrityCheck,
+  CitationReviewFailureCode,
   ClaimVerdict,
   ClaimVerdictStatus,
   Conflict,
@@ -825,6 +829,168 @@ function createEvidenceRaw(
   );
 }
 
+/* ------------------------------------------------------------------ *
+ * Citation integrity (A) and claim-evidence support (B)
+ * ------------------------------------------------------------------ */
+
+export type CitationReviewSnapshot = {
+  checks: CitationIntegrityCheck[];
+  assessments: ClaimSupportAssessment[];
+  summaries: ClaimSupportSummary[];
+};
+
+export type CitationHistoryResponse = {
+  kind: "integrity" | "support";
+  items: CitationIntegrityCheck[] | ClaimSupportAssessment[];
+};
+
+export class CitationReviewFailedError extends Error {
+  constructor(
+    message: string,
+    readonly code?: CitationReviewFailureCode
+  ) {
+    super(message);
+    this.name = "CitationReviewFailedError";
+  }
+}
+
+/**
+ * Same contract as `requestWithFailureCode`, for the citation endpoints: a
+ * body-less POST must not declare a JSON content-type, and a failure carries
+ * the server's own failure code so the UI can say what to do next.
+ */
+async function requestWithCitationCode<T>(
+  path: string,
+  init: RequestInit & { idempotencyKey?: string }
+): Promise<T> {
+  const { idempotencyKey: key, ...rest } = init;
+  const hasBody = rest.body !== undefined && rest.body !== null;
+  const response = await fetch(`${apiUrl}${path}`, {
+    cache: "no-store",
+    ...rest,
+    headers: {
+      ...(hasBody ? { "content-type": "application/json" } : {}),
+      ...(key ? { "idempotency-key": key } : {}),
+      ...(rest.headers ?? {})
+    }
+  });
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as {
+      error?: string;
+      code?: CitationReviewFailureCode;
+    } | null;
+    throw new CitationReviewFailedError(
+      payload?.error ?? `Request failed: ${response.status}`,
+      payload?.code
+    );
+  }
+  return response.json() as Promise<T>;
+}
+
+/**
+ * Re-checks every citation against the stored captures.
+ *
+ * Deterministic on the server — no model is involved — so this can safely be
+ * pressed again after a source is re-fetched.
+ */
+export function checkCitations(
+  sessionId: string,
+  evidenceIds?: string[]
+): Promise<{ checks: CitationIntegrityCheck[]; event: ExecutionEvent }> {
+  return requestWithCitationCode<{
+    checks: CitationIntegrityCheck[];
+    event: ExecutionEvent;
+  }>(`/api/sessions/${encodeURIComponent(sessionId)}/citations/check`, {
+    method: "POST",
+    ...(evidenceIds && evidenceIds.length > 0
+      ? { body: JSON.stringify({ evidenceIds }) }
+      : {}),
+    idempotencyKey: idempotencyKey("citation-check")
+  });
+}
+
+/**
+ * Asks for a model-assisted reading of how each excerpt bears on one claim.
+ *
+ * The answer is advice. It cannot verify an excerpt and it cannot change a
+ * verdict; the UI says so next to every result.
+ */
+export function assessClaimSupport(
+  sessionId: string,
+  claimId: string
+): Promise<{
+  assessments: ClaimSupportAssessment[];
+  summary: ClaimSupportSummary;
+  event: ExecutionEvent;
+}> {
+  return requestWithCitationCode<{
+    assessments: ClaimSupportAssessment[];
+    summary: ClaimSupportSummary;
+    event: ExecutionEvent;
+  }>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/claims/${encodeURIComponent(claimId)}/support-assessment`,
+    {
+      method: "POST",
+      idempotencyKey: idempotencyKey("support-assessment")
+    }
+  );
+}
+
+export function getCitationReview(
+  sessionId: string
+): Promise<CitationReviewSnapshot> {
+  return request<CitationReviewSnapshot>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/citations`
+  );
+}
+
+export function getCitationHistory(
+  sessionId: string,
+  input: { kind: "integrity"; evidenceId: string } | {
+    kind: "support";
+    claimId: string;
+    evidenceId: string;
+  }
+): Promise<CitationHistoryResponse> {
+  const query = new URLSearchParams({ kind: input.kind, evidenceId: input.evidenceId });
+  if (input.kind === "support") {
+    query.set("claimId", input.claimId);
+  }
+  return request<CitationHistoryResponse>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/citations/history?${query}`
+  );
+}
+
+/**
+ * Records a human correction.
+ *
+ * The previous conclusion is kept: the server writes a new record that points
+ * back at it, so the panel can show what was overridden and by whom.
+ */
+export function correctCitation(
+  sessionId: string,
+  command: {
+    kind: "integrity" | "support";
+    targetId: string;
+    status: string;
+    rationale: string;
+  }
+): Promise<{
+  check?: CitationIntegrityCheck;
+  assessment?: ClaimSupportAssessment;
+  event: ExecutionEvent;
+}> {
+  return requestWithCitationCode<{
+    check?: CitationIntegrityCheck;
+    assessment?: ClaimSupportAssessment;
+    event: ExecutionEvent;
+  }>(`/api/sessions/${encodeURIComponent(sessionId)}/citation-corrections`, {
+    method: "POST",
+    body: JSON.stringify(command),
+    idempotencyKey: idempotencyKey("citation-correction")
+  });
+}
+
 export type {
   CandidateClaimType,
   CandidateDecision,
@@ -832,6 +998,10 @@ export type {
   ClaimCandidate,
   ClaimExtractionResult,
   ClaimExtractionRun,
+  ClaimSupportAssessment,
+  ClaimSupportSummary,
+  CitationIntegrityCheck,
+  CitationReviewFailureCode,
   EvidenceCandidate,
   ExtractionFailureCode
 };

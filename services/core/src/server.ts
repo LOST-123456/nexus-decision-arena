@@ -7,7 +7,8 @@ import {
   FinalReportRepository,
   InspectorRepository,
   ReviewRepository,
-  ClaimExtractionRepository
+  ClaimExtractionRepository,
+  CitationReviewRepository
 } from "@nexus/db";
 import { OpenAiCompatibleProvider, type LlmProvider } from "@nexus/llm";
 import { createApp } from "./app";
@@ -27,6 +28,7 @@ import { ProviderAgentRunner } from "./arena/provider-agent-runner";
 import { EventBus } from "./execution/event-bus";
 import { CrossReviewService } from "./research/cross-review-service";
 import { ClaimExtractionService } from "./research/claim-extraction-service";
+import { CitationReviewService } from "./research/citation-review-service";
 import { DeterministicExtractionProvider } from "./research/deterministic-extraction-provider";
 import { createPageFetcher } from "./research/page-fetch";
 import { createNodePageTransport, dnsAddressResolver } from "./research/node-page-transport";
@@ -195,6 +197,17 @@ const app = createApp(
       model: extractionProvider.model,
       runs: new ClaimExtractionRepository(database),
       evidence: researchEvidence
+    }),
+    citationReview: new CitationReviewService({
+      readClaims: async (sessionId) => {
+        const artifacts = await arena.getSessionArtifacts(sessionId);
+        return artifacts.claims;
+      },
+      evidence: researchEvidence,
+      citations: new CitationReviewRepository(database),
+      provider: extractionProvider.provider,
+      providerName: extractionProvider.name,
+      model: extractionProvider.model
     }),
     arena,
     reports,

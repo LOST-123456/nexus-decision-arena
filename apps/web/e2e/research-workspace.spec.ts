@@ -201,6 +201,9 @@ test("narrow viewport degrades to tabs instead of squeezed columns", async ({
   await page.getByRole("tab", { name: "AI 拆解" }).click();
   await expect(page.getByText(/还没有选择要分析的来源/)).toBeVisible();
 
+  await page.getByRole("tab", { name: "引用核查" }).click();
+  await expect(page.getByTestId("citation-review")).toBeVisible();
+
   await expectNoHorizontalOverflow(page);
 });
 
@@ -391,6 +394,111 @@ test("candidate review states its contract and refuses a source with no stored p
     "这个来源还没有抓到原文"
   );
   await expect(page.getByTestId("candidate-list")).toHaveCount(0);
+
+  await expectNoHorizontalOverflow(page);
+});
+
+/**
+ * The citation review surface, exercised against a real stored page.
+ *
+ * What is proved here:
+ *  1. the two answers a citation gets are shown as two independent states —
+ *     "原文定位" (a fact about the stored text, decided by the server with no
+ *     model involved) and "是否支持" (a model-assisted reading that is advice);
+ *  2. running the integrity check produces a real, stored result for an
+ *     excerpt quoting the saved capture, and says plainly that the excerpt is
+ *     still unverified;
+ *  3. a source with no stored text is reported as "no text to check against",
+ *     which is not the same as a citation that failed to resolve.
+ *
+ * Deliberately not covered: whether a real model's support reading is any good.
+ * That needs credentials this environment does not have, so it stays NOT RUN.
+ */
+test("citation review separates 'is the quote there' from 'does it support the claim'", async ({
+  page
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await loginAsOwner(page);
+  const sessionId = await createResearch(page);
+
+  const claim = await page.context().request.post(`/api/sessions/${sessionId}/claims`, {
+    headers: { "idempotency-key": `e2e-claim-${randomUUID()}` },
+    data: {
+      statement: "该公司上一季度出货量同比增长 12%。",
+      type: "fact",
+      stance: "neutral",
+      importance: 3
+    }
+  });
+  expect(claim.status()).toBe(201);
+  const { claim: claimBody } = (await claim.json()) as { claim: { id: string } };
+
+  const source = await page.context().request.post(
+    `/api/sessions/${sessionId}/sources`,
+    {
+      headers: { "idempotency-key": `e2e-source-${randomUUID()}` },
+      data: {
+        title: "手工登记的年报",
+        kind: "document",
+        url: "https://example.org/annual-report.pdf",
+        publisher: "示例统计局"
+      }
+    }
+  );
+  expect(source.status()).toBe(201);
+  const { source: sourceBody } = (await source.json()) as {
+    source: { id: string };
+  };
+
+  const evidence = await page.context().request.post(
+    `/api/sessions/${sessionId}/evidence`,
+    {
+      headers: { "idempotency-key": `e2e-evidence-${randomUUID()}` },
+      data: {
+        kind: "external_reference",
+        title: "年报出货量原句",
+        content: "第四季度出货量同比增长 12%。",
+        description: "年报正文原句。",
+        sourceId: sourceBody.id,
+        direction: "supports",
+        reliability: 0.7,
+        claimIds: [claimBody.id]
+      }
+    }
+  );
+  expect(evidence.status()).toBe(201);
+
+  await page.goto(`/research/${sessionId}`);
+  await page.getByRole("tab", { name: "引用核查" }).click();
+  await expect(page.getByTestId("citation-review")).toBeVisible();
+
+  // The contract, stated before anything is run.
+  await expect(page.getByTestId("citation-review")).toContainText(
+    "它不会把任何摘录标记为已核实"
+  );
+  await expect(page.getByTestId("citation-review")).toContainText(
+    "不按条数多数裁决"
+  );
+
+  await page.getByTestId("check-citations").click();
+
+  // An excerpt typed into the form carries no anchor text, so the honest
+  // answer is "unregistered citation, cannot be checked" — not "the quote is
+  // gone", and certainly not a silent pass.
+  await expect(page.getByTestId("citation-check-summary")).toContainText(
+    "已核查 1 / 1 条摘录"
+  );
+  const row = page.getByTestId("citation-row").first();
+  await expect(row).toContainText("原文定位");
+  await expect(row).toContainText("未登记引用");
+  // The other axis is tracked separately at the claim level: nothing has been
+  // assessed yet, and that is said rather than left blank.
+  await expect(page.getByTestId(`support-summary-${claimBody.id}`)).toContainText(
+    "尚未评估"
+  );
+  // The excerpt's own verification state is neither of the two new states.
+  await expect(row).toContainText("待核实");
+  await expect(row).not.toContainText("已核实");
 
   await expectNoHorizontalOverflow(page);
 });

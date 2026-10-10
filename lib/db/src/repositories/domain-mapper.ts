@@ -5,6 +5,8 @@ import {
   ClaimExtractionRunSchema,
   ClaimReviewSchema,
   ClaimSchema,
+  ClaimSupportAssessmentSchema,
+  CitationIntegrityCheckSchema,
   ConflictSchema,
   EvidenceCandidateSchema,
   EvidenceSchema,
@@ -17,6 +19,8 @@ import {
   type ClaimCandidate,
   type ClaimExtractionRun,
   type ClaimReview,
+  type ClaimSupportAssessment,
+  type CitationIntegrityCheck,
   type Conflict,
   type Evidence,
   type EvidenceCandidate,
@@ -197,5 +201,47 @@ export function parseEvidenceCandidates(
 ): EvidenceCandidate[] {
   return EvidenceCandidateSchema.array().parse(
     rows.map((row) => withCandidateDates(record(row)))
+  );
+}
+
+/**
+ * `numeric` columns come back from PostgreSQL as strings, so the confidence is
+ * converted here rather than loosening the domain schema to accept both.
+ */
+/**
+ * Citation rows keep their nulls.
+ *
+ * Unlike the candidate tables, almost every optional column here is part of the
+ * answer rather than an absent value: `supersedesId: null` means "this is the
+ * original conclusion, nothing was overridden", and `expectedContentHash: null`
+ * means "no version was ever recorded". Dropping them would turn those
+ * statements into "unknown", so they are passed through and the domain schema
+ * declares them `.nullable()` on purpose.
+ */
+function withCitationDates(value: Record<string, unknown>) {
+  const confidence = value.confidence;
+  return {
+    ...value,
+    ...(confidence === null || confidence === undefined
+      ? {}
+      : { confidence: Number(confidence) }),
+    isCurrent: value.isCurrent === true,
+    createdAt: iso(value.createdAt)
+  };
+}
+
+export function parseCitationIntegrityChecks(
+  rows: readonly unknown[]
+): CitationIntegrityCheck[] {
+  return CitationIntegrityCheckSchema.array().parse(
+    rows.map((row) => withCitationDates(record(row)))
+  );
+}
+
+export function parseClaimSupportAssessments(
+  rows: readonly unknown[]
+): ClaimSupportAssessment[] {
+  return ClaimSupportAssessmentSchema.array().parse(
+    rows.map((row) => withCitationDates(record(row)))
   );
 }

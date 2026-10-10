@@ -6,6 +6,7 @@ import {
   index,
   integer,
   jsonb,
+  numeric,
   pgTable,
   text,
   timestamp,
@@ -554,6 +555,118 @@ export const evidenceCandidates = pgTable(
     run: index("evidence_candidates_run_idx").on(
       table.runId,
       table.segmentIndex
+    )
+  })
+);
+
+/**
+ * A. Citation integrity — one row per check of one excerpt.
+ *
+ * The grain is the excerpt, not the claim: whether a quote can still be found
+ * in the capture it was taken from is one fact, no matter how many claims it
+ * is attached to. Corrections are new rows, so an earlier result is never
+ * edited out from under the person who recorded it.
+ */
+export const citationIntegrityChecks = pgTable(
+  "citation_integrity_checks",
+  {
+    id: uuid("id").primaryKey(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => decisionSessions.id, { onDelete: "cascade" }),
+    evidenceId: uuid("evidence_id")
+      .notNull()
+      .references(() => evidence.id, { onDelete: "cascade" }),
+    sourceId: uuid("source_id").references(() => sources.id, {
+      onDelete: "set null"
+    }),
+    snapshotId: uuid("snapshot_id").references(() => sourceSnapshots.id, {
+      onDelete: "set null"
+    }),
+    status: text("status").notNull(),
+    matchKind: text("match_kind"),
+    anchorText: text("anchor_text"),
+    /** Version the excerpt was anchored against, when one was recorded. */
+    expectedContentHash: text("expected_content_hash"),
+    /** Version of the capture that was actually searched. */
+    snapshotContentHash: text("snapshot_content_hash"),
+    matchedText: text("matched_text"),
+    contextText: text("context_text"),
+    reason: text("reason").notNull(),
+    origin: text("origin").notNull(),
+    actor: text("actor").notNull(),
+    supersedesId: uuid("supersedes_id").references(
+      (): AnyPgColumn => citationIntegrityChecks.id,
+      { onDelete: "set null" }
+    ),
+    isCurrent: boolean("is_current").notNull().default(true),
+    createdAt: timestampColumn("created_at").notNull().defaultNow()
+  },
+  (table) => ({
+    current: uniqueIndex("citation_integrity_checks_current_idx")
+      .on(table.evidenceId)
+      .where(sql`"is_current"`),
+    session: index("citation_integrity_checks_session_idx").on(
+      table.sessionId,
+      table.createdAt
+    )
+  })
+);
+
+/**
+ * B. Claim–evidence support — one row per (claim, excerpt) reading.
+ *
+ * This is advice about how an excerpt bears on a claim, not a verdict and not
+ * a verification: nothing writes `evidence.verification_status` from here, and
+ * `deriveClaimVerdicts()` cannot see this table.
+ */
+export const claimSupportAssessments = pgTable(
+  "claim_support_assessments",
+  {
+    id: uuid("id").primaryKey(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => decisionSessions.id, { onDelete: "cascade" }),
+    claimId: uuid("claim_id")
+      .notNull()
+      .references(() => claims.id, { onDelete: "cascade" }),
+    evidenceId: uuid("evidence_id")
+      .notNull()
+      .references(() => evidence.id, { onDelete: "cascade" }),
+    status: text("status").notNull(),
+    confidence: numeric("confidence", { precision: 4, scale: 3 }),
+    rationale: text("rationale").notNull(),
+    matchedExcerpt: text("matched_excerpt"),
+    /** Server-side: was `matchedExcerpt` actually found in the source text? */
+    matchedExcerptLocated: boolean("matched_excerpt_located")
+      .notNull()
+      .default(false),
+    signals: jsonb("signals").notNull().default([]),
+    provider: text("provider"),
+    model: text("model"),
+    promptVersion: text("prompt_version").notNull(),
+    origin: text("origin").notNull(),
+    actor: text("actor").notNull(),
+    supersedesId: uuid("supersedes_id").references(
+      (): AnyPgColumn => claimSupportAssessments.id,
+      { onDelete: "set null" }
+    ),
+    isCurrent: boolean("is_current").notNull().default(true),
+    createdAt: timestampColumn("created_at").notNull().defaultNow()
+  },
+  (table) => ({
+    current: uniqueIndex("claim_support_assessments_current_idx")
+      .on(table.claimId, table.evidenceId)
+      .where(sql`"is_current"`),
+    claim: index("claim_support_assessments_claim_idx").on(
+      table.sessionId,
+      table.claimId,
+      table.createdAt
+    ),
+    evidence: index("claim_support_assessments_evidence_idx").on(
+      table.sessionId,
+      table.evidenceId,
+      table.createdAt
     )
   })
 );

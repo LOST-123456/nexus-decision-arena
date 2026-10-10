@@ -16,7 +16,11 @@ import type {
   EvidenceGapKind,
   EvidenceGapSeverity,
   EvidenceKind,
-  SessionPhase
+  SessionPhase,
+  CitationIntegrityStatus,
+  ClaimSupportSummaryStatus,
+  CitationReviewFailureCode,
+  SupportAssessmentStatus
 } from "@nexus/shared";
 
 /**
@@ -478,6 +482,114 @@ export function candidateStatusLabel(status: CandidateStatus): string {
 export function candidateStatusTone(status: CandidateStatus): string {
   if (status === "accepted") return "research-pill-verified";
   if (status === "rejected") return "research-pill-rejected";
+  return "research-pill-neutral";
+}
+
+/**
+ * Layer A: where the quote stands as text.
+ *
+ * These are answers about the stored page only. `anchored` says the words are
+ * there — it says nothing about whether they support the claim, which is why
+ * the UI always renders layer A and layer B as two separate pills.
+ */
+export function citationIntegrityLabel(
+  status: CitationIntegrityStatus | undefined
+): string {
+  if (status === "anchored") return "原文可定位";
+  if (status === "stale") return "快照版本已变，需重确认";
+  if (status === "partial") return "引用不完整/被截断";
+  if (status === "missing") return "原文中找不到该引用";
+  if (status === "unmapped") return "未登记引用，无法核查";
+  if (status === "unanchored") return "来源无原文可核对";
+  return "尚未核查";
+}
+
+export function citationIntegrityTone(
+  status: CitationIntegrityStatus | undefined
+): string {
+  if (status === "anchored") return "research-pill-verified";
+  if (status === "stale") return "research-pill-unverified";
+  if (status === "partial") return "research-pill-unverified";
+  if (status === "missing") return "research-pill-rejected";
+  return "research-pill-neutral";
+}
+
+export function citationMatchKindLabel(
+  kind: "exact" | "normalized" | "elided" | null | undefined
+): string {
+  if (kind === "exact") return "精确匹配";
+  if (kind === "normalized") return "折叠空白后匹配";
+  if (kind === "elided") return "省略片段按顺序匹配";
+  return "";
+}
+
+/**
+ * Layer B: how the excerpt bears on the claim.
+ *
+ * Deliberately worded as an assessment, not a verdict: none of these labels
+ * claim truth, and none of them is a verification state.
+ */
+export function supportAssessmentLabel(
+  status: SupportAssessmentStatus | undefined
+): string {
+  if (status === "support") return "支持该主张";
+  if (status === "oppose") return "反对该主张";
+  if (status === "context") return "仅为背景";
+  if (status === "insufficient") return "支持不足";
+  if (status === "ambiguous") return "关系不明确";
+  return "尚未评估";
+}
+
+export function supportAssessmentTone(
+  status: SupportAssessmentStatus | undefined
+): string {
+  if (status === "support") return "research-pill-supports";
+  if (status === "oppose") return "research-pill-opposes";
+  if (status === "context") return "research-pill-context";
+  return "research-pill-neutral";
+}
+
+export function citationReviewFailureLabel(
+  code: CitationReviewFailureCode | undefined
+): string {
+  if (code === "no_evidence") return "还没有可核查的摘录";
+  if (code === "claim_not_found") return "该主张或核查记录不在当前研究中";
+  if (code === "provider_unavailable") return "模型不可用（未配置凭据或无法连接）";
+  if (code === "timeout") return "模型响应超时";
+  if (code === "aborted") return "评估已被取消";
+  if (code === "refused") return "模型拒绝回答";
+  if (code === "empty_output") return "模型返回了空响应";
+  if (code === "invalid_json") return "模型返回的内容不是合法 JSON";
+  if (code === "schema_rejected") return "模型返回了不合约定结构的 JSON";
+  if (code === "storage_unavailable") return "核查结果未能保存到数据库";
+  return "核查失败";
+}
+
+/**
+ * The per-claim roll-up. `mixed` exists precisely so that support and
+ * opposition are not averaged into a single direction.
+ */
+export function claimSupportSummaryLabel(
+  status: ClaimSupportSummaryStatus | undefined
+): string {
+  if (status === "support") return "摘录支持该主张";
+  if (status === "oppose") return "摘录反对该主张";
+  if (status === "mixed") return "支持与反对并存（冲突）";
+  if (status === "context") return "只有背景材料";
+  if (status === "insufficient") return "摘录支持不足";
+  if (status === "ambiguous") return "关系不明确";
+  if (status === "unavailable") return "评估未完成";
+  return "尚未评估";
+}
+
+export function claimSupportSummaryTone(
+  status: ClaimSupportSummaryStatus | undefined
+): string {
+  if (status === "support") return "research-pill-supports";
+  if (status === "oppose") return "research-pill-opposes";
+  if (status === "mixed") return "research-pill-unverified";
+  if (status === "context") return "research-pill-context";
+  if (status === "unavailable") return "research-pill-rejected";
   return "research-pill-neutral";
 }
 
