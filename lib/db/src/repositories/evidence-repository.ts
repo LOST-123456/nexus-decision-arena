@@ -5,15 +5,17 @@ import {
   type Evidence,
   type ExecutionEvent,
   type Source,
+  type SourceSnapshot,
   type EvidenceVerificationPatch
 } from "@nexus/shared";
 import type { Database } from "../client";
-import { claims, conflicts, evidence, sources } from "../schema";
+import { claims, conflicts, evidence, sourceSnapshots, sources } from "../schema";
 import { appendEvent, type AppendEventInput, type DbExecutor } from "./append-event";
 import {
   parseClaims,
   parseConflicts,
   parseEvidence,
+  parseSourceSnapshots,
   parseSources
 } from "./domain-mapper";
 import { evidenceCoversAnyClaim, evidenceCoversClaim } from "./evidence-link";
@@ -59,24 +61,34 @@ type EventInput = AppendEventInput;
 export class EvidenceRepository {
   constructor(private readonly database: Database) {}
 
-  async createSource(source: Source): Promise<Source> {
-    const [existing] = await this.database
-      .select({ id: sources.id })
-      .from(sources)
-      .where(
-        and(
-          eq(sources.sessionId, source.sessionId),
-          eq(sources.title, source.title)
+  /**
+   * Registers a source.
+   *
+   * When an `event` is supplied it is written in the same transaction as the
+   * row, so a registration can never exist without its audit trail.
+   */
+  async createSource(
+    source: Source,
+    event?: EventInput
+  ): Promise<{ source: Source; event: ExecutionEvent | null }> {
+    return this.database.transaction(async (transaction) => {
+      const [existing] = await transaction
+        .select({ id: sources.id })
+        .from(sources)
+        .where(
+          and(
+            eq(sources.sessionId, source.sessionId),
+            eq(sources.title, source.title)
+          )
         )
-      )
-      .limit(1);
-    if (existing) {
-      throw new SourceTitleConflictError(source.title);
-    }
+        .limit(1);
+      if (existing) {
+        throw new SourceTitleConflictError(source.title);
+      }
 
-    const [created] = await this.database
-      .insert(sources)
-      .values({
+      const [created] = await transaction
+        .insert(sources)
+        .values({
         id: source.id,
         sessionId: source.sessionId,
         title: source.title,
@@ -86,12 +98,37 @@ export class EvidenceRepository {
         ...(source.author ? { author: source.author } : {}),
         ...(source.publishedAt ? { publishedAt: source.publishedAt } : {}),
         ...(source.note ? { note: source.note } : {}),
+        ...(source.canonicalUrl ? { canonicalUrl: source.canonicalUrl } : {}),
+        ...(source.retrievalStatus
+          ? { retrievalStatus: source.retrievalStatus }
+          : {}),
+        ...(source.retrievalAttempts !== undefined
+          ? { retrievalAttempts: source.retrievalAttempts }
+          : {}),
+        ...(source.retrievedAt ? { retrievedAt: source.retrievedAt } : {}),
+        ...(source.retrievalError
+          ? { retrievalError: source.retrievalError }
+          : {}),
+        ...(source.contentType ? { contentType: source.contentType } : {}),
+        ...(source.contentHash ? { contentHash: source.contentHash } : {}),
+        ...(source.contentBytes !== undefined
+          ? { contentBytes: source.contentBytes }
+          : {}),
         createdBy: source.createdBy,
         createdAt: source.createdAt,
         updatedAt: source.updatedAt
       })
-      .returning();
-    return parseSources([created!])[0]!;
+        .returning();
+
+      const appended = event
+        ? await appendEvent(transaction, source.sessionId, event)
+        : null;
+
+      return {
+        source: parseSources([created!])[0]!,
+        event: appended
+      };
+    });
   }
 
   async listSources(sessionId: string): Promise<Source[]> {
@@ -102,6 +139,29 @@ export class EvidenceRepository {
     return parseSources(rows);
   }
 
+  /**
+   * Looks a source up by its normalized url.
+   *
+   * This is what makes a repeated import a no-op: the same page imported twice
+   * resolves to the row that already exists rather than a near-duplicate.
+   */
+  async findSourceByCanonicalUrl(
+    sessionId: string,
+    canonicalUrl: string
+  ): Promise<Source | null> {
+    const [row] = await this.database
+      .select()
+      .from(sources)
+      .where(
+        and(
+          eq(sources.sessionId, sessionId),
+          eq(sources.canonicalUrl, canonicalUrl)
+        )
+      )
+      .limit(1);
+    return row ? (parseSources([row])[0] ?? null) : null;
+  }
+
   async getSource(sessionId: string, sourceId: string): Promise<Source | null> {
     const [row] = await this.database
       .select()
@@ -109,6 +169,220 @@ export class EvidenceRepository {
       .where(and(eq(sources.id, sourceId), eq(sources.sessionId, sessionId)))
       .limit(1);
     return row ? (parseSources([row])[0] ?? null) : null;
+  }
+
+  /**
+   * Records a retrieval that produced readable text.
+   *
+   * The snapshot is appended and the source is pointed at it in one
+   * transaction: a page that changed gains a version, and the older row is kept
+   * so an excerpt confirmed against the previous text can still be re-checked.
+   * Re-capturing the *same* text is not a new version, but it still counts as
+   * an attempt and refreshes the retrieval facts.
+   */
+  async recordRetrievalSuccess(input: {
+    snapshot: SourceSnapshot;
+    /** Facts copied onto the source so a list view needs no join. */
+    source: {
+      title?: string | undefined;
+      author?: string | undefined;
+      publisher?: string | undefined;
+      publishedAt?: string | undefined;
+    };
+    event: EventInput;
+  }): Promise<{
+    source: Source;
+    snapshot: SourceSnapshot;
+    /** False when this capture repeated text that was already stored. */
+    created: boolean;
+    event: ExecutionEvent;
+  }> {
+    return this.database.transaction(async (transaction) => {
+      const [current] = await transaction
+        .select()
+        .from(sources)
+        .where(
+          and(
+            eq(sources.id, input.snapshot.sourceId),
+            eq(sources.sessionId, input.snapshot.sessionId)
+          )
+        )
+        .limit(1);
+      if (!current) {
+        throw new SourceNotFoundError(input.snapshot.sourceId);
+      }
+
+      const inserted = await transaction
+        .insert(sourceSnapshots)
+        .values({
+          id: input.snapshot.id,
+          sessionId: input.snapshot.sessionId,
+          sourceId: input.snapshot.sourceId,
+          canonicalUrl: input.snapshot.canonicalUrl,
+          contentHash: input.snapshot.contentHash,
+          ...(input.snapshot.title ? { title: input.snapshot.title } : {}),
+          ...(input.snapshot.author ? { author: input.snapshot.author } : {}),
+          ...(input.snapshot.publisher
+            ? { publisher: input.snapshot.publisher }
+            : {}),
+          ...(input.snapshot.publishedAt
+            ? { publishedAt: input.snapshot.publishedAt }
+            : {}),
+          contentType: input.snapshot.contentType,
+          content: input.snapshot.content,
+          contentBytes: input.snapshot.contentBytes,
+          charCount: input.snapshot.charCount,
+          retrievedAt: input.snapshot.retrievedAt,
+          createdAt: input.snapshot.createdAt
+        })
+        .onConflictDoNothing({
+          target: [sourceSnapshots.sourceId, sourceSnapshots.contentHash]
+        })
+        .returning();
+
+      const [updated] = await transaction
+        .update(sources)
+        .set({
+          retrievalStatus: "fetched",
+          retrievalAttempts: (current.retrievalAttempts ?? 0) + 1,
+          retrievedAt: input.snapshot.retrievedAt,
+          retrievalError: null,
+          contentType: input.snapshot.contentType,
+          contentHash: input.snapshot.contentHash,
+          contentBytes: input.snapshot.contentBytes,
+          // Metadata read off the page fills blanks but never overwrites what a
+          // researcher typed, so an import cannot silently rewrite a citation.
+          ...(current.title.trim() === "" && input.snapshot.title
+            ? { title: input.snapshot.title }
+            : {}),
+          ...(!current.author && input.source.author
+            ? { author: input.source.author }
+            : {}),
+          ...(!current.publisher && input.source.publisher
+            ? { publisher: input.source.publisher }
+            : {}),
+          ...(!current.publishedAt && input.source.publishedAt
+            ? { publishedAt: input.source.publishedAt }
+            : {}),
+          updatedAt: input.snapshot.createdAt
+        })
+        .where(eq(sources.id, input.snapshot.sourceId))
+        .returning();
+
+      const event = await appendEvent(
+        transaction,
+        input.snapshot.sessionId,
+        input.event
+      );
+
+      return {
+        source: parseSources([updated!])[0]!,
+        snapshot: parseSourceSnapshots([inserted[0] ?? input.snapshot])[0]!,
+        created: inserted.length > 0,
+        event
+      };
+    });
+  }
+
+  /**
+   * Records a retrieval that failed.
+   *
+   * The failure is persisted rather than reported and forgotten, so the
+   * workspace can show why an import did not produce text and a researcher can
+   * decide whether to retry.
+   */
+  async recordRetrievalFailure(input: {
+    sessionId: string;
+    sourceId: string;
+    error: string;
+    attemptedAt: string;
+    event: EventInput;
+  }): Promise<{ source: Source; event: ExecutionEvent }> {
+    return this.database.transaction(async (transaction) => {
+      const [current] = await transaction
+        .select()
+        .from(sources)
+        .where(
+          and(
+            eq(sources.id, input.sourceId),
+            eq(sources.sessionId, input.sessionId)
+          )
+        )
+        .limit(1);
+      if (!current) {
+        throw new SourceNotFoundError(input.sourceId);
+      }
+
+      const [updated] = await transaction
+        .update(sources)
+        .set({
+          retrievalStatus: "failed",
+          retrievalAttempts: (current.retrievalAttempts ?? 0) + 1,
+          retrievalError: input.error,
+          updatedAt: input.attemptedAt
+        })
+        .where(eq(sources.id, input.sourceId))
+        .returning();
+
+      const event = await appendEvent(transaction, input.sessionId, input.event);
+
+      return { source: parseSources([updated!])[0]!, event };
+    });
+  }
+
+  /** Snapshots for one source, newest first. */
+  async listSnapshots(
+    sessionId: string,
+    sourceId: string
+  ): Promise<SourceSnapshot[]> {
+    const rows = await this.database
+      .select()
+      .from(sourceSnapshots)
+      .where(
+        and(
+          eq(sourceSnapshots.sessionId, sessionId),
+          eq(sourceSnapshots.sourceId, sourceId)
+        )
+      )
+      .orderBy(desc(sourceSnapshots.retrievedAt));
+    return parseSourceSnapshots(rows);
+  }
+
+  /** The capture the source currently points at, located by content hash. */
+  async getCurrentSnapshot(
+    sessionId: string,
+    sourceId: string
+  ): Promise<SourceSnapshot | null> {
+    const [row] = await this.database
+      .select()
+      .from(sourceSnapshots)
+      .where(
+        and(
+          eq(sourceSnapshots.sessionId, sessionId),
+          eq(sourceSnapshots.sourceId, sourceId)
+        )
+      )
+      .orderBy(desc(sourceSnapshots.retrievedAt))
+      .limit(1);
+    return row ? (parseSourceSnapshots([row])[0] ?? null) : null;
+  }
+
+  /** Excerpts drawn from one source, so drift can be reported per citation. */
+  async listEvidenceForSource(
+    sessionId: string,
+    sourceId: string
+  ): Promise<Evidence[]> {
+    const rows = await this.database
+      .select()
+      .from(evidence)
+      .where(
+        and(
+          eq(evidence.sessionId, sessionId),
+          eq(evidence.sourceId, sourceId)
+        )
+      )
+      .orderBy(desc(evidence.retrievedAt));
+    return parseEvidence(rows);
   }
 
   async listEvidence(
@@ -241,6 +515,18 @@ export class EvidenceRepository {
             ? { sourceRef: input.evidence.sourceRef }
             : {}),
           ...(input.evidence.locator ? { locator: input.evidence.locator } : {}),
+          ...(input.evidence.locatorKind
+            ? { locatorKind: input.evidence.locatorKind }
+            : {}),
+          ...(input.evidence.locatorStatus
+            ? { locatorStatus: input.evidence.locatorStatus }
+            : {}),
+          ...(input.evidence.anchorText
+            ? { anchorText: input.evidence.anchorText }
+            : {}),
+          ...(input.evidence.sourceContentHash
+            ? { sourceContentHash: input.evidence.sourceContentHash }
+            : {}),
           direction: input.evidence.direction,
           reliability: input.evidence.reliability,
           verificationStatus: input.evidence.verificationStatus,
@@ -285,6 +571,10 @@ export class EvidenceRepository {
       content?: string | undefined;
       description?: string | undefined;
       locator?: string | undefined;
+      locatorKind?: Evidence["locatorKind"] | undefined;
+      locatorStatus?: Evidence["locatorStatus"] | undefined;
+      anchorText?: string | undefined;
+      sourceContentHash?: string | undefined;
       direction?: Evidence["direction"] | undefined;
       reliability?: number | undefined;
       sourceId?: string | undefined;
@@ -342,6 +632,18 @@ export class EvidenceRepository {
             : {}),
           ...(input.patch.locator !== undefined
             ? { locator: input.patch.locator }
+            : {}),
+          ...(input.patch.locatorKind !== undefined
+            ? { locatorKind: input.patch.locatorKind }
+            : {}),
+          ...(input.patch.locatorStatus !== undefined
+            ? { locatorStatus: input.patch.locatorStatus }
+            : {}),
+          ...(input.patch.anchorText !== undefined
+            ? { anchorText: input.patch.anchorText }
+            : {}),
+          ...(input.patch.sourceContentHash !== undefined
+            ? { sourceContentHash: input.patch.sourceContentHash }
             : {}),
           ...(input.patch.direction !== undefined
             ? { direction: input.patch.direction }
@@ -424,7 +726,8 @@ export class EvidenceRepository {
 
   /**
    * Everything the evidence detail panel needs: the excerpt, the source it came
-   * from, the claims it bears on, and the conflicts those claims are part of.
+   * from, the stored text it can be checked against, the claims it bears on, and
+   * the conflicts those claims are part of.
    */
   async getEvidenceContext(
     sessionId: string,
@@ -432,6 +735,7 @@ export class EvidenceRepository {
   ): Promise<{
     evidence: Evidence;
     source: Source | null;
+    snapshot: SourceSnapshot | null;
     claims: Claim[];
     conflicts: Conflict[];
   } | null> {
@@ -452,9 +756,13 @@ export class EvidenceRepository {
       this.listConflictsForClaimIds(sessionId, claimIds),
       item.sourceId ? this.getSource(sessionId, item.sourceId) : Promise.resolve(null)
     ]);
+    const snapshot = item.sourceId
+      ? await this.getCurrentSnapshot(sessionId, item.sourceId)
+      : null;
     return {
       evidence: item,
       source,
+      snapshot,
       claims: parseClaims(claimRows),
       conflicts: conflictRows
     };

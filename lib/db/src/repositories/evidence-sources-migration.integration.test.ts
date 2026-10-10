@@ -63,7 +63,40 @@ async function columns(
 
 type TestDatabase = ReturnType<typeof createTestDatabaseForUrl>;
 
-/** Creates the throwaway database, runs 0001-0005, and returns a handle. */
+/**
+ * Rolls back every migration that was applied after `filename`, newest first.
+ *
+ * A down script only ever undoes its own migration, so it is not allowed to
+ * know about objects a later migration adds — `DROP TABLE sources` cannot be
+ * expected to cope with a foreign key introduced afterwards. To test 0005's
+ * down script as what it claims to be (a rollback that runs when 0005 is the
+ * newest migration), the chain above it has to be unwound first, in order.
+ *
+ * The list is read from the ledger rather than hard-coded, so a migration added
+ * later does not silently invalidate this test.
+ */
+async function rollbackMigrationsAfter(
+  database: TestDatabase,
+  filename: string
+): Promise<void> {
+  const rows = (await database.execute(
+    sql.raw(
+      `select filename from schema_migrations where filename > '${filename}' order by filename desc`
+    )
+  )) as unknown as Array<{ filename: string }>;
+  for (const row of rows) {
+    const downFile = `rollback/${row.filename.replace(/\.sql$/, ".down.sql")}`;
+    for (const statement of await statements(downFile)) {
+      await database.execute(sql.raw(statement));
+    }
+  }
+}
+
+/**
+ * Creates the throwaway database, migrates it fully, then unwinds everything
+ * newer than 0005 so the 0005 down script can be exercised as the newest
+ * migration — which is the only situation it is written to handle.
+ */
 async function freshMigratedDatabase(): Promise<{
   databaseName: string;
   database: TestDatabase;
@@ -73,6 +106,7 @@ async function freshMigratedDatabase(): Promise<{
   const database = createTestDatabaseForUrl(tempDatabaseUrl(databaseName));
   const applied = (await runMigrations(database, resolve("migrations"))).applied;
   expect(applied).toContain("0005_evidence_sources.sql");
+  await rollbackMigrationsAfter(database, "0005_evidence_sources.sql");
   return { databaseName, database };
 }
 

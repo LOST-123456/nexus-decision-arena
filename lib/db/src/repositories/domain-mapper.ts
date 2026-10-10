@@ -7,6 +7,7 @@ import {
   EvidenceSchema,
   HumanDecisionSchema,
   SourceSchema,
+  SourceSnapshotSchema,
   type AgentRole,
   type Challenge,
   type Claim,
@@ -14,7 +15,8 @@ import {
   type Conflict,
   type Evidence,
   type HumanDecision,
-  type Source
+  type Source,
+  type SourceSnapshot
 } from "@nexus/shared";
 
 function record(value: unknown): Record<string, unknown> {
@@ -69,8 +71,25 @@ export function parseSources(rows: readonly unknown[]): Source[] {
       return {
         ...value,
         ...(value.publishedAt ? { publishedAt: iso(value.publishedAt) } : {}),
+        ...(value.retrievedAt ? { retrievedAt: iso(value.retrievedAt) } : {}),
         createdAt: iso(value.createdAt),
         updatedAt: iso(value.updatedAt)
+      };
+    })
+  );
+}
+
+export function parseSourceSnapshots(
+  rows: readonly unknown[]
+): SourceSnapshot[] {
+  return SourceSnapshotSchema.array().parse(
+    rows.map((row) => {
+      const value = record(row);
+      return {
+        ...value,
+        ...(value.publishedAt ? { publishedAt: iso(value.publishedAt) } : {}),
+        retrievedAt: iso(value.retrievedAt),
+        createdAt: iso(value.createdAt)
       };
     })
   );

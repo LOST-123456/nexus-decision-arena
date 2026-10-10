@@ -24,6 +24,35 @@ export const EvidenceValidityPeriodSchema = z.object({
   to: TimestampSchema.optional()
 });
 
+/** What kind of anchor was used to put the excerpt back into the source text. */
+export const EvidenceLocatorKindSchema = z.enum([
+  "quote",
+  "heading",
+  "paragraph",
+  "page",
+  "timestamp",
+  "manual"
+]);
+
+/**
+ * Whether the excerpt can still be found in the source.
+ *
+ * This is a third state axis and must not be folded into
+ * `verificationStatus`: an excerpt can be perfectly verified and still have
+ * disappeared from a page that was later rewritten, and a quote can be
+ * locatable while nobody has stood behind it yet.
+ */
+export const EvidenceLocatorStatusSchema = z.enum([
+  "unanchored",
+  "anchored",
+  "missing"
+]);
+
+export type EvidenceLocatorKind = z.infer<typeof EvidenceLocatorKindSchema>;
+export type EvidenceLocatorStatus = z.infer<
+  typeof EvidenceLocatorStatusSchema
+>;
+
 type EvidenceRules = {
   kind: EvidenceKind;
   sourceId?: string | undefined;
@@ -103,6 +132,31 @@ export const EvidenceObjectSchema = z
     locator: z.preprocess(
       (value) => (value === null || value === "" ? undefined : value),
       z.string().max(240).optional()
+    ),
+    /** How the excerpt is anchored: a verbatim quote, a heading, a page … */
+    locatorKind: z.preprocess(
+      (value) => (value === null || value === "" ? undefined : value),
+      EvidenceLocatorKindSchema.optional()
+    ),
+    /**
+     * Whether that anchor still resolves. Optional in the type so hand-built
+     * literals keep compiling; the database holds the value and a CHECK keeps
+     * the value set closed.
+     */
+    locatorStatus: EvidenceLocatorStatusSchema.optional(),
+    /** The exact text used to re-find the excerpt inside the source content. */
+    anchorText: z.preprocess(
+      (value) => (value === null || value === "" ? undefined : value),
+      z.string().max(4000).optional()
+    ),
+    /**
+     * Hash of the snapshot this excerpt was confirmed against. Comparing it
+     * with the source's current hash is what turns silent page drift into a
+     * visible "needs re-confirmation".
+     */
+    sourceContentHash: z.preprocess(
+      (value) => (value === null || value === "" ? undefined : value),
+      z.string().max(128).optional()
     ),
     direction: EvidenceDirectionSchema,
     reliability: z.number().min(0).max(1),

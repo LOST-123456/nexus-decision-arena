@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import {
   boolean,
@@ -144,6 +145,19 @@ export const sources = pgTable(
     author: text("author"),
     publishedAt: timestampColumn("published_at"),
     note: text("note"),
+    /**
+     * Retrieval axis, deliberately separate from evidence verification: it
+     * records whether the page itself could be read, not whether anyone has
+     * stood behind an excerpt from it.
+     */
+    canonicalUrl: text("canonical_url"),
+    retrievalStatus: text("retrieval_status").notNull().default("not_requested"),
+    retrievalAttempts: integer("retrieval_attempts").notNull().default(0),
+    retrievedAt: timestampColumn("retrieved_at"),
+    retrievalError: text("retrieval_error"),
+    contentType: text("content_type"),
+    contentHash: text("content_hash"),
+    contentBytes: integer("content_bytes"),
     createdBy: text("created_by").notNull(),
     createdAt: timestampColumn("created_at").notNull().defaultNow(),
     updatedAt: timestampColumn("updated_at").notNull().defaultNow()
@@ -152,6 +166,53 @@ export const sources = pgTable(
     sessionTitle: uniqueIndex("sources_session_title_idx").on(
       table.sessionId,
       table.title
+    ),
+    // Manual sources carry no canonical url and are exempt, so the index is
+    // partial rather than a per-session uniqueness rule over a nullable column.
+    sessionCanonicalUrl: uniqueIndex("sources_session_canonical_url_idx")
+      .on(table.sessionId, table.canonicalUrl)
+      .where(sql`${table.canonicalUrl} IS NOT NULL`)
+  })
+);
+
+/**
+ * An immutable capture of a page at one point in time.
+ *
+ * Rows are appended, never rewritten: when a page changes, the new capture is
+ * added so an excerpt confirmed against the older text can still be re-located,
+ * and so a later drift can be attributed to the version it actually matched.
+ */
+export const sourceSnapshots = pgTable(
+  "source_snapshots",
+  {
+    id: uuid("id").primaryKey(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => decisionSessions.id),
+    sourceId: uuid("source_id")
+      .notNull()
+      .references(() => sources.id, { onDelete: "cascade" }),
+    canonicalUrl: text("canonical_url").notNull(),
+    contentHash: text("content_hash").notNull(),
+    title: text("title"),
+    author: text("author"),
+    publisher: text("publisher"),
+    publishedAt: timestampColumn("published_at"),
+    contentType: text("content_type").notNull(),
+    content: text("content").notNull(),
+    contentBytes: integer("content_bytes").notNull(),
+    charCount: integer("char_count").notNull(),
+    retrievedAt: timestampColumn("retrieved_at").notNull(),
+    createdAt: timestampColumn("created_at").notNull().defaultNow()
+  },
+  (table) => ({
+    version: uniqueIndex("source_snapshots_version_idx").on(
+      table.sourceId,
+      table.contentHash
+    ),
+    sourceRetrieved: index("source_snapshots_source_retrieved_idx").on(
+      table.sourceId,
+      table.retrievedAt
     )
   })
 );
@@ -170,6 +231,17 @@ export const evidence = pgTable("evidence", {
   sourceId: uuid("source_id").references(() => sources.id),
   sourceRef: text("source_ref"),
   locator: text("locator"),
+  /**
+   * Where the excerpt sits in the source, and whether it can still be found
+   * there. This is a third state axis: a quote can be locatable but unverified,
+   * or verified but no longer present in the page it was taken from.
+   */
+  locatorKind: text("locator_kind"),
+  locatorStatus: text("locator_status").notNull().default("unanchored"),
+  /** The exact text used to re-find the excerpt inside the source content. */
+  anchorText: text("anchor_text"),
+  /** Hash of the snapshot this excerpt was confirmed against, for drift. */
+  sourceContentHash: text("source_content_hash"),
   direction: text("direction").notNull(),
   reliability: doublePrecision("reliability").notNull(),
   verificationStatus: text("verification_status").notNull(),
