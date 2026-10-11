@@ -26,7 +26,11 @@ import type {
   SupportAssessmentStatus,
   SourceProvenanceKind,
   SourceRelationKind,
-  SourceLinkConfidence
+  SourceLinkConfidence,
+  ConflictStatus,
+  EvidenceMapNode,
+  EvidenceMapNodeType,
+  EvidenceMapRelation
 } from "@nexus/shared";
 
 /**
@@ -738,4 +742,51 @@ export function researchSearchFailureLabel(
   if (code === "search_failed") return "受控检索未能返回结果，请重试。";
   if (code === "storage_unavailable") return "受控检索暂不可用。";
   return "受控检索操作失败，请重试。";
+}
+
+/* ---------------------------------------------------------------------- */
+/* Evidence Map                                                            */
+/* ---------------------------------------------------------------------- */
+
+export function conflictStatusLabel(status: ConflictStatus): string {
+  if (status === "detected") return "已检出";
+  if (status === "human_review") return "待人工裁定";
+  return "已解决";
+}
+
+export const evidenceMapNodeTypeLabel: Record<EvidenceMapNodeType, string> = {
+  claim: "主张",
+  evidence: "证据",
+  source: "来源",
+  conflict: "冲突",
+  challenge: "质询"
+};
+
+export const evidenceMapRelationLabel: Record<EvidenceMapRelation, string> = {
+  supports: "支持",
+  opposes: "反对",
+  context: "背景",
+  provided_by: "出自来源",
+  involved_in: "涉入冲突",
+  questions: "质询",
+  generated_by: "衍生质询"
+};
+
+/**
+ * Status text for one map node, reusing the workspace's own label functions
+ * so a status never reads differently inside the map than in its panel.
+ */
+export function evidenceMapNodeStatusLabel(node: EvidenceMapNode): string {
+  switch (node.type) {
+    case "claim":
+      return claimStatusLabel(node.status);
+    case "evidence":
+      return verificationLabel(node.status);
+    case "source":
+      return sourceRetrievalLabel(node.status);
+    case "conflict":
+      return conflictStatusLabel(node.status);
+    case "challenge":
+      return challengeStatusLabel(node.status);
+  }
 }

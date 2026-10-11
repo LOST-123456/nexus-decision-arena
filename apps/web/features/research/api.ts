@@ -40,7 +40,8 @@ import type {
   ResearchSearchTask,
   ResearchSearchTaskStatus,
   SearchCandidate,
-  ResearchSearchFailureCode
+  ResearchSearchFailureCode,
+  EvidenceMapGraph
 } from "@nexus/shared";
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "";
 
@@ -414,6 +415,17 @@ export function getResearchWorkspace(
 ): Promise<ResearchWorkspace> {
   return request<ResearchWorkspace>(
     `/api/sessions/${encodeURIComponent(sessionId)}/research`
+  );
+}
+
+/**
+ * Reads the Evidence Map: the session's material drawn as a relationship
+ * graph. Read-only on both ends — an edge in the graph means "bears on", not
+ * "proves", so nothing here can promote a claim's verdict.
+ */
+export function getEvidenceMap(sessionId: string): Promise<EvidenceMapGraph> {
+  return request<EvidenceMapGraph>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/evidence-map`
   );
 }
 

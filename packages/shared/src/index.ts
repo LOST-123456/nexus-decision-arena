@@ -27,4 +27,5 @@ export * from "./verification/citation-integrity";
 export * from "./verification/source-independence";
 export * from "./verification/research-plan";
 export * from "./research/search-task";
+export * from "./research/evidence-map";
 export * from "./replay/decision-replay";

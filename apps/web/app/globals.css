@@ -2286,3 +2286,164 @@ dd {
     justify-content: center;
   }
 }
+
+/* ---------------------------------------------------------------------- */
+/* Evidence Map（证据地图）                                                 */
+/* ---------------------------------------------------------------------- */
+
+.evidence-map-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.evidence-map-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+
+.evidence-map-layout:has(.evidence-map-detail) {
+  grid-template-columns: minmax(0, 1fr) 320px;
+}
+
+.evidence-map-canvas {
+  position: relative;
+  height: clamp(420px, 62vh, 720px);
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgba(12, 20, 26, 0.35);
+}
+
+.evidence-map-node {
+  width: 240px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line-strong);
+  background: var(--panel, #12202a);
+  color: inherit;
+  font-size: 12px;
+}
+
+.evidence-map-node header {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.85;
+}
+
+.evidence-map-node-label {
+  margin: 0;
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.evidence-map-node-claim {
+  border-color: var(--supports);
+  border-width: 1.5px;
+}
+
+.evidence-map-node-evidence {
+  border-color: var(--line-strong);
+}
+
+.evidence-map-node-source {
+  border-style: dashed;
+}
+
+.evidence-map-node-conflict {
+  border-color: var(--warning);
+  border-width: 1.5px;
+}
+
+.evidence-map-node-challenge {
+  border-color: var(--danger);
+  border-width: 1.5px;
+}
+
+.evidence-map-handle {
+  width: 7px;
+  height: 7px;
+  background: var(--line-strong);
+}
+
+.evidence-map-empty {
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: var(--panel, #12202a);
+  font-size: 12px;
+}
+
+.evidence-map-detail {
+  align-self: start;
+  padding: 12px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  font-size: 13px;
+}
+
+.evidence-map-detail header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.evidence-map-detail-kind {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.85;
+}
+
+.evidence-map-detail-close {
+  border: none;
+  background: none;
+  color: inherit;
+  font-size: 16px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.evidence-map-detail-row {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 8px;
+  padding: 6px 0;
+  border-top: 1px solid rgba(83, 103, 116, 0.35);
+}
+
+.evidence-map-detail-row dt {
+  opacity: 0.75;
+}
+
+.evidence-map-detail-row dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.evidence-map-metric-note {
+  display: block;
+  opacity: 0.7;
+  font-size: 11px;
+}
+
+@media (max-width: 960px) {
+  .evidence-map-layout:has(.evidence-map-detail) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .evidence-map-canvas {
+    height: clamp(360px, 55vh, 560px);
+  }
+}

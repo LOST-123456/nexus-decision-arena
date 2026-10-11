@@ -16,6 +16,7 @@ import {
 } from "./api/plugins/idempotency";
 import { registerAuthRoutes } from "./api/routes/auth";
 import { registerEvidenceRoutes } from "./api/routes/evidence";
+import { registerEvidenceMapRoutes } from "./api/routes/evidence-map";
 import { registerEventRoutes } from "./api/routes/events";
 import { registerHumanDecisionRoutes } from "./api/routes/human-decisions";
 import { registerInspectorRoutes } from "./api/routes/inspector";
@@ -201,6 +202,7 @@ export function createApp(
   registerReportRoutes(app, dependencies);
   registerHumanDecisionRoutes(app, dependencies, idempotency, eventBus);
   registerEvidenceRoutes(app, dependencies, idempotency, eventBus);
+  registerEvidenceMapRoutes(app, dependencies);
   registerClaimExtractionRoutes(app, dependencies, idempotency);
   registerCitationReviewRoutes(app, dependencies, idempotency);
   registerSourceIndependenceRoutes(app, dependencies, idempotency);

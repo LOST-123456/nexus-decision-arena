@@ -27,8 +27,24 @@ class ResearchPlanFailedError extends Error {
   }
 }
 
+/**
+ * The plan panel embeds the controlled-search panel, whose error handlers
+ * consult this class from "./api". The mock must export it, or the error
+ * path itself throws (unhandled rejection) instead of rendering a message.
+ */
+class ResearchSearchFailedError extends Error {
+  constructor(
+    message: string,
+    readonly code?: string
+  ) {
+    super(message);
+    this.name = "ResearchSearchFailedError";
+  }
+}
+
 vi.mock("./api", () => ({
   ResearchPlanFailedError,
+  ResearchSearchFailedError,
   getResearchPlan: (...args: unknown[]) => getResearchPlan(...args),
   addToResearchPlan: (...args: unknown[]) => addToResearchPlan(...args),
   editPlanItemQuery: (...args: unknown[]) => editPlanItemQuery(...args),

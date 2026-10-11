@@ -41,6 +41,7 @@ import { ClaimCandidatesPanel } from "./claim-candidates";
 import { CitationReviewPanel } from "./citation-review";
 import { SourceIndependencePanel } from "./source-independence";
 import { ResearchPlanPanel } from "./research-plan";
+import { EvidenceMapPanel } from "./evidence-map";
 import { SourceReader } from "./source-reader";
 import {
   claimStatusLabel,
@@ -66,7 +67,8 @@ type Panel =
   | "analyze"
   | "citations"
   | "independence"
-  | "plan";
+  | "plan"
+  | "map";
 
 /**
  * `claims` and `detail` are their own tabs only where the layout collapses: on
@@ -87,7 +89,8 @@ const PANELS: Array<{ id: Panel; label: string; narrowOnly?: boolean }> = [
   { id: "analyze", label: "AI 拆解" },
   { id: "citations", label: "引用核查" },
   { id: "independence", label: "来源关系" },
-  { id: "plan", label: "研究计划" }
+  { id: "plan", label: "研究计划" },
+  { id: "map", label: "证据地图" }
 ];
 
 /**
@@ -748,6 +751,25 @@ export function ResearchWorkspace({
                 await refreshHistory();
               }}
             />
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  // 证据地图 gets the full width for the same reason: a graph needs room to
+  // be read, and the detail panel sits beside it on wide screens.
+  if (panel === "map") {
+    return (
+      <>
+        {tabs}
+        <div
+          className="research-body"
+          data-testid="research-body"
+          data-mode="analyze"
+        >
+          <div className="research-column">
+            <EvidenceMapPanel sessionId={sessionId} />
           </div>
         </div>
       </>
