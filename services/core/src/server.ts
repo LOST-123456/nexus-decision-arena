@@ -8,7 +8,8 @@ import {
   InspectorRepository,
   ReviewRepository,
   ClaimExtractionRepository,
-  CitationReviewRepository
+  CitationReviewRepository,
+  SourceIndependenceRepository
 } from "@nexus/db";
 import { OpenAiCompatibleProvider, type LlmProvider } from "@nexus/llm";
 import { createApp } from "./app";
@@ -29,6 +30,7 @@ import { EventBus } from "./execution/event-bus";
 import { CrossReviewService } from "./research/cross-review-service";
 import { ClaimExtractionService } from "./research/claim-extraction-service";
 import { CitationReviewService } from "./research/citation-review-service";
+import { SourceIndependenceService } from "./research/source-independence-service";
 import { DeterministicExtractionProvider } from "./research/deterministic-extraction-provider";
 import { createPageFetcher } from "./research/page-fetch";
 import { createNodePageTransport, dnsAddressResolver } from "./research/node-page-transport";
@@ -209,12 +211,15 @@ const app = createApp(
       providerName: extractionProvider.name,
       model: extractionProvider.model
     }),
+    sourceIndependence: new SourceIndependenceService({
+      sources: researchEvidence,
+      assertions: new SourceIndependenceRepository(database)
+    }),
     arena,
     reports,
     events,
     runSession,
-  },
-  new PostgresIdempotencyStore(database),
+  },  new PostgresIdempotencyStore(database),
   {
     eventBus,
     runtimeInfo:

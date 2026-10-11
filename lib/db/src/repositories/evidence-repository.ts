@@ -367,6 +367,28 @@ export class EvidenceRepository {
     return row ? (parseSourceSnapshots([row])[0] ?? null) : null;
   }
 
+  /**
+   * The capture each source currently points at, for a whole session.
+   *
+   * A session-wide read rather than one call per source, so the independence
+   * analysis can fingerprint every source without an N+1 walk. The newest row
+   * per source wins, which is the same rule `getCurrentSnapshot` applies.
+   */
+  async listLatestSnapshots(sessionId: string): Promise<SourceSnapshot[]> {
+    const rows = await this.database
+      .select()
+      .from(sourceSnapshots)
+      .where(eq(sourceSnapshots.sessionId, sessionId))
+      .orderBy(desc(sourceSnapshots.retrievedAt));
+    const latest = new Map<string, SourceSnapshot>();
+    for (const snapshot of parseSourceSnapshots(rows)) {
+      if (!latest.has(snapshot.sourceId)) {
+        latest.set(snapshot.sourceId, snapshot);
+      }
+    }
+    return [...latest.values()];
+  }
+
   /** Excerpts drawn from one source, so drift can be reported per citation. */
   async listEvidenceForSource(
     sessionId: string,

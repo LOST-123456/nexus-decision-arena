@@ -671,6 +671,101 @@ export const claimSupportAssessments = pgTable(
   })
 );
 
+/**
+ * Source independence — a person's ruling about a PAIR of sources.
+ *
+ * Detection is computed on read, so only human assertions live here. The pair is
+ * stored canonically (`fromSourceId < toSourceId`) and one current statement per
+ * pair is enforced by a partial unique index, so "these two are the same" and
+ * "these two are different" can never both be current. Rows are append-only:
+ * a correction points back at what it replaced.
+ *
+ * Nothing in this table is a verdict or a verification.
+ */
+export const sourceRelations = pgTable(
+  "source_relations",
+  {
+    id: uuid("id").primaryKey(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => decisionSessions.id, { onDelete: "cascade" }),
+    fromSourceId: uuid("from_source_id")
+      .notNull()
+      .references(() => sources.id, { onDelete: "cascade" }),
+    toSourceId: uuid("to_source_id")
+      .notNull()
+      .references(() => sources.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    basis: text("basis").notNull(),
+    similarity: numeric("similarity", { precision: 4, scale: 3 }),
+    reason: text("reason").notNull(),
+    origin: text("origin").notNull(),
+    actor: text("actor").notNull(),
+    supersedesId: uuid("supersedes_id").references(
+      (): AnyPgColumn => sourceRelations.id,
+      { onDelete: "set null" }
+    ),
+    isCurrent: boolean("is_current").notNull().default(true),
+    createdAt: timestampColumn("created_at").notNull().defaultNow()
+  },
+  (table) => ({
+    /**
+     * The unique index is over the UNORDERED pair (LEAST/GREATEST), so only one
+     * current statement exists per pair while each row keeps its direction —
+     * which is what makes a reprint or quote chain readable.
+     */
+    current: uniqueIndex("source_relations_current_idx")
+      .on(
+        sql`LEAST(${table.fromSourceId}, ${table.toSourceId})`,
+        sql`GREATEST(${table.fromSourceId}, ${table.toSourceId})`
+      )
+      .where(sql`"is_current"`),
+    session: index("source_relations_session_idx").on(
+      table.sessionId,
+      table.createdAt
+    )
+  })
+);
+
+/**
+ * Source independence — a person's override of ONE source's provenance kind.
+ *
+ * Separate table from `source_relations` because the grain is different: this
+ * says "this source is first-hand", which is a statement about one row, not
+ * about a pair. Append-only with a single current row per source.
+ */
+export const sourceProfileOverrides = pgTable(
+  "source_profile_overrides",
+  {
+    id: uuid("id").primaryKey(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => decisionSessions.id, { onDelete: "cascade" }),
+    sourceId: uuid("source_id")
+      .notNull()
+      .references(() => sources.id, { onDelete: "cascade" }),
+    provenanceKind: text("provenance_kind").notNull(),
+    note: text("note").notNull(),
+    origin: text("origin").notNull(),
+    actor: text("actor").notNull(),
+    supersedesId: uuid("supersedes_id").references(
+      (): AnyPgColumn => sourceProfileOverrides.id,
+      { onDelete: "set null" }
+    ),
+    isCurrent: boolean("is_current").notNull().default(true),
+    createdAt: timestampColumn("created_at").notNull().defaultNow()
+  },
+  (table) => ({
+    current: uniqueIndex("source_profile_overrides_current_idx")
+      .on(table.sourceId)
+      .where(sql`"is_current"`),
+    session: index("source_profile_overrides_session_idx").on(
+      table.sessionId,
+      table.createdAt
+    )
+  })
+);
+
 export const idempotencyKeys = pgTable("idempotency_keys", {
   key: text("key").primaryKey(),
   requestHash: text("request_hash").notNull(),

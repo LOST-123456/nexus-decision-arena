@@ -204,6 +204,9 @@ test("narrow viewport degrades to tabs instead of squeezed columns", async ({
   await page.getByRole("tab", { name: "引用核查" }).click();
   await expect(page.getByTestId("citation-review")).toBeVisible();
 
+  await page.getByRole("tab", { name: "来源关系" }).click();
+  await expect(page.getByTestId("source-independence")).toBeVisible();
+
   await expectNoHorizontalOverflow(page);
 });
 
@@ -499,6 +502,76 @@ test("citation review separates 'is the quote there' from 'does it support the c
   // The excerpt's own verification state is neither of the two new states.
   await expect(row).toContainText("待核实");
   await expect(row).not.toContainText("已核实");
+
+  await expectNoHorizontalOverflow(page);
+});
+
+/**
+ * The source-independence surface, exercised end to end.
+ *
+ * What is proved here:
+ *  1. two unrelated pages are reported as two independent sources — the count
+ *     is computed from the stored rows, not typed in;
+ *  2. the panel states plainly that independence neither verifies anything nor
+ *     changes the verification gate;
+ *  3. a person can override a source's provenance kind, and the next read shows
+ *     the human ruling together with who made it.
+ */
+test("source independence counts independent sources and records a human ruling", async ({
+  page
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await loginAsOwner(page);
+  const sessionId = await createResearch(page);
+
+  const register = async (title: string, url: string) => {
+    const response = await page.context().request.post(
+      `/api/sessions/${sessionId}/sources`,
+      {
+        headers: { "idempotency-key": `e2e-source-${randomUUID()}` },
+        data: { title, kind: "document", url, publisher: "示例出版社" }
+      }
+    );
+    expect(response.status()).toBe(201);
+    const { source } = (await response.json()) as { source: { id: string } };
+    return source.id;
+  };
+
+  const firstSourceId = await register(
+    "第一份资料",
+    "https://example.org/first.pdf"
+  );
+  await register("第二份资料", "https://example.org/second.pdf");
+
+  await page.goto(`/research/${sessionId}`);
+  await page.getByRole("tab", { name: "来源关系" }).click();
+  await expect(page.getByTestId("source-independence")).toBeVisible();
+
+  await expect(page.getByTestId("independence-headline")).toContainText(
+    "2 个页面、2 条独立信息源"
+  );
+  await expect(page.getByTestId("independence-disclaimer")).toContainText(
+    "不会自动核实"
+  );
+  // With no recorded evidence either way, the honest answer is an unknown kind.
+  await expect(page.getByTestId(`provenance-pill-${firstSourceId}`)).toContainText(
+    "来源类型未知"
+  );
+
+  await page.getByTestId(`override-kind-${firstSourceId}`).click();
+  await page.getByTestId("override-kind-select").selectOption("primary");
+  await page
+    .getByTestId("override-note")
+    .fill("确认这是统计局原始发布页面。");
+  await page.getByTestId("override-submit").click();
+
+  await expect(page.getByTestId("analysis-notice")).toContainText("已记录");
+  await expect(page.getByTestId(`provenance-pill-${firstSourceId}`)).toContainText(
+    "一手资料"
+  );
+  await expect(page.getByTestId(`provenance-pill-${firstSourceId}`)).toContainText(
+    "人工判定"
+  );
 
   await expectNoHorizontalOverflow(page);
 });

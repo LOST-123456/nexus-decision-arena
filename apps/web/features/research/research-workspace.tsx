@@ -39,6 +39,7 @@ import {
 import { ClaimForm, EvidenceForm, ImportSourceForm, SourceForm } from "./forms";
 import { ClaimCandidatesPanel } from "./claim-candidates";
 import { CitationReviewPanel } from "./citation-review";
+import { SourceIndependencePanel } from "./source-independence";
 import { SourceReader } from "./source-reader";
 import {
   claimStatusLabel,
@@ -62,7 +63,8 @@ type Panel =
   | "detail"
   | "reader"
   | "analyze"
-  | "citations";
+  | "citations"
+  | "independence";
 
 /**
  * `claims` and `detail` are their own tabs only where the layout collapses: on
@@ -81,7 +83,8 @@ const PANELS: Array<{ id: Panel; label: string; narrowOnly?: boolean }> = [
   { id: "detail", label: "来源详情", narrowOnly: true },
   { id: "reader", label: "原文阅读" },
   { id: "analyze", label: "AI 拆解" },
-  { id: "citations", label: "引用核查" }
+  { id: "citations", label: "引用核查" },
+  { id: "independence", label: "来源关系" }
 ];
 
 /**
@@ -113,7 +116,9 @@ const HISTORY_EVENT_TYPES = new Set([
   "CLAIM_CANDIDATES_DECIDED",
   "CITATION_INTEGRITY_CHECKED",
   "SUPPORT_ASSESSMENT_RECORDED",
-  "CITATION_CORRECTION_RECORDED"
+  "CITATION_CORRECTION_RECORDED",
+  "SOURCE_RELATION_RECORDED",
+  "SOURCE_PROFILE_OVERRIDDEN"
 ]);
 
 const RESEARCH_MODE: Panel[] = ["claims", "content", "detail"];
@@ -672,6 +677,32 @@ export function ResearchWorkspace({
                   { id: source.id, title: source.title }
                 ])
               )}
+              canEdit={canEdit}
+              onChanged={async () => {
+                await reload();
+                await refreshHistory();
+              }}
+            />
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  // Source independence also gets the full width: each source carries a
+  // profile, its relations and the counts, which needs room to read.
+  if (panel === "independence") {
+    return (
+      <>
+        {tabs}
+        <div
+          className="research-body"
+          data-testid="research-body"
+          data-mode="analyze"
+        >
+          <div className="research-column">
+            <SourceIndependencePanel
+              sessionId={sessionId}
               canEdit={canEdit}
               onChanged={async () => {
                 await reload();

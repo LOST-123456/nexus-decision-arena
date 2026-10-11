@@ -12,6 +12,8 @@ import {
   EvidenceSchema,
   HumanDecisionSchema,
   SourceSchema,
+  SourceProfileOverrideSchema,
+  SourceRelationSchema,
   SourceSnapshotSchema,
   type AgentRole,
   type Challenge,
@@ -26,6 +28,8 @@ import {
   type EvidenceCandidate,
   type HumanDecision,
   type Source,
+  type SourceProfileOverride,
+  type SourceRelation,
   type SourceSnapshot
 } from "@nexus/shared";
 
@@ -243,5 +247,39 @@ export function parseClaimSupportAssessments(
 ): ClaimSupportAssessment[] {
   return ClaimSupportAssessmentSchema.array().parse(
     rows.map((row) => withCitationDates(record(row)))
+  );
+}
+
+/**
+ * Source assertion rows keep their nulls for the same reason the citation rows
+ * do: `supersedesId: null` means "this is the original statement", and
+ * `similarity: null` means "this link was not made on a similarity score".
+ * `numeric` arrives as a string, so it is converted here.
+ */
+function withSourceAssertionDates(value: Record<string, unknown>) {
+  const similarity = value.similarity;
+  return {
+    ...value,
+    ...(similarity === null || similarity === undefined
+      ? {}
+      : { similarity: Number(similarity) }),
+    isCurrent: value.isCurrent === true,
+    createdAt: iso(value.createdAt)
+  };
+}
+
+export function parseSourceRelations(
+  rows: readonly unknown[]
+): SourceRelation[] {
+  return SourceRelationSchema.array().parse(
+    rows.map((row) => withSourceAssertionDates(record(row)))
+  );
+}
+
+export function parseSourceProfileOverrides(
+  rows: readonly unknown[]
+): SourceProfileOverride[] {
+  return SourceProfileOverrideSchema.array().parse(
+    rows.map((row) => withSourceAssertionDates(record(row)))
   );
 }

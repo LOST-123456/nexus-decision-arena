@@ -100,6 +100,9 @@ export function renderFactCheckReportMarkdown(
     `- 核查范围：${report.scope.claims} 条主张 / ${report.scope.evidence} 条材料 / ${report.scope.sources} 条来源 / ${report.scope.challenges} 项质询 / ${report.scope.reviews} 次人工复核`
   );
   lines.push(
+    `- 独立来源：${report.independence.headline}（同一份信息源的转载不重复计票）`
+  );
+  lines.push(
     `- 所用资料时间范围：发布 ${formatDate(report.materialsTimeRange.publishedAt.earliest)} ~ ${formatDate(report.materialsTimeRange.publishedAt.latest)}；获取 ${formatDate(report.materialsTimeRange.retrievedAt.earliest)} ~ ${formatDate(report.materialsTimeRange.retrievedAt.latest)}`
   );
   lines.push(

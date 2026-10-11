@@ -141,7 +141,12 @@ function applyContiguousEvent(
     // only advance the replay cursor.
     case "CITATION_INTEGRITY_CHECKED":
     case "SUPPORT_ASSESSMENT_RECORDED":
-    case "CITATION_CORRECTION_RECORDED": {
+    case "CITATION_CORRECTION_RECORDED":
+    // A person's ruling about how two sources relate, and an override of a
+    // source's provenance kind, are append-only research records too. They move
+    // neither the phase nor a verdict, so they only advance the replay cursor.
+    case "SOURCE_RELATION_RECORDED":
+    case "SOURCE_PROFILE_OVERRIDDEN": {
       return { ...current, lastSequence: event.sequence };
     }
     // A human fact-check ruling is an append-only research record. It does not

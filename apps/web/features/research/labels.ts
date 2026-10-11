@@ -20,7 +20,10 @@ import type {
   CitationIntegrityStatus,
   ClaimSupportSummaryStatus,
   CitationReviewFailureCode,
-  SupportAssessmentStatus
+  SupportAssessmentStatus,
+  SourceProvenanceKind,
+  SourceRelationKind,
+  SourceLinkConfidence
 } from "@nexus/shared";
 
 /**
@@ -600,4 +603,53 @@ export function formatDate(value: string | null | undefined): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
     date.getDate()
   ).padStart(2, "0")}`;
+}
+
+/* ------------------------------------------------------------------ *
+ * Source independence
+ * ------------------------------------------------------------------ */
+
+/**
+ * 来源类型. `unknown` is rendered as a real answer, not as a blank: "we could
+ * not establish this from the recorded facts" is a finding, and dressing it up
+ * as a confident label is exactly what this axis exists to avoid.
+ */
+export function sourceProvenanceLabel(kind: SourceProvenanceKind): string {
+  if (kind === "primary") return "一手资料";
+  if (kind === "secondary") return "二手转述";
+  if (kind === "commentary") return "评论/观点";
+  if (kind === "official_notice") return "机构公告";
+  if (kind === "dataset") return "数据集";
+  return "来源类型未知";
+}
+
+export function sourceProvenanceTone(kind: SourceProvenanceKind): string {
+  if (kind === "primary") return "research-pill-supports";
+  if (kind === "dataset") return "research-pill-context";
+  if (kind === "secondary") return "research-pill-neutral";
+  if (kind === "unknown") return "research-pill-unverified";
+  return "research-pill-neutral";
+}
+
+export function sourceRelationKindLabel(kind: SourceRelationKind): string {
+  if (kind === "same_page") return "同一页面";
+  if (kind === "duplicate") return "内容重复";
+  if (kind === "reprint") return "转载";
+  if (kind === "quotes") return "引用";
+  if (kind === "same_origin") return "同源";
+  if (kind === "near_duplicate") return "疑似重复";
+  return "判定为不相关";
+}
+
+export function sourceLinkConfidenceLabel(
+  confidence: SourceLinkConfidence
+): string {
+  return confidence === "confirmed" ? "已确认" : "疑似，待确认";
+}
+
+export function sourceAnalysisFailureLabel(code: string | undefined): string {
+  if (code === "source_not_found") return "找不到该来源，它可能不属于这份研究。";
+  if (code === "invalid_request") return "请求内容不合法，请检查后重试。";
+  if (code === "storage_unavailable") return "来源分析暂不可用。";
+  return "来源分析失败，请重试。";
 }

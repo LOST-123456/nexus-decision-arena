@@ -14,8 +14,11 @@ import {
   type Source,
   diagnoseEvidenceGaps,
   EvidenceGapKindSchema,
+  detectConfirmedSourceLinks,
+  independenceHeadline,
   isConflictAwaitingHumanDecision,
-  matchRequiredEvidence
+  matchRequiredEvidence,
+  summarizeIndependence
 } from "@nexus/shared";
 
 export type ReportSessionInput = {
@@ -141,9 +144,33 @@ export type FactCheckReport = {
     claims: number;
     evidence: number;
     sources: number;
+    /**
+     * How many independent information sources the pages amount to. Five pages
+     * reprinting one wire story are one source, not five pieces of
+     * corroboration, so this is reported next to `sources` rather than
+     * replacing it.
+     */
+    independentSources: number;
     challenges: number;
     reviews: number;
     agentRuns: number;
+  };
+  /**
+   * The independence reading, informational only.
+   *
+   * It is derived from the source rows (normalized url and content version) and
+   * never from text similarity, so nothing here is a suspicion presented as a
+   * fact. Nothing in this block feeds a verdict: `deriveClaimVerdicts()` cannot
+   * see it, and the verification gate is unchanged.
+   */
+  independence: {
+    pages: number;
+    independentSources: number;
+    /** The sentence the workspace shows too, so the two can never disagree. */
+    headline: string;
+    /** How many sources sit in a group of more than one page. */
+    groupedSources: number;
+    note: string;
   };
   summary: {
     byStatus: Record<ClaimVerdictStatus, number>;
@@ -517,6 +544,32 @@ export function buildFactCheckReport(
     { verified: 0, unverified: 0, rejected: 0 }
   );
 
+  /*
+   * Independence, derived from the source rows only.
+   *
+   * Merging happens on facts the server can prove — the same normalized url, or
+   * an identical content version — so this number never depends on a judgement
+   * call. Near-duplicate text is deliberately NOT merged here: it is a suspicion
+   * that only a person may confirm, and it is tracked in the workspace. The
+   * verdict pipeline does not read any of this.
+   */
+  const independence = summarizeIndependence({
+    sessionId: input.session.id,
+    sources: input.sources,
+    links: detectConfirmedSourceLinks(input.sources)
+  });
+  const groupedSources = independence.clusters
+    .filter((cluster) => cluster.pageCount > 1)
+    .reduce((total, cluster) => total + cluster.pageCount, 0);
+  const independenceNote =
+    groupedSources > 0
+      ? `${groupedSources} 个来源经规范化地址或内容版本确认属于同一份独立信息源，未重复计票；文本近似的疑似重复需在工作台人工确认后才会计入合并。`
+      : "未发现经确认的重复登记来源；文本近似的疑似重复仍可能存在于工作台，需人工确认。";
+
+  if (groupedSources > 0) {
+    limits.add(independenceNote);
+  }
+
   return {
     sessionId: input.session.id,
     researchQuestion: input.session.researchQuestion,
@@ -541,9 +594,17 @@ export function buildFactCheckReport(
       claims: input.claims.length,
       evidence: input.evidence.length,
       sources: input.sources.length,
+      independentSources: independence.confirmedIndependentSources,
       challenges: input.challenges.length,
       reviews: input.reviews.length,
       agentRuns: input.agentRuns.length
+    },
+    independence: {
+      pages: independence.pages,
+      independentSources: independence.confirmedIndependentSources,
+      headline: independenceHeadline(independence),
+      groupedSources,
+      note: independenceNote
     },
     summary: {
       byStatus,

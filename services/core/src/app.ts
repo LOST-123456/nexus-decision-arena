@@ -22,12 +22,14 @@ import { registerReviewRoutes } from "./api/routes/review";
 import { registerSessionRoutes } from "./api/routes/sessions";
 import { registerClaimExtractionRoutes } from "./api/routes/claim-extraction";
 import { registerCitationReviewRoutes } from "./api/routes/citation-review";
+import { registerSourceIndependenceRoutes } from "./api/routes/source-independence";
 import { registerSourceIntakeRoutes } from "./api/routes/source-intake";
 import { EventBus } from "./execution/event-bus";
 import type { CrossReviewService } from "./research/cross-review-service";
 import type { ClaimExtractionService } from "./research/claim-extraction-service";
 import type { CitationReviewService } from "./research/citation-review-service";
 import type { SourceImportService } from "./research/source-import-service";
+import type { SourceIndependenceService } from "./research/source-independence-service";
 
 export type ProjectInput = {
   name: string;
@@ -83,6 +85,11 @@ export type AppDependencies = {
    * bears on its claim (model-assisted advice).
    */
   citationReview?: CitationReviewService;
+  /**
+   * Reads which sources are the same information, so reprints are not counted
+   * as corroboration. Computed from stored sources; writes only human rulings.
+   */
+  sourceIndependence?: SourceIndependenceService;
   arena?: Pick<ArenaRepository, "createResearchClaim" | "getSessionArtifacts">;
   reports?: Pick<
     FinalReportRepository,
@@ -160,6 +167,7 @@ export function createApp(
   registerEvidenceRoutes(app, dependencies, idempotency, eventBus);
   registerClaimExtractionRoutes(app, dependencies, idempotency);
   registerCitationReviewRoutes(app, dependencies, idempotency);
+  registerSourceIndependenceRoutes(app, dependencies, idempotency);
   registerSourceIntakeRoutes(app, dependencies, idempotency);
   registerReviewRoutes(app, dependencies, idempotency, eventBus);
   registerEventRoutes(app, {

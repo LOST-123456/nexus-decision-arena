@@ -25,7 +25,14 @@ import type {
   EvidenceLocatorStatus,
   ExecutionEvent,
   Source,
-  SourceSnapshot
+  SourceLink,
+  SourceProfile,
+  SourceProfileOverride,
+  SourceRelation,
+  SourceRelationDraft,
+  SourceSnapshot,
+  SourceAnalysisFailureCode,
+  IndependenceSummary
 } from "@nexus/shared";
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "";
 
@@ -186,9 +193,17 @@ export type FactCheckReport = {
     claims: number;
     evidence: number;
     sources: number;
+    independentSources: number;
     challenges: number;
     reviews: number;
     agentRuns: number;
+  };
+  independence: {
+    pages: number;
+    independentSources: number;
+    headline: string;
+    groupedSources: number;
+    note: string;
   };
   summary: {
     byStatus: Record<string, number>;
@@ -989,6 +1004,140 @@ export function correctCitation(
     body: JSON.stringify(command),
     idempotencyKey: idempotencyKey("citation-correction")
   });
+}
+
+/* ------------------------------------------------------------------ *
+ * Source independence
+ * ------------------------------------------------------------------ */
+
+export type SourceAnalysisResult = {
+  sessionId: string;
+  algorithm: string;
+  generatedAt: string;
+  summary: IndependenceSummary;
+  links: SourceLink[];
+  profiles: SourceProfile[];
+  humanRelations: SourceRelation[];
+};
+
+export type SourceRelationHistoryResponse = { items: SourceRelation[] };
+export type SourceProfileHistoryResponse = { items: SourceProfileOverride[] };
+
+export class SourceIndependenceFailedError extends Error {
+  constructor(
+    message: string,
+    readonly code?: SourceAnalysisFailureCode
+  ) {
+    super(message);
+    this.name = "SourceIndependenceFailedError";
+  }
+}
+
+/**
+ * Same contract as the other typed failure helpers: a body-less request must
+ * not declare a JSON content-type, and a failure carries the server's own code
+ * so the panel can say what to do next instead of showing a bare error.
+ */
+async function requestWithSourceCode<T>(
+  path: string,
+  init: RequestInit & { idempotencyKey?: string }
+): Promise<T> {
+  const { idempotencyKey: key, ...rest } = init;
+  const hasBody = rest.body !== undefined && rest.body !== null;
+  const response = await fetch(`${apiUrl}${path}`, {
+    cache: "no-store",
+    ...rest,
+    headers: {
+      ...(hasBody ? { "content-type": "application/json" } : {}),
+      ...(key ? { "idempotency-key": key } : {}),
+      ...(rest.headers ?? {})
+    }
+  });
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as {
+      error?: string;
+      code?: SourceAnalysisFailureCode;
+    } | null;
+    throw new SourceIndependenceFailedError(
+      payload?.error ?? `Request failed: ${response.status}`,
+      payload?.code
+    );
+  }
+  return response.json() as Promise<T>;
+}
+
+/**
+ * The computed reading for a session.
+ *
+ * Recomputed on the server on every read — nothing is cached here — so pressing
+ * this again after importing a source always reflects the current rows.
+ */
+export function getSourceAnalysis(
+  sessionId: string
+): Promise<SourceAnalysisResult> {
+  return requestWithSourceCode<SourceAnalysisResult>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/sources/analysis`,
+    {}
+  );
+}
+
+/**
+ * Records a person's ruling about a pair of sources.
+ *
+ * The previous statement for that pair is kept: the server writes a new row
+ * pointing back at it, so the panel can show what was overridden and by whom.
+ */
+export function declareSourceRelation(
+  sessionId: string,
+  draft: SourceRelationDraft
+): Promise<{ relation: SourceRelation; event: ExecutionEvent }> {
+  return requestWithSourceCode<{
+    relation: SourceRelation;
+    event: ExecutionEvent;
+  }>(`/api/sessions/${encodeURIComponent(sessionId)}/source-relations`, {
+    method: "POST",
+    body: JSON.stringify(draft),
+    idempotencyKey: idempotencyKey("source-relation")
+  });
+}
+
+/** Records a person's override of one source's provenance kind. */
+export function overrideSourceProfile(
+  sessionId: string,
+  draft: { sourceId: string; provenanceKind: string; note: string }
+): Promise<{ override: SourceProfileOverride; event: ExecutionEvent }> {
+  return requestWithSourceCode<{
+    override: SourceProfileOverride;
+    event: ExecutionEvent;
+  }>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/source-profile-overrides`,
+    {
+      method: "POST",
+      body: JSON.stringify(draft),
+      idempotencyKey: idempotencyKey("source-profile-override")
+    }
+  );
+}
+
+export function getSourceRelationHistory(
+  sessionId: string,
+  firstSourceId: string,
+  secondSourceId: string
+): Promise<SourceRelationHistoryResponse> {
+  const query = new URLSearchParams({ firstSourceId, secondSourceId });
+  return request<SourceRelationHistoryResponse>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/source-relations/history?${query}`
+  );
+}
+
+export function getSourceProfileHistory(
+  sessionId: string,
+  sourceId: string
+): Promise<SourceProfileHistoryResponse> {
+  const query = new URLSearchParams({ sourceId });
+  return request<SourceProfileHistoryResponse>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/source-profile-overrides/history?${query}`
+  );
 }
 
 export type {
