@@ -32,7 +32,11 @@ import type {
   SourceRelationDraft,
   SourceSnapshot,
   SourceAnalysisFailureCode,
-  IndependenceSummary
+  IndependenceSummary,
+  ResearchPlanFailureCode,
+  ResearchPlanItem,
+  ResearchPlanAction,
+  ResearchPlanStatus
 } from "@nexus/shared";
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "";
 
@@ -1137,6 +1141,155 @@ export function getSourceProfileHistory(
   const query = new URLSearchParams({ sourceId });
   return request<SourceProfileHistoryResponse>(
     `/api/sessions/${encodeURIComponent(sessionId)}/source-profile-overrides/history?${query}`
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * Research plan
+ * ------------------------------------------------------------------ */
+
+export type ResearchPlanView = {
+  sessionId: string;
+  generatedAt: string;
+  searchAvailable: boolean;
+  items: Array<
+    ResearchPlanItem & { availableActions: ResearchPlanAction[] }
+  >;
+  availableGaps: EvidenceGap[];
+  summary: {
+    total: number;
+    byStatus: Record<ResearchPlanStatus, number>;
+    notStarted: number;
+    completed: number;
+    open: number;
+    dismissed: number;
+  };
+  headline: string;
+};
+
+export type PlanItemHistoryResponse = { items: ResearchPlanItem[] };
+
+export class ResearchPlanFailedError extends Error {
+  constructor(
+    message: string,
+    readonly code?: ResearchPlanFailureCode
+  ) {
+    super(message);
+    this.name = "ResearchPlanFailedError";
+  }
+}
+
+/**
+ * Same contract as the other typed failure helpers: a body-less request must
+ * not declare a JSON content-type, and a failure carries the server's own
+ * failure code so the panel can say what to do next.
+ */
+async function requestWithPlanCode<T>(
+  path: string,
+  init: RequestInit & { idempotencyKey?: string }
+): Promise<T> {
+  const { idempotencyKey: key, ...rest } = init;
+  const hasBody = rest.body !== undefined && rest.body !== null;
+  const response = await fetch(`${apiUrl}${path}`, {
+    cache: "no-store",
+    ...rest,
+    headers: {
+      ...(hasBody ? { "content-type": "application/json" } : {}),
+      ...(key ? { "idempotency-key": key } : {}),
+      ...(rest.headers ?? {})
+    }
+  });
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as {
+      error?: string;
+      code?: ResearchPlanFailureCode;
+    } | null;
+    throw new ResearchPlanFailedError(
+      payload?.error ?? `Request failed: ${response.status}`,
+      payload?.code
+    );
+  }
+  return response.json() as Promise<T>;
+}
+
+export function getResearchPlan(sessionId: string): Promise<ResearchPlanView> {
+  return requestWithPlanCode<ResearchPlanView>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/research-plan`,
+    {}
+  );
+}
+
+/** Adds one diagnosed gap to the plan as a queued item. */
+export function addToResearchPlan(
+  sessionId: string,
+  draft: { gapId: string; priority?: number }
+): Promise<{ item: ResearchPlanItem; alreadyPlanned: boolean }> {
+  return requestWithPlanCode<{
+    item: ResearchPlanItem;
+    alreadyPlanned: boolean;
+  }>(`/api/sessions/${encodeURIComponent(sessionId)}/research-plan`, {
+    method: "POST",
+    body: JSON.stringify(draft),
+    idempotencyKey: idempotencyKey("research-plan-add")
+  });
+}
+
+/** Rewrites the query skeleton of one item. */
+export function editPlanItemQuery(
+  sessionId: string,
+  itemId: string,
+  edit: Record<string, unknown>
+): Promise<{ item: ResearchPlanItem }> {
+  return requestWithPlanCode<{ item: ResearchPlanItem }>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/research-plan/${encodeURIComponent(itemId)}/query`,
+    {
+      method: "POST",
+      body: JSON.stringify(edit),
+      idempotencyKey: idempotencyKey("research-plan-query")
+    }
+  );
+}
+
+/** Marks an item not applicable, or closes it. A reason is mandatory. */
+export function decidePlanItem(
+  sessionId: string,
+  itemId: string,
+  body: { result: "not_applicable" | "closed"; reason: string }
+): Promise<{ item: ResearchPlanItem }> {
+  return requestWithPlanCode<{ item: ResearchPlanItem }>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/research-plan/${encodeURIComponent(itemId)}/decision`,
+    {
+      method: "POST",
+      body: JSON.stringify(body),
+      idempotencyKey: idempotencyKey("research-plan-decision")
+    }
+  );
+}
+
+/** Records what a person actually found, completing the item. */
+export function recordPlanOutcome(
+  sessionId: string,
+  itemId: string,
+  body: { summary: string; sourceIds?: string[]; evidenceIds?: string[] }
+): Promise<{ item: ResearchPlanItem }> {
+  return requestWithPlanCode<{ item: ResearchPlanItem }>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/research-plan/${encodeURIComponent(itemId)}/outcome`,
+    {
+      method: "POST",
+      body: JSON.stringify(body),
+      idempotencyKey: idempotencyKey("research-plan-outcome")
+    }
+  );
+}
+
+export function listPlanItemHistory(
+  sessionId: string,
+  gapId: string
+): Promise<PlanItemHistoryResponse> {
+  const query = new URLSearchParams({ gapId });
+  return requestWithPlanCode<PlanItemHistoryResponse>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/research-plan/history?${query}`,
+    {}
   );
 }
 

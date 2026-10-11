@@ -25,4 +25,5 @@ export * from "./verification/evidence-verification";
 export * from "./verification/evidence-gaps";
 export * from "./verification/citation-integrity";
 export * from "./verification/source-independence";
+export * from "./verification/research-plan";
 export * from "./replay/decision-replay";

@@ -382,3 +382,80 @@ describe("matchRequiredEvidence", () => {
     expect(result.unverifiedReferences).toEqual([]);
   });
 });
+
+describe("breadth and scope gaps", () => {
+  function diagnoseClaim(
+    claim: { id: string; statement: string; type: "fact" | "assumption" | "prediction" | "recommendation" },
+    items: Evidence[],
+    options: { sources?: Source[] } = {}
+  ) {
+    const verdict = deriveClaimVerdict(claim, items, { now: NOW, challenges: [] });
+    return diagnoseEvidenceGaps({
+      claim,
+      verdict,
+      evidence: items,
+      sources: options.sources ?? [],
+      challenges: []
+    });
+  }
+
+  it("flags an absolute claim as wider than any material could establish", () => {
+    const gaps = diagnoseClaim(
+      { id: CLAIM_ID, statement: "该政策对所有中小企业都必然有效。", type: "fact" },
+      [verified()]
+    );
+    const gap = gaps.find((entry) => entry.kind === "overbroad_claim");
+    expect(gap).toBeDefined();
+    expect(gap!.detail.join(" ")).toContain("全称表述");
+    // The way out is opposing material or a narrower statement, not more of
+    // the same one-sided support.
+    expect(gap!.actions).toContain("add_opposing_evidence");
+    expect(gap!.severity).toBe("important");
+  });
+
+  it("stays quiet when the claim is already scoped", () => {
+    const gaps = diagnoseClaim(
+      { id: CLAIM_ID, statement: "该季度出货量同比增长 12%。", type: "fact" },
+      [verified()]
+    );
+    expect(gaps.some((entry) => entry.kind === "overbroad_claim")).toBe(false);
+  });
+
+  it("flags a prediction that no dated source backs", () => {
+    const gaps = diagnoseClaim(
+      { id: CLAIM_ID, statement: "明年出货量将继续增长。", type: "prediction" },
+      [verified()]
+    );
+    const gap = gaps.find(
+      (entry) => entry.kind === "insufficient_time_or_scope_evidence"
+    );
+    expect(gap).toBeDefined();
+    expect(gap!.detail.join(" ")).toContain("预测");
+    expect(gap!.detail.join(" ")).toContain("带发布时间的 0 条");
+  });
+
+  it("stays quiet once the material is anchored to a dated source", () => {
+    const registered = source();
+    const gaps = diagnoseClaim(
+      { id: CLAIM_ID, statement: "明年出货量将继续增长。", type: "prediction" },
+      [verified({ sourceId: registered.id })],
+      { sources: [registered] }
+    );
+    expect(
+      gaps.some((entry) => entry.kind === "insufficient_time_or_scope_evidence")
+    ).toBe(false);
+  });
+
+  it("does not double-report an absence that gap 1 already covers", () => {
+    // With no material at all the louder diagnosis is `no_verified_support`;
+    // raising a second gap for the same absence would inflate the plan.
+    const gaps = diagnoseClaim(
+      { id: CLAIM_ID, statement: "明年出货量将继续增长。", type: "prediction" },
+      []
+    );
+    expect(
+      gaps.some((entry) => entry.kind === "insufficient_time_or_scope_evidence")
+    ).toBe(false);
+    expect(gaps.some((entry) => entry.kind === "no_verified_support")).toBe(true);
+  });
+});

@@ -5,6 +5,7 @@ import type {
   EvidenceRepository,
   FinalReportRepository,
   InspectorRepository,
+  ResearchPlanRepository,
   ReviewRepository
 } from "@nexus/db";
 import Fastify, { type FastifyInstance } from "fastify";
@@ -22,6 +23,7 @@ import { registerReviewRoutes } from "./api/routes/review";
 import { registerSessionRoutes } from "./api/routes/sessions";
 import { registerClaimExtractionRoutes } from "./api/routes/claim-extraction";
 import { registerCitationReviewRoutes } from "./api/routes/citation-review";
+import { registerResearchPlanRoutes } from "./api/routes/research-plan";
 import { registerSourceIndependenceRoutes } from "./api/routes/source-independence";
 import { registerSourceIntakeRoutes } from "./api/routes/source-intake";
 import { EventBus } from "./execution/event-bus";
@@ -90,6 +92,18 @@ export type AppDependencies = {
    * as corroboration. Computed from stored sources; writes only human rulings.
    */
   sourceIndependence?: SourceIndependenceService;
+  /**
+   * The research plan: which diagnosed gaps a person decided to pursue, and
+   * what came of each. Gaps are derived; plan items are stored and attributed.
+   */
+  researchPlan?: Pick<
+    ResearchPlanRepository,
+    | "addPlanItem"
+    | "listCurrentPlanItems"
+    | "listPlanItemHistory"
+    | "getPlanItem"
+    | "replacePlanItem"
+  >;
   arena?: Pick<ArenaRepository, "createResearchClaim" | "getSessionArtifacts">;
   reports?: Pick<
     FinalReportRepository,
@@ -169,6 +183,7 @@ export function createApp(
   registerCitationReviewRoutes(app, dependencies, idempotency);
   registerSourceIndependenceRoutes(app, dependencies, idempotency);
   registerSourceIntakeRoutes(app, dependencies, idempotency);
+  registerResearchPlanRoutes(app, dependencies, idempotency);
   registerReviewRoutes(app, dependencies, idempotency, eventBus);
   registerEventRoutes(app, {
     bus: eventBus,

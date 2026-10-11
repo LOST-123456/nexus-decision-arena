@@ -16,7 +16,10 @@ import {
   type Source
 } from "@nexus/shared";
 import { deriveClaimVerdicts } from "@nexus/shared";
-import { buildFactCheckReport } from "./fact-check-report";
+import {
+  buildFactCheckReport,
+  type FactCheckPlanItemRef
+} from "./fact-check-report";
 import { renderFactCheckReportMarkdown } from "./fact-check-report-markdown";
 
 const SESSION_ID = newId();
@@ -173,6 +176,7 @@ function build(overrides: {
   reviews?: ClaimReview[];
   agentRuns?: AgentRun[];
   lastEventSequence?: number;
+  planItems?: FactCheckPlanItemRef[];
 } = {}) {
   const claims = overrides.claims ?? [claimFixture()];
   const evidence = overrides.evidence ?? [evidenceFixture()];
@@ -205,7 +209,8 @@ function build(overrides: {
     reviews,
     agentRuns,
     lastEventSequence: overrides.lastEventSequence ?? 12,
-    generatedAt: NOW_ISO
+    generatedAt: NOW_ISO,
+    ...(overrides.planItems ? { planItems: overrides.planItems } : {})
   });
 }
 
@@ -522,6 +527,94 @@ describe("fact-check report · explainability and gaps", () => {
     const report = build();
 
     expect(report.limits.join(" ")).toContain("阻断性证据缺口");
+  });
+});
+
+describe("fact-check report · research plan linkage", () => {
+  it("marks every gap not planned when no plan is configured", () => {
+    const report = build();
+    const finding = report.findings[0]!;
+
+    expect(finding.gaps.length).toBeGreaterThan(0);
+    for (const gap of finding.gaps) {
+      expect(gap.plan.status).toBe("not_planned");
+      expect(gap.plan.note).toBeNull();
+    }
+    expect(report.gaps.evidenceGaps.planned).toBe(0);
+    expect(report.gaps.evidenceGaps.notPlanned).toBe(
+      report.gaps.evidenceGaps.total
+    );
+  });
+
+  it("annotates a planned gap with the plan's status and its own words", () => {
+    const unplanned = build();
+    const gapId = unplanned.findings[0]!.gaps[0]!.id;
+
+    const report = build({
+      planItems: [
+        {
+          gapId,
+          status: "queued",
+          decisionReason: null,
+          failureReason: null,
+          outcome: null
+        }
+      ]
+    });
+    const finding = report.findings[0]!;
+    const planned = finding.gaps.find((gap) => gap.id === gapId)!;
+
+    expect(planned.plan.status).toBe("queued");
+    expect(planned.plan.note).toContain("尚未执行任何检索");
+    expect(report.gaps.evidenceGaps.planned).toBe(1);
+    expect(report.limits.join(" ")).toContain("尚未执行任何检索");
+  });
+
+  it("quotes the recorded outcome as the note on a completed gap", () => {
+    const unplanned = build();
+    const gapId = unplanned.findings[0]!.gaps[0]!.id;
+
+    const report = build({
+      planItems: [
+        {
+          gapId,
+          status: "completed",
+          decisionReason: null,
+          failureReason: null,
+          outcome: {
+            summary: "在行业年报中找到覆盖同一时期的原始统计表。",
+            sourceIds: [],
+            evidenceIds: [],
+            recordedBy: "Owner (owner)",
+            recordedAt: NOW_ISO
+          }
+        }
+      ]
+    });
+    const planned = report.findings[0]!.gaps.find((gap) => gap.id === gapId)!;
+
+    expect(planned.plan.status).toBe("completed");
+    expect(planned.plan.note).toContain("行业年报");
+  });
+
+  it("renders the plan status line in markdown", () => {
+    const unplanned = build();
+    const gapId = unplanned.findings[0]!.gaps[0]!.id;
+    const report = build({
+      planItems: [
+        {
+          gapId,
+          status: "queued",
+          decisionReason: null,
+          failureReason: null,
+          outcome: null
+        }
+      ]
+    });
+    const markdown = renderFactCheckReportMarkdown(report);
+
+    expect(markdown).toContain("研究计划：已加入研究计划，尚未执行");
+    expect(markdown).toContain("研究计划：尚未加入研究计划");
   });
 });
 

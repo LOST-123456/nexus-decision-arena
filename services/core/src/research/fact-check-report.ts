@@ -11,6 +11,8 @@ import {
   type EvidenceDirection,
   type EvidenceGap,
   type EvidenceGapKind,
+  type ResearchPlanItem,
+  type ResearchPlanStatus,
   type Source,
   diagnoseEvidenceGaps,
   EvidenceGapKindSchema,
@@ -77,6 +79,26 @@ export type ChallengeFinding = {
   createdAt: string;
 };
 
+/**
+ * How the research plan answers one gap.
+ *
+ * `not_planned` is its own state, not an error: it says nobody has decided to
+ * go after this gap yet. A plan status never changes the gap's severity —
+ * planning is a decision about work, not material; until real evidence rows
+ * exist the diagnosis keeps firing.
+ */
+export type GapPlanLink = {
+  status: ResearchPlanStatus | "not_planned";
+  /** The plan's own words: outcome summary, decision or failure reason. */
+  note: string | null;
+};
+
+/** The plan fields the report reads. Deliberately narrow. */
+export type FactCheckPlanItemRef = Pick<
+  ResearchPlanItem,
+  "gapId" | "status" | "decisionReason" | "failureReason" | "outcome"
+>;
+
 export type FactCheckFinding = {
   claimId: string;
   statement: string;
@@ -97,9 +119,11 @@ export type FactCheckFinding = {
   /**
    * Rule-based diagnoses of what is still missing for this claim. Every entry
    * reads a persisted fact and names the rows it is about; none of it is a
-   * guess and none of it claims a source was found.
+   * guess and none of it claims a source was found. Each entry carries the
+   * plan's answer to it, so a reader can tell which gaps have someone on them
+   * and which nobody has picked up.
    */
-  gaps: EvidenceGap[];
+  gaps: Array<EvidenceGap & { plan: GapPlanLink }>;
   /** Verdict projection of `gaps`: blocking gaps mean the conclusion is open. */
   blockingGapCount: number;
 };
@@ -200,6 +224,10 @@ export type FactCheckReport = {
       total: number;
       bySeverity: Record<"blocking" | "important" | "advisory", number>;
       byKind: Record<EvidenceGapKind, number>;
+      /** Gaps someone has added to the research plan. */
+      planned: number;
+      /** Gaps nobody has decided to pursue yet. */
+      notPlanned: number;
     };
   };
   limits: string[];
@@ -352,7 +380,26 @@ export type BuildFactCheckReportInput = {
   agentRuns: readonly AgentRun[];
   lastEventSequence: number;
   generatedAt: string;
+  /** Current research plan rows, when the plan is configured. */
+  planItems?: readonly FactCheckPlanItemRef[];
 };
+
+/** The plan's answer to one gap, from the plan row's own fields. */
+function planLinkFor(
+  gap: EvidenceGap,
+  planByGapId: Map<string, FactCheckPlanItemRef>
+): GapPlanLink {
+  const item = planByGapId.get(gap.id);
+  if (!item) {
+    return { status: "not_planned", note: null };
+  }
+  const note =
+    item.outcome?.summary ??
+    item.decisionReason ??
+    item.failureReason ??
+    (item.status === "queued" ? "已加入研究计划，尚未执行任何检索。" : null);
+  return { status: item.status, note };
+}
 
 /**
  * Builds the fact-check report from persisted research material only.
@@ -368,6 +415,9 @@ export function buildFactCheckReport(
   const sourcesById = new Map(input.sources.map((item) => [item.id, item]));
   const verdictByClaimId = new Map(
     input.verdicts.map((verdict) => [verdict.claimId, verdict])
+  );
+  const planByGapId = new Map(
+    (input.planItems ?? []).map((item) => [item.gapId, item])
   );
 
   const byStatus = Object.fromEntries(
@@ -439,13 +489,13 @@ export function buildFactCheckReport(
           effectiveStatus: "unsupported"
         };
 
-      const gaps = diagnoseEvidenceGaps({
+      const gaps: Array<EvidenceGap & { plan: GapPlanLink }> = diagnoseEvidenceGaps({
         claim,
         verdict: resolvedVerdict,
         evidence: claimEvidence,
         sources: input.sources,
         challenges: claimChallenges
-      });
+      }).map((gap) => ({ ...gap, plan: planLinkFor(gap, planByGapId) }));
 
       return {
         claimId: claim.id,
@@ -532,6 +582,14 @@ export function buildFactCheckReport(
   }
   if (allGaps.length > 0 && allGaps.length === blockingGaps.length) {
     limits.add("本报告中的核查结论均受证据缺口限制，不宜作为最终结论引用。");
+  }
+  const plannedNotExecuted = allGaps.filter(
+    (gap) => gap.plan.status === "queued"
+  ).length;
+  if (plannedNotExecuted > 0) {
+    limits.add(
+      `有 ${plannedNotExecuted} 项缺口已加入研究计划但尚未执行任何检索；相关补证工作仍在进行中。`
+    );
   }
 
   const counts = input.evidence.reduce(
@@ -653,7 +711,11 @@ export function buildFactCheckReport(
           important: allGaps.filter((gap) => gap.severity === "important").length,
           advisory: allGaps.filter((gap) => gap.severity === "advisory").length
         },
-        byKind: gapByKind
+        byKind: gapByKind,
+        planned: allGaps.filter((gap) => gap.plan.status !== "not_planned")
+          .length,
+        notPlanned: allGaps.filter((gap) => gap.plan.status === "not_planned")
+          .length
       }
     },
     limits: [...limits],

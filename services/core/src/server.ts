@@ -6,6 +6,7 @@ import {
   EvidenceRepository,
   FinalReportRepository,
   InspectorRepository,
+  ResearchPlanRepository,
   ReviewRepository,
   ClaimExtractionRepository,
   CitationReviewRepository,
@@ -215,6 +216,9 @@ const app = createApp(
       sources: researchEvidence,
       assertions: new SourceIndependenceRepository(database)
     }),
+    // No controlled web-search integration exists in this build, so the plan
+    // is wired with searchAvailable=false and offers start_search nowhere.
+    researchPlan: new ResearchPlanRepository(database),
     arena,
     reports,
     events,

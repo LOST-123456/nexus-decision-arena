@@ -40,7 +40,8 @@ function record(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-function iso(value: unknown): string {
+/** Postgres `timestamptz` rows come back as non-ISO text; normalize before zod parses. */
+export function iso(value: unknown): string {
   const date = value instanceof Date ? value : new Date(String(value));
   if (Number.isNaN(date.getTime())) {
     throw new Error(`Invalid persisted timestamp: ${String(value)}`);

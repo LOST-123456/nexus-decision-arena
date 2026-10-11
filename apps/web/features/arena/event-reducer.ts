@@ -155,6 +155,18 @@ function applyContiguousEvent(
     case "CLAIM_REVIEW_RECORDED": {
       return { ...current, lastSequence: event.sequence };
     }
+    // Research-plan records are a person's decisions about work, not material:
+    // they move neither the phase nor a verdict, so they only advance the
+    // replay cursor. (SEARCH_STARTED/FAILED never fire in this build — there is
+    // no controlled search — but the reducer stays exhaustive.)
+    case "RESEARCH_PLAN_ITEM_ADDED":
+    case "RESEARCH_PLAN_QUERY_EDITED":
+    case "RESEARCH_PLAN_SEARCH_STARTED":
+    case "RESEARCH_PLAN_SEARCH_FAILED":
+    case "RESEARCH_PLAN_OUTCOME_RECORDED":
+    case "RESEARCH_PLAN_ITEM_CLOSED": {
+      return { ...current, lastSequence: event.sequence };
+    }
     default: {
       const exhaustiveEvent: never = event.type;
       void exhaustiveEvent;

@@ -1,5 +1,6 @@
 import { CANDIDATE_CLAIM_TYPE_LABELS } from "@nexus/shared";
 import type {
+  ResearchPlanStatus,
   CandidateClaimType,
   CandidateStatus,
   ClaimExtractionRun,
@@ -652,4 +653,46 @@ export function sourceAnalysisFailureLabel(code: string | undefined): string {
   if (code === "invalid_request") return "请求内容不合法，请检查后重试。";
   if (code === "storage_unavailable") return "来源分析暂不可用。";
   return "来源分析失败，请重试。";
+}
+
+/* ------------------------------------------------------------------ *
+ * Research plan
+ * ------------------------------------------------------------------ */
+
+/**
+ * 研究计划执行状态. `queued` is deliberately labelled 尚未执行, never
+ * 进行中: nothing has run, and the label is the promise.
+ */
+export function researchPlanStatusLabel(
+  status: ResearchPlanStatus
+): string {
+  if (status === "queued") return "尚未执行";
+  if (status === "running") return "检索进行中";
+  if (status === "completed") return "已完成";
+  if (status === "failed") return "检索失败";
+  if (status === "needs_human") return "需要人工决定";
+  if (status === "not_applicable") return "不适用";
+  return "已关闭";
+}
+
+export function researchPlanStatusTone(status: ResearchPlanStatus): string {
+  if (status === "completed") return "research-pill-supports";
+  if (status === "failed") return "research-pill-opposes";
+  if (status === "queued") return "research-pill-unverified";
+  if (status === "running") return "research-pill-context";
+  return "research-pill-neutral";
+}
+
+export function researchPlanFailureLabel(
+  code: string | undefined
+): string {
+  if (code === "plan_item_not_found") return "找不到该计划条目，它可能已被更新。";
+  if (code === "gap_not_found") return "该缺口不在当前诊断中，请刷新后重试。";
+  if (code === "invalid_request") return "请求内容不合法，请检查后重试。";
+  if (code === "invalid_transition") return "该条目当前状态不允许此操作，请刷新后重试。";
+  if (code === "search_unavailable")
+    return "本构建尚未接入受控网页搜索，无法执行检索。";
+  if (code === "source_not_found") return "引用的材料不属于这份研究。";
+  if (code === "storage_unavailable") return "研究计划暂不可用。";
+  return "研究计划操作失败，请重试。";
 }

@@ -43,7 +43,11 @@ export const EvidenceGapKindSchema = z.enum([
   /** A challenger asked for material that is not registered anywhere. */
   "unmapped_reference",
   /** A human reviewer explicitly asked for more evidence. */
-  "review_requires_more_evidence"
+  "review_requires_more_evidence",
+  /** The claim is stated more broadly than any evidence could establish. */
+  "overbroad_claim",
+  /** Time range, scope or causal wording the material does not establish. */
+  "insufficient_time_or_scope_evidence"
 ]);
 
 export type EvidenceGapKind = z.infer<typeof EvidenceGapKindSchema>;
@@ -480,6 +484,76 @@ export function diagnoseEvidenceGaps(
       actions: ["add_supporting_evidence", "run_cross_review", "record_source"],
       suggestions: []
     });
+  }
+
+  // --- 12. a claim stated wider than any evidence could reach -------------
+  // A single report cannot establish "所有", "必然" or "从来". The gap is
+  // about the wording, so it is raised on the statement itself and points at
+  // the material that would have to cover the whole range.
+  const absoluteWording =
+    /(所有|全部|任何|一律|总是|从来|永远|必然|一定|毫无|完全|普遍|绝不|\ball\b|\bevery\b|\bnever\b|\balways\b)/i;
+  if (absoluteWording.test(claim.statement)) {
+    push({
+      kind: "overbroad_claim",
+      severity: "important",
+      message: "主张使用了全称或绝对化措辞，现有材料无法支撑这一范围。",
+      detail: [
+        `主张原文：${claim.statement}`,
+        "全称表述需要覆盖全部情形的证据；单条或少数材料只能支持更窄的结论。",
+        `当前已核实支持 ${supporting.length} 条。`
+      ],
+      evidenceIds: supporting.map((item) => item.id),
+      challengeIds: [],
+      actions: [
+        "add_opposing_evidence",
+        "add_supporting_evidence",
+        "run_cross_review"
+      ],
+      suggestions: [
+        suggestion(
+          "检索是否存在反例或适用条件，必要时收窄表述（建议方向，未执行检索）"
+        )
+      ]
+    });
+  }
+
+  // --- 13. time range, scope or causality never established ---------------
+  // Only raised when material exists at all: otherwise gap 1 already says the
+  // louder thing, and two gaps for one absence would inflate the plan.
+  const causalWording = /(因为|由于|导致|造成|因此|从而|使得|随之|引发)/;
+  const temporalWording =
+    /(\d{4}\s*年|同比|环比|以来|之后|去年同期|近\s*\d+\s*年|上个季度|本季度|季度|月度)/;
+  const causal = causalWording.test(claim.statement);
+  const temporal = temporalWording.test(claim.statement);
+  if ((claim.type === "prediction" || causal || temporal) && verdict.counts.total > 0) {
+    const datedSources = verified
+      .map((item) => sourceOf(item, sourcesById))
+      .filter((source) => source !== undefined && Boolean(source.publishedAt));
+    if (datedSources.length === 0) {
+      const reasons: string[] = [];
+      if (claim.type === "prediction") reasons.push("主张类型为预测。");
+      if (causal) reasons.push("主张包含因果措辞。");
+      if (temporal) reasons.push("主张包含时间范围措辞。");
+      push({
+        kind: "insufficient_time_or_scope_evidence",
+        severity: "important",
+        message:
+          "主张涉及时间范围、范围口径或因果关系，但没有任何带发布时间的已核实来源。",
+        detail: [
+          ...reasons,
+          `已核实材料 ${verified.length} 条，其中所引来源带发布时间的 0 条。`,
+          "没有时间坐标的材料无法支撑时间或因果类表述。"
+        ],
+        evidenceIds: verified.map((item) => item.id),
+        challengeIds: [],
+        actions: ["add_primary_source", "record_source"],
+        suggestions: [
+          suggestion(
+            "补充带明确发布时间、且覆盖该时间范围的材料（建议方向，未执行检索）"
+          )
+        ]
+      });
+    }
   }
 
   return gaps;

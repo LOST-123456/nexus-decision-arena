@@ -2,9 +2,14 @@ import {
   reviewOutcomeLabel,
   type ClaimVerdictStatus,
   type EvidenceGap,
-  type EvidenceGapSeverity
+  type EvidenceGapSeverity,
+  type ResearchPlanStatus
 } from "@nexus/shared";
-import type { EvidenceCitation, FactCheckReport } from "./fact-check-report";
+import type {
+  EvidenceCitation,
+  FactCheckReport,
+  GapPlanLink
+} from "./fact-check-report";
 
 const STATUS_TEXT: Record<ClaimVerdictStatus, string> = {
   unsupported: "无任何证据",
@@ -26,7 +31,21 @@ function formatDate(value: string | null): string {
   return value ?? "未记录";
 }
 
-function gapLine(gap: EvidenceGap): string[] {
+const GAP_PLAN_STATUS_TEXT: Record<ResearchPlanStatus | "not_planned", string> = {
+  not_planned: "尚未加入研究计划",
+  queued: "已加入研究计划，尚未执行",
+  running: "检索进行中",
+  completed: "研究计划已完成（结果见工作台）",
+  failed: "检索失败",
+  needs_human: "需要人工决定",
+  not_applicable: "已判定不适用",
+  closed: "已关闭"
+};
+
+/** An annotated gap: the diagnosis plus the plan's answer to it. */
+type AnnotatedGap = EvidenceGap & { plan: GapPlanLink };
+
+function gapLine(gap: AnnotatedGap): string[] {
   const lines = [
     `- [${GAP_SEVERITY_TEXT[gap.severity]}] ${gap.message}`
   ];
@@ -39,6 +58,10 @@ function gapLine(gap: EvidenceGap): string[] {
   if (gap.challengeIds.length > 0) {
     lines.push(`  - 涉及质询：${gap.challengeIds.join("、")}`);
   }
+  const planLine = `  - 研究计划：${GAP_PLAN_STATUS_TEXT[gap.plan.status]}`;
+  lines.push(
+    gap.plan.note ? `${planLine}——${gap.plan.note}` : planLine
+  );
   for (const suggestion of gap.suggestions) {
     // `status` is "suggested" by construction; nothing here was searched.
     lines.push(`  - 建议（待验证，未执行检索）：${suggestion.label}`);

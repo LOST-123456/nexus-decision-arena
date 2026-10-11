@@ -40,6 +40,7 @@ import { ClaimForm, EvidenceForm, ImportSourceForm, SourceForm } from "./forms";
 import { ClaimCandidatesPanel } from "./claim-candidates";
 import { CitationReviewPanel } from "./citation-review";
 import { SourceIndependencePanel } from "./source-independence";
+import { ResearchPlanPanel } from "./research-plan";
 import { SourceReader } from "./source-reader";
 import {
   claimStatusLabel,
@@ -64,7 +65,8 @@ type Panel =
   | "reader"
   | "analyze"
   | "citations"
-  | "independence";
+  | "independence"
+  | "plan";
 
 /**
  * `claims` and `detail` are their own tabs only where the layout collapses: on
@@ -84,7 +86,8 @@ const PANELS: Array<{ id: Panel; label: string; narrowOnly?: boolean }> = [
   { id: "reader", label: "原文阅读" },
   { id: "analyze", label: "AI 拆解" },
   { id: "citations", label: "引用核查" },
-  { id: "independence", label: "来源关系" }
+  { id: "independence", label: "来源关系" },
+  { id: "plan", label: "研究计划" }
 ];
 
 /**
@@ -118,7 +121,13 @@ const HISTORY_EVENT_TYPES = new Set([
   "SUPPORT_ASSESSMENT_RECORDED",
   "CITATION_CORRECTION_RECORDED",
   "SOURCE_RELATION_RECORDED",
-  "SOURCE_PROFILE_OVERRIDDEN"
+  "SOURCE_PROFILE_OVERRIDDEN",
+  "RESEARCH_PLAN_ITEM_ADDED",
+  "RESEARCH_PLAN_QUERY_EDITED",
+  "RESEARCH_PLAN_SEARCH_STARTED",
+  "RESEARCH_PLAN_SEARCH_FAILED",
+  "RESEARCH_PLAN_OUTCOME_RECORDED",
+  "RESEARCH_PLAN_ITEM_CLOSED"
 ]);
 
 const RESEARCH_MODE: Panel[] = ["claims", "content", "detail"];
@@ -702,6 +711,32 @@ export function ResearchWorkspace({
         >
           <div className="research-column">
             <SourceIndependencePanel
+              sessionId={sessionId}
+              canEdit={canEdit}
+              onChanged={async () => {
+                await reload();
+                await refreshHistory();
+              }}
+            />
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  // 研究计划 also gets the full width: each item carries its query, its
+  // lifecycle and its reason, which needs room to read.
+  if (panel === "plan") {
+    return (
+      <>
+        {tabs}
+        <div
+          className="research-body"
+          data-testid="research-body"
+          data-mode="analyze"
+        >
+          <div className="research-column">
+            <ResearchPlanPanel
               sessionId={sessionId}
               canEdit={canEdit}
               onChanged={async () => {

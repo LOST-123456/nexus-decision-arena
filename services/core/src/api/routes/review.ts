@@ -65,7 +65,14 @@ export function registerReviewRoutes(
   app: FastifyInstance,
   dependencies: Pick<
     AppDependencies,
-    "auth" | "reviews" | "evidence" | "arena" | "sessions" | "events" | "crossReview"
+    | "auth"
+    | "reviews"
+    | "evidence"
+    | "arena"
+    | "sessions"
+    | "events"
+    | "crossReview"
+    | "researchPlan"
   >,
   idempotency: IdempotencyStore,
   eventBus: EventBus
@@ -407,6 +414,12 @@ export function registerReviewRoutes(
       return reply.code(404).send({ error: "Session not found" });
     }
 
+    // The report names, per gap, what the research plan has decided about it.
+    // Absent when the plan is not configured; nothing is invented then.
+    const planItems = dependencies.researchPlan
+      ? await dependencies.researchPlan.listCurrentPlanItems(sessionId)
+      : [];
+
     const verdicts = deriveClaimVerdicts(artifacts.claims, evidence, {
       challenges: artifacts.challenges,
       reviews
@@ -433,7 +446,8 @@ export function registerReviewRoutes(
       reviews,
       agentRuns,
       lastEventSequence,
-      generatedAt: new Date().toISOString()
+      generatedAt: new Date().toISOString(),
+      planItems
     });
 
     const format = request.query.format === "markdown" ? "markdown" : "json";

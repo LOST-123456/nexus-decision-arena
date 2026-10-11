@@ -766,6 +766,61 @@ export const sourceProfileOverrides = pgTable(
   })
 );
 
+/**
+ * Research plan — what a person decided to do about a diagnosed gap.
+ *
+ * Gaps are derived on every read and need no table; this holds the part a
+ * machine cannot derive: a decision, an owner, and whatever actually came
+ * back. Append-only, with one current row per (session, gap) so a refresh
+ * cannot duplicate an item a person already closed, and so closing one cannot
+ * be undone by re-running the diagnosis.
+ */
+export const researchPlanItems = pgTable(
+  "research_plan_items",
+  {
+    id: uuid("id").primaryKey(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => decisionSessions.id, { onDelete: "cascade" }),
+    claimId: uuid("claim_id")
+      .notNull()
+      .references(() => claims.id, { onDelete: "cascade" }),
+    gapId: text("gap_id").notNull(),
+    gapKind: text("gap_kind").notNull(),
+    severity: text("severity").notNull(),
+    priority: integer("priority").notNull(),
+    title: text("title").notNull(),
+    question: text("question").notNull(),
+    whyInsufficient: jsonb("why_insufficient")
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    query: jsonb("query").notNull(),
+    status: text("status").notNull().default("queued"),
+    outcome: jsonb("outcome"),
+    decisionReason: text("decision_reason"),
+    decidedBy: text("decided_by"),
+    failureReason: text("failure_reason"),
+    supersedesId: uuid("supersedes_id").references(
+      (): AnyPgColumn => researchPlanItems.id,
+      { onDelete: "set null" }
+    ),
+    isCurrent: boolean("is_current").notNull().default(true),
+    createdAt: timestampColumn("created_at").notNull().defaultNow(),
+    updatedAt: timestampColumn("updated_at").notNull().defaultNow()
+  },
+  (table) => ({
+    /** One current item per gap: pressing "加入" twice cannot fork the task. */
+    current: uniqueIndex("research_plan_items_current_idx")
+      .on(table.sessionId, table.gapId)
+      .where(sql`"is_current"`),
+    sessionStatus: index("research_plan_items_session_status_idx").on(
+      table.sessionId,
+      table.status
+    ),
+    claim: index("research_plan_items_claim_idx").on(table.claimId)
+  })
+);
+
 export const idempotencyKeys = pgTable("idempotency_keys", {
   key: text("key").primaryKey(),
   requestHash: text("request_hash").notNull(),
