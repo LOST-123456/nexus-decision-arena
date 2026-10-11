@@ -7,6 +7,7 @@ import {
   FinalReportRepository,
   InspectorRepository,
   ResearchPlanRepository,
+  ResearchSearchRepository,
   ReviewRepository,
   ClaimExtractionRepository,
   CitationReviewRepository,
@@ -219,6 +220,9 @@ const app = createApp(
     // No controlled web-search integration exists in this build, so the plan
     // is wired with searchAvailable=false and offers start_search nowhere.
     researchPlan: new ResearchPlanRepository(database),
+    // Controlled research search: the deterministic, network-free provider is
+    // the default; approving a task creates sources, never evidence.
+    researchSearch: new ResearchSearchRepository(database),
     arena,
     reports,
     events,

@@ -36,7 +36,11 @@ import type {
   ResearchPlanFailureCode,
   ResearchPlanItem,
   ResearchPlanAction,
-  ResearchPlanStatus
+  ResearchPlanStatus,
+  ResearchSearchTask,
+  ResearchSearchTaskStatus,
+  SearchCandidate,
+  ResearchSearchFailureCode
 } from "@nexus/shared";
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "";
 
@@ -1289,6 +1293,138 @@ export function listPlanItemHistory(
   const query = new URLSearchParams({ gapId });
   return requestWithPlanCode<PlanItemHistoryResponse>(
     `/api/sessions/${encodeURIComponent(sessionId)}/research-plan/history?${query}`,
+    {}
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * Controlled research search
+ * ------------------------------------------------------------------ */
+
+export type ResearchSearchTaskView = ResearchSearchTask & {
+  candidates: SearchCandidate[];
+};
+
+export class ResearchSearchFailedError extends Error {
+  constructor(
+    message: string,
+    readonly code?: ResearchSearchFailureCode
+  ) {
+    super(message);
+    this.name = "ResearchSearchFailedError";
+  }
+}
+
+/**
+ * Same contract as the other typed failure helpers: a body-less request must
+ * not declare a JSON content-type, and a failed search carries the server's own
+ * code so the panel can say what to do next.
+ */
+async function requestWithSearchCode<T>(
+  path: string,
+  init: RequestInit & { idempotencyKey?: string }
+): Promise<T> {
+  const { idempotencyKey: key, ...rest } = init;
+  const hasBody = rest.body !== undefined && rest.body !== null;
+  const response = await fetch(`${apiUrl}${path}`, {
+    cache: "no-store",
+    ...rest,
+    headers: {
+      ...(hasBody ? { "content-type": "application/json" } : {}),
+      ...(key ? { "idempotency-key": key } : {}),
+      ...(rest.headers ?? {})
+    }
+  });
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as {
+      error?: string;
+      code?: ResearchSearchFailureCode;
+    } | null;
+    throw new ResearchSearchFailedError(
+      payload?.error ?? `Request failed: ${response.status}`,
+      payload?.code
+    );
+  }
+  return response.json() as Promise<T>;
+}
+
+/**
+ * Creates a search task and runs the controlled search.
+ *
+ * The task comes back with the candidates the search surfaced — leads, not
+ * evidence. Nothing here turns them into verified material; that is a separate
+ * human act (approve, then verify the source) the UI makes explicit.
+ */
+export function createResearchSearchTask(
+  sessionId: string,
+  draft: {
+    planItemId: string;
+    query: string;
+    purpose: string;
+    keywords?: string[];
+  }
+): Promise<ResearchSearchTaskView> {
+  return requestWithSearchCode<ResearchSearchTaskView>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/research-search-tasks`,
+    {
+      method: "POST",
+      body: JSON.stringify(draft),
+      idempotencyKey: idempotencyKey("research-search")
+    }
+  );
+}
+
+/** Reads a search task with the candidates it surfaced. */
+export function getResearchSearchTask(
+  sessionId: string,
+  taskId: string
+): Promise<ResearchSearchTaskView> {
+  return requestWithSearchCode<ResearchSearchTaskView>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/research-search-tasks/${encodeURIComponent(taskId)}`,
+    {}
+  );
+}
+
+/**
+ * Approves a completed task: each candidate becomes a Source.
+ *
+ * This is the human-in-the-loop step the server enforces — the UI never claims
+ * a candidate was "verified" and never auto-creates evidence.
+ */
+export function approveResearchSearchTask(
+  sessionId: string,
+  taskId: string
+): Promise<{ task: ResearchSearchTask; registeredSourceIds: string[] }> {
+  return requestWithSearchCode<{
+    task: ResearchSearchTask;
+    registeredSourceIds: string[];
+  }>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/research-search-tasks/${encodeURIComponent(taskId)}/approve`,
+    { method: "POST", idempotencyKey: idempotencyKey("research-search-approve") }
+  );
+}
+
+/** Rejects a task's candidates without registering any source. */
+export function rejectResearchSearchTask(
+  sessionId: string,
+  taskId: string
+): Promise<{ task: ResearchSearchTask }> {
+  return requestWithSearchCode<{ task: ResearchSearchTask }>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/research-search-tasks/${encodeURIComponent(taskId)}/reject`,
+    { method: "POST", idempotencyKey: idempotencyKey("research-search-reject") }
+  );
+}
+
+export type ResearchSearchTaskListItem = ResearchSearchTask & {
+  candidateCount: number;
+};
+
+/** Lists every search task for the session with candidate counts. */
+export function listResearchSearchTasks(
+  sessionId: string
+): Promise<{ tasks: ResearchSearchTaskListItem[] }> {
+  return requestWithSearchCode<{ tasks: ResearchSearchTaskListItem[] }>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/research-search-tasks`,
     {}
   );
 }

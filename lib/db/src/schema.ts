@@ -821,6 +821,85 @@ export const researchPlanItems = pgTable(
   })
 );
 
+/**
+ * A controlled search request.
+ *
+ * The task is a *request*, never a result: it starts 'queued' and the system
+ * may only move it to 'searching' then 'completed'/'failed'. The leads it
+ * surfaces are kept in `searchCandidates`; approval copies them into `sources`
+ * but never into `evidence`. See migrations/0012_research_search_tasks.sql.
+ */
+export const researchSearchTasks = pgTable(
+  "research_search_tasks",
+  {
+    id: uuid("id").primaryKey(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => decisionSessions.id, { onDelete: "cascade" }),
+    planItemId: uuid("plan_item_id")
+      .notNull()
+      .references(() => researchPlanItems.id, { onDelete: "cascade" }),
+    query: text("query").notNull(),
+    purpose: text("purpose").notNull(),
+    keywords: jsonb("keywords").notNull().default(sql`'[]'::jsonb`),
+    status: text("status").notNull().default("queued"),
+    failureReason: text("failure_reason"),
+    rejectedAt: timestampColumn("rejected_at"),
+    rejectedBy: text("rejected_by"),
+    createdAt: timestampColumn("created_at").notNull().defaultNow(),
+    updatedAt: timestampColumn("updated_at").notNull().defaultNow(),
+    finishedAt: timestampColumn("finished_at")
+  },
+  (table) => ({
+    session: index("research_search_tasks_session_idx").on(table.sessionId),
+    planItem: index("research_search_tasks_plan_item_idx").on(
+      table.sessionId,
+      table.planItemId
+    ),
+    sessionStatus: index("research_search_tasks_session_status_idx").on(
+      table.sessionId,
+      table.status
+    )
+  })
+);
+
+/**
+ * A lead surfaced by a controlled search.
+ *
+ * A candidate is NOT a source: it becomes one only when a person approves the
+ * task, at which point `registeredSourceId` is stamped. The provenance it must
+ * already carry (url, title, publisher, retrievedAt, sourceType) is what makes
+ * that transfer pure rather than a silent metadata fabrication.
+ */
+export const searchCandidates = pgTable(
+  "search_candidates",
+  {
+    id: uuid("id").primaryKey(),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => researchSearchTasks.id, { onDelete: "cascade" }),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => decisionSessions.id, { onDelete: "cascade" }),
+    url: text("url").notNull(),
+    title: text("title").notNull(),
+    publisher: text("publisher").notNull(),
+    retrievedAt: timestampColumn("retrieved_at").notNull(),
+    sourceType: text("source_type").notNull(),
+    note: text("note"),
+    approvedAt: timestampColumn("approved_at"),
+    registeredSourceId: uuid("registered_source_id").references(
+      (): AnyPgColumn => sources.id,
+      { onDelete: "set null" }
+    ),
+    createdAt: timestampColumn("created_at").notNull().defaultNow()
+  },
+  (table) => ({
+    task: index("search_candidates_task_idx").on(table.taskId),
+    session: index("search_candidates_session_idx").on(table.sessionId)
+  })
+);
+
 export const idempotencyKeys = pgTable("idempotency_keys", {
   key: text("key").primaryKey(),
   requestHash: text("request_hash").notNull(),

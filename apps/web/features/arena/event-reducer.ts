@@ -167,6 +167,17 @@ function applyContiguousEvent(
     case "RESEARCH_PLAN_ITEM_CLOSED": {
       return { ...current, lastSequence: event.sequence };
     }
+    // Controlled search produces candidates, not material. A task being created,
+    // a search completing or failing, and a candidate being surfaced are
+    // research records about work, not about the debate — they move neither the
+    // phase nor a verdict, so they only advance the replay cursor. Crucially,
+    // these events change nothing that would let a candidate read as verified.
+    case "SEARCH_TASK_CREATED":
+    case "SEARCH_COMPLETED":
+    case "SEARCH_FAILED":
+    case "SOURCE_CANDIDATE_FOUND": {
+      return { ...current, lastSequence: event.sequence };
+    }
     default: {
       const exhaustiveEvent: never = event.type;
       void exhaustiveEvent;

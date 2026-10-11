@@ -6,6 +6,7 @@ import type {
   FinalReportRepository,
   InspectorRepository,
   ResearchPlanRepository,
+  ResearchSearchRepository,
   ReviewRepository
 } from "@nexus/db";
 import Fastify, { type FastifyInstance } from "fastify";
@@ -24,6 +25,7 @@ import { registerSessionRoutes } from "./api/routes/sessions";
 import { registerClaimExtractionRoutes } from "./api/routes/claim-extraction";
 import { registerCitationReviewRoutes } from "./api/routes/citation-review";
 import { registerResearchPlanRoutes } from "./api/routes/research-plan";
+import { registerResearchSearchRoutes } from "./api/routes/research-search";
 import { registerSourceIndependenceRoutes } from "./api/routes/source-independence";
 import { registerSourceIntakeRoutes } from "./api/routes/source-intake";
 import { EventBus } from "./execution/event-bus";
@@ -104,6 +106,26 @@ export type AppDependencies = {
     | "getPlanItem"
     | "replacePlanItem"
   >;
+  /**
+   * The controlled research search: tasks and the candidates they surface.
+   * Approving a task copies candidates into `sources`; it never writes
+   * evidence. See services/core/src/research/search-provider.ts for the
+   * (network-free, deterministic) provider contract.
+   */
+  researchSearch?: Pick<
+    ResearchSearchRepository,
+    | "createSearchTask"
+    | "getSearchTask"
+    | "startSearch"
+    | "completeSearch"
+    | "failSearch"
+    | "rejectTask"
+    | "markCandidateApproved"
+    | "listCandidates"
+    | "listSearchTasksWithCounts"
+  >;
+  /** Override for tests; defaults to the deterministic provider in production. */
+  searchProvider?: import("./research/search-provider").SearchProvider;
   arena?: Pick<ArenaRepository, "createResearchClaim" | "getSessionArtifacts">;
   reports?: Pick<
     FinalReportRepository,
@@ -184,6 +206,7 @@ export function createApp(
   registerSourceIndependenceRoutes(app, dependencies, idempotency);
   registerSourceIntakeRoutes(app, dependencies, idempotency);
   registerResearchPlanRoutes(app, dependencies, idempotency);
+  registerResearchSearchRoutes(app, dependencies, idempotency);
   registerReviewRoutes(app, dependencies, idempotency, eventBus);
   registerEventRoutes(app, {
     bus: eventBus,

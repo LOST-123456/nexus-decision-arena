@@ -13,6 +13,7 @@ import {
   type ResearchPlanView
 } from "./api";
 import { StatusPill } from "./components";
+import { ResearchSearchTasks } from "./research-search-tasks";
 import {
   formatDate,
   researchPlanFailureLabel,
@@ -685,6 +686,13 @@ export function ResearchPlanPanel({
               </ul>
             )}
           </div>
+
+          <ResearchSearchTasks
+            sessionId={sessionId}
+            canEdit={canEdit}
+            planItems={view.items}
+            onChanged={onChanged}
+          />
         </>
       ) : null}
     </section>

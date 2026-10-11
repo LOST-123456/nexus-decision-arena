@@ -1,6 +1,8 @@
 import { CANDIDATE_CLAIM_TYPE_LABELS } from "@nexus/shared";
 import type {
   ResearchPlanStatus,
+  ResearchSearchTaskStatus,
+  ResearchSearchFailureCode,
   CandidateClaimType,
   CandidateStatus,
   ClaimExtractionRun,
@@ -695,4 +697,45 @@ export function researchPlanFailureLabel(
   if (code === "source_not_found") return "引用的材料不属于这份研究。";
   if (code === "storage_unavailable") return "研究计划暂不可用。";
   return "研究计划操作失败，请重试。";
+}
+
+/* ------------------------------------------------------------------ *
+ * Controlled research search
+ * ------------------------------------------------------------------ */
+
+/**
+ * 受控检索任务状态. The status vocabulary is honest about what ran: `queued`
+ * means nothing has, and there is deliberately no "AI 已验证" label anywhere —
+ * a search only ever produces candidates, never verified evidence.
+ */
+export function researchSearchStatusLabel(
+  status: ResearchSearchTaskStatus
+): string {
+  if (status === "queued") return "已创建，尚未检索";
+  if (status === "searching") return "检索进行中";
+  if (status === "completed") return "已找到候选来源";
+  if (status === "failed") return "检索失败";
+  return "已取消";
+}
+
+export function researchSearchStatusTone(
+  status: ResearchSearchTaskStatus
+): string {
+  if (status === "completed") return "research-pill-unverified";
+  if (status === "failed") return "research-pill-opposes";
+  if (status === "searching") return "research-pill-context";
+  if (status === "queued") return "research-pill-neutral";
+  return "research-pill-rejected";
+}
+
+export function researchSearchFailureLabel(
+  code: string | undefined
+): string {
+  if (code === "search_task_not_found") return "找不到该检索任务，它可能已被更新。";
+  if (code === "plan_item_not_found") return "该计划条目不属于这份研究，无法创建检索任务。";
+  if (code === "invalid_request") return "请求内容不合法，请检查后重试。";
+  if (code === "invalid_transition") return "该检索任务当前状态不允许此操作，请刷新后重试。";
+  if (code === "search_failed") return "受控检索未能返回结果，请重试。";
+  if (code === "storage_unavailable") return "受控检索暂不可用。";
+  return "受控检索操作失败，请重试。";
 }

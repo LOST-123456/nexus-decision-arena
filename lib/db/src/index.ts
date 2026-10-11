@@ -8,6 +8,7 @@ export * from "./repositories/claim-extraction-repository";
 export * from "./repositories/citation-review-repository";
 export * from "./repositories/source-independence-repository";
 export * from "./repositories/research-plan-repository";
+export * from "./repositories/research-search-repository";
 export * from "./repositories/review-repository";
 export * from "./repositories/event-repository";
 export * from "./repositories/final-report-repository";
