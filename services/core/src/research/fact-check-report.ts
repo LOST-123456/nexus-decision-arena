@@ -13,6 +13,7 @@ import {
   type EvidenceGapKind,
   type ResearchPlanItem,
   type ResearchPlanStatus,
+  type RevalidationReportWarnings,
   type Source,
   diagnoseEvidenceGaps,
   EvidenceGapKindSchema,
@@ -230,6 +231,15 @@ export type FactCheckReport = {
       notPlanned: number;
     };
   };
+  /**
+   * What source monitoring has to say, reported alongside the conclusion and
+   * never folded into it.
+   *
+   * Absent when monitoring is not configured or nothing is open; when present
+   * it is a reason to re-read the report, not a reason to change a verdict —
+   * the verdict pipeline cannot see this block.
+   */
+  revalidation?: RevalidationReportWarnings | undefined;
   limits: string[];
   /** Links the report back to the exact rows it was generated from. */
   provenance: {
@@ -382,6 +392,12 @@ export type BuildFactCheckReportInput = {
   generatedAt: string;
   /** Current research plan rows, when the plan is configured. */
   planItems?: readonly FactCheckPlanItemRef[];
+  /**
+   * Source-monitoring warnings, when monitoring is configured. Passed in
+   * rather than derived here: the check trail is the monitor service's to
+   * read, and the report stays a pure function of its inputs.
+   */
+  revalidation?: RevalidationReportWarnings | undefined;
 };
 
 /** The plan's answer to one gap, from the plan row's own fields. */
@@ -591,6 +607,17 @@ export function buildFactCheckReport(
       `有 ${plannedNotExecuted} 项缺口已加入研究计划但尚未执行任何检索；相关补证工作仍在进行中。`
     );
   }
+  // An open re-check is a reason to re-read the report, never a reason to
+  // change a verdict — and the verdict pipeline cannot see this block.
+  const revalidation = input.revalidation;
+  if (
+    revalidation &&
+    (revalidation.openTaskCount > 0 || revalidation.inReviewTaskCount > 0)
+  ) {
+    limits.add(
+      `有 ${revalidation.openTaskCount} 项待处理、${revalidation.inReviewTaskCount} 项复核中的来源变化：相关结论所依据的材料版本可能已更新，结论本身未因此改变。`
+    );
+  }
 
   const counts = input.evidence.reduce(
     (accumulator, item) => {
@@ -718,6 +745,8 @@ export function buildFactCheckReport(
           .length
       }
     },
+    // Reported only when monitoring is wired in and has something to say.
+    ...(revalidation ? { revalidation } : {}),
     limits: [...limits],
     provenance: {
       evidenceIds: input.evidence.map((item) => item.id).sort(),

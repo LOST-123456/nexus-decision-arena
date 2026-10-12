@@ -73,6 +73,7 @@ export function registerReviewRoutes(
     | "events"
     | "crossReview"
     | "researchPlan"
+    | "sourceMonitor"
   >,
   idempotency: IdempotencyStore,
   eventBus: EventBus
@@ -420,6 +421,13 @@ export function registerReviewRoutes(
       ? await dependencies.researchPlan.listCurrentPlanItems(sessionId)
       : [];
 
+    // What source monitoring has to say about the material's currency.
+    // Absent when monitoring is not configured; never invented, and never
+    // folded into a verdict — the report shows it next to the conclusion.
+    const revalidation = dependencies.sourceMonitor
+      ? await dependencies.sourceMonitor.reportWarnings(sessionId)
+      : undefined;
+
     const verdicts = deriveClaimVerdicts(artifacts.claims, evidence, {
       challenges: artifacts.challenges,
       reviews
@@ -447,7 +455,8 @@ export function registerReviewRoutes(
       agentRuns,
       lastEventSequence,
       generatedAt: new Date().toISOString(),
-      planItems
+      planItems,
+      ...(revalidation ? { revalidation } : {})
     });
 
     const format = request.query.format === "markdown" ? "markdown" : "json";

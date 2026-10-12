@@ -170,7 +170,7 @@ describe("retrieval state", () => {
     const sessionId = await seedSession();
     const source = await seedImportedSource(sessionId);
 
-    await repository.recordRetrievalSuccess({
+    const first = await repository.recordRetrievalSuccess({
       snapshot: snapshotFor(sessionId, source.id, {
         hash: "same",
         content: "same text"
@@ -188,6 +188,10 @@ describe("retrieval state", () => {
     });
 
     expect(again.created).toBe(false);
+    // A repeat capture resolves to the row that already holds the text: the
+    // id a caller keeps (a re-check task points at it) is a row the database
+    // actually has, never the requested-but-conflicted one.
+    expect(again.snapshot.id).toBe(first.snapshot.id);
     // Re-reading a page still counts as an attempt, so "we tried" stays honest.
     expect(again.source.retrievalAttempts).toBe(2);
     expect(await repository.listSnapshots(sessionId, source.id)).toHaveLength(1);

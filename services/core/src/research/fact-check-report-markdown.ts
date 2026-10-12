@@ -299,6 +299,53 @@ export function renderFactCheckReportMarkdown(
     lines.push("");
   }
 
+  // Monitoring, reported next to the conclusion and never folded into it.
+  // Rendered from the same object the JSON answers with, so the two cannot
+  // disagree; absent entirely when monitoring has nothing to say.
+  if (report.revalidation) {
+    const warnings = report.revalidation;
+    lines.push("## 来源监测与重新核查", "");
+    lines.push(
+      `- 待处理复核任务：${warnings.openTaskCount} 项；复核中：${warnings.inReviewTaskCount} 项`
+    );
+    lines.push(
+      `- 最近一次来源检查：${formatDate(warnings.lastCheckedAt)}`
+    );
+    if (warnings.changedSources.length > 0) {
+      lines.push("- 已发生内容变化的来源：", "");
+      for (const source of warnings.changedSources) {
+        lines.push(
+          `  - 《${source.title}》（检查于 ${source.checkedAt}，当前版本 ${source.currentContentHash.slice(0, 12)}…）`
+        );
+      }
+    }
+    if (warnings.evidenceNeedingReconfirmation.length > 0) {
+      lines.push("- 需要再次确认的材料：", "");
+      for (const item of warnings.evidenceNeedingReconfirmation) {
+        lines.push(`  - ${item.title}：${item.reason}`);
+      }
+    }
+    if (warnings.affectedClaims.length > 0) {
+      lines.push("- 可能受影响、建议重新核查的主张：", "");
+      for (const claim of warnings.affectedClaims) {
+        lines.push(`  - ${claim.statement}`);
+      }
+    }
+    lines.push(
+      "- 报告所用来源版本：",
+      ""
+    );
+    for (const version of warnings.sourceVersions) {
+      lines.push(
+        `  - 《${version.title}》：${version.contentHash ? `${version.contentHash.slice(0, 12)}…` : "无已保存版本"}（获取于 ${formatDate(version.retrievedAt)}）`
+      );
+    }
+    lines.push(
+      "- 以上变化不改变本报告任何结论：推导结论只依据已核实材料，重新核查的结论由人工在工作台记录。",
+      ""
+    );
+  }
+
   lines.push("## 可追溯性", "");
   lines.push(`- 材料指纹：${report.materialsFingerprint}`);
   lines.push(`- 事件序号上界：${report.provenance.lastEventSequence}`);

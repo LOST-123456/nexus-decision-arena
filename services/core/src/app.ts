@@ -30,6 +30,7 @@ import { registerResearchPlanRoutes } from "./api/routes/research-plan";
 import { registerResearchSearchRoutes } from "./api/routes/research-search";
 import { registerSourceIndependenceRoutes } from "./api/routes/source-independence";
 import { registerSourceIntakeRoutes } from "./api/routes/source-intake";
+import { registerSourceMonitoringRoutes } from "./api/routes/source-monitoring";
 import { EventBus } from "./execution/event-bus";
 import type { CrossReviewService } from "./research/cross-review-service";
 import type { ClaimExtractionService } from "./research/claim-extraction-service";
@@ -37,6 +38,7 @@ import type { CitationReviewService } from "./research/citation-review-service";
 import type { SourceImportService } from "./research/source-import-service";
 import type { FileIngestionService } from "./research/file-ingestion-service";
 import type { SourceIndependenceService } from "./research/source-independence-service";
+import type { SourceMonitorService } from "./research/source-monitor-service";
 
 export type ProjectInput = {
   name: string;
@@ -106,6 +108,14 @@ export type AppDependencies = {
    * as corroboration. Computed from stored sources; writes only human rulings.
    */
   sourceIndependence?: SourceIndependenceService;
+  /**
+   * Source monitoring and re-check tasks: whether the material moved, what
+   * that reaches, and the persisted, attributed work a person owes when it
+   * did. Writes only the check trail, new captures and tasks — never a
+   * verification status, never a verdict. See
+   * services/core/src/research/source-monitor-service.ts.
+   */
+  sourceMonitor?: SourceMonitorService;
   /**
    * The research plan: which diagnosed gaps a person decided to pursue, and
    * what came of each. Gaps are derived; plan items are stored and attributed.
@@ -256,6 +266,7 @@ export function createApp(
   registerCitationReviewRoutes(app, dependencies, idempotency);
   registerSourceIndependenceRoutes(app, dependencies, idempotency);
   registerSourceIntakeRoutes(app, dependencies, idempotency);
+  registerSourceMonitoringRoutes(app, dependencies, idempotency);
   registerFileRoutes(app, dependencies, idempotency);
   registerResearchPlanRoutes(app, dependencies, idempotency);
   registerResearchSearchRoutes(app, dependencies, idempotency);

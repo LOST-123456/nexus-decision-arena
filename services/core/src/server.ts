@@ -8,11 +8,13 @@ import {
   InspectorRepository,
   ResearchPlanRepository,
   ResearchSearchRepository,
+  RevalidationTaskRepository,
   ReviewRepository,
   ClaimExtractionRepository,
   CitationReviewRepository,
-  SourceIndependenceRepository,
-  SourceFileRepository
+  SourceCheckRepository,
+  SourceFileRepository,
+  SourceIndependenceRepository
 } from "@nexus/db";
 import { OpenAiCompatibleProvider, type LlmProvider } from "@nexus/llm";
 import { createApp } from "./app";
@@ -39,6 +41,8 @@ import { createPageFetcher } from "./research/page-fetch";
 import { createNodePageTransport, dnsAddressResolver } from "./research/node-page-transport";
 import { SourceImportService } from "./research/source-import-service";
 import { FileIngestionService } from "./research/file-ingestion-service";
+import { SourceMonitorService } from "./research/source-monitor-service";
+import { ResearchWorkspaceService } from "./research/workspace-service";
 import { DiskFileStorage } from "./research/file-storage";
 import { AuthService } from "./auth";
 
@@ -183,6 +187,30 @@ const pageFetcher = createPageFetcher({
 });
 
 /**
+ * The research workspace projection.
+ *
+ * One instance for the process, so the evidence map, the research plan and
+ * source monitoring all read the same claims, verdicts and gaps rather than
+ * three slightly different answers to the same question.
+ */
+const workspaceService = new ResearchWorkspaceService({
+  evidence: researchEvidence,
+  arena,
+  reviews: researchReviews,
+  getSession: async (sessionId) => {
+    const session = await sessions.getById(sessionId);
+    if (!session) return null;
+    return {
+      id: session.id,
+      phase: session.phase,
+      operationalStatus: session.operationalStatus,
+      researchQuestion: session.researchQuestion ?? null,
+      currentConclusion: session.currentConclusion ?? null
+    };
+  }
+});
+
+/**
  * Where imported files are kept.
  *
  * Outside the database, outside the web root, and reached only through the
@@ -248,6 +276,28 @@ const app = createApp(
     sourceIndependence: new SourceIndependenceService({
       sources: researchEvidence,
       assertions: new SourceIndependenceRepository(database)
+    }),
+    // Source monitoring: whether registered pages and documents have moved,
+    // what that reaches, and the re-check a person owes when they have. The
+    // same fetcher and the same SSRF guard as the intake, and the same
+    // workspace projection the UI reads.
+    sourceMonitor: new SourceMonitorService({
+      evidence: researchEvidence,
+      checks: new SourceCheckRepository(database),
+      tasks: new RevalidationTaskRepository(database),
+      files: new SourceFileRepository(database),
+      fetch: (url) => pageFetcher.fetch(url),
+      workspace: async (sessionId) => {
+        const workspace = await workspaceService.getWorkspace(sessionId);
+        if (!workspace) return null;
+        // The projection itself, unmodified: monitoring reads the same claims
+        // and verdicts the workspace shows, so the two cannot disagree.
+        return {
+          claims: workspace.claims,
+          verdicts: workspace.verdicts
+        };
+      },
+      appendEvent: (input) => events.append(input)
     }),
     // No controlled web-search integration exists in this build, so the plan
     // is wired with searchAvailable=false and offers start_search nowhere.

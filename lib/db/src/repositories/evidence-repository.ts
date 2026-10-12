@@ -275,9 +275,28 @@ export class EvidenceRepository {
         input.event
       );
 
+      // The row that holds this text afterwards: the one just written, or —
+      // when this exact capture already existed — the stored one. Resolving
+      // to the stored row matters because callers keep the returned id (a
+      // re-check task points at it), and an id the database never saw would
+      // be a dangling reference rather than a version.
+      const [stored] =
+        inserted.length > 0
+          ? inserted
+          : await transaction
+              .select()
+              .from(sourceSnapshots)
+              .where(
+                and(
+                  eq(sourceSnapshots.sourceId, input.snapshot.sourceId),
+                  eq(sourceSnapshots.contentHash, input.snapshot.contentHash)
+                )
+              )
+              .limit(1);
+
       return {
         source: parseSources([updated!])[0]!,
-        snapshot: parseSourceSnapshots([inserted[0] ?? input.snapshot])[0]!,
+        snapshot: parseSourceSnapshots([stored ?? input.snapshot])[0]!,
         created: inserted.length > 0,
         event
       };

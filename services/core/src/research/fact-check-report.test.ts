@@ -5,7 +5,9 @@ import {
   ConflictSchema,
   EvidenceSchema,
   newId,
+  RevalidationTaskSchema,
   SourceSchema,
+  SourceSnapshotSchema,
   type AgentRun,
   type Challenge,
   type Claim,
@@ -13,7 +15,10 @@ import {
   type ClaimVerdict,
   type Conflict,
   type Evidence,
-  type Source
+  type RevalidationReportWarnings,
+  type RevalidationTask,
+  type Source,
+  type SourceSnapshot
 } from "@nexus/shared";
 import { deriveClaimVerdicts } from "@nexus/shared";
 import {
@@ -21,6 +26,7 @@ import {
   type FactCheckPlanItemRef
 } from "./fact-check-report";
 import { renderFactCheckReportMarkdown } from "./fact-check-report-markdown";
+import { deriveRevalidationWarnings } from "./revalidation-warnings";
 
 const SESSION_ID = newId();
 const CLAIM_ID = newId();
@@ -34,6 +40,10 @@ const CHALLENGER_ROLE_ID = newId();
 const REVIEW_ID = newId();
 const NOW = new Date("2026-02-01T00:00:00.000Z");
 const NOW_ISO = NOW.toISOString();
+/** A second source in the same session, the one that drifted. */
+const CHANGED_SOURCE_ID = newId();
+const OLD_HASH = "a".repeat(64);
+const NEW_HASH = "b".repeat(64);
 
 function claimFixture(overrides: Partial<Claim> = {}): Claim {
   return ClaimSchema.parse({
@@ -89,6 +99,87 @@ function sourceFixture(): Source {
     createdBy: "human",
     createdAt: NOW_ISO,
     updatedAt: NOW_ISO
+  });
+}
+
+function changedSourceFixture(): Source {
+  return SourceSchema.parse({
+    id: CHANGED_SOURCE_ID,
+    sessionId: SESSION_ID,
+    title: "Vendor blog",
+    kind: "url",
+    url: "https://example.org/vendor-blog",
+    publisher: "Vendor",
+    createdBy: "human",
+    createdAt: NOW_ISO,
+    updatedAt: NOW_ISO
+  });
+}
+
+function snapshotFixture(
+  sourceId: string,
+  contentHash: string,
+  overrides: Partial<SourceSnapshot> = {}
+): SourceSnapshot {
+  return SourceSnapshotSchema.parse({
+    id: newId(),
+    sessionId: SESSION_ID,
+    sourceId,
+    canonicalUrl: `https://example.org/${sourceId}`,
+    contentHash,
+    contentType: "text/html",
+    content: "Shipments rose 12%.",
+    contentBytes: 19,
+    charCount: 19,
+    retrievedAt: NOW_ISO,
+    createdAt: NOW_ISO,
+    ...overrides
+  });
+}
+
+function monitoringTaskFixture(
+  overrides: Partial<RevalidationTask> = {}
+): RevalidationTask {
+  return RevalidationTaskSchema.parse({
+    id: newId(),
+    sessionId: SESSION_ID,
+    sourceId: SOURCE_ID,
+    sourceTitle: "Q4 shipment statistics",
+    triggerContentHash: NEW_HASH,
+    previousSnapshotId: null,
+    currentSnapshotId: null,
+    affectedEvidenceIds: [EVIDENCE_ID],
+    affectedClaimIds: [CLAIM_ID],
+    reason: "来源内容发生变化",
+    status: "open",
+    createdAt: NOW_ISO,
+    updatedAt: NOW_ISO,
+    resolvedAt: null,
+    resolvedBy: null,
+    resolutionNote: null,
+    ...overrides
+  });
+}
+
+/** One open task on the drifted source plus one in review on the second. */
+function monitoringWarningsFixture(): RevalidationReportWarnings {
+  return deriveRevalidationWarnings({
+    tasks: [
+      monitoringTaskFixture(),
+      monitoringTaskFixture({
+        id: newId(),
+        sourceId: CHANGED_SOURCE_ID,
+        sourceTitle: "Vendor blog",
+        status: "in_review"
+      })
+    ],
+    claims: [claimFixture()],
+    evidence: [evidenceFixture()],
+    sources: [sourceFixture(), changedSourceFixture()],
+    latestSnapshots: [
+      snapshotFixture(SOURCE_ID, NEW_HASH),
+      snapshotFixture(CHANGED_SOURCE_ID, OLD_HASH)
+    ]
   });
 }
 
@@ -177,6 +268,7 @@ function build(overrides: {
   agentRuns?: AgentRun[];
   lastEventSequence?: number;
   planItems?: FactCheckPlanItemRef[];
+  revalidation?: RevalidationReportWarnings;
 } = {}) {
   const claims = overrides.claims ?? [claimFixture()];
   const evidence = overrides.evidence ?? [evidenceFixture()];
@@ -210,7 +302,10 @@ function build(overrides: {
     agentRuns,
     lastEventSequence: overrides.lastEventSequence ?? 12,
     generatedAt: NOW_ISO,
-    ...(overrides.planItems ? { planItems: overrides.planItems } : {})
+    ...(overrides.planItems ? { planItems: overrides.planItems } : {}),
+    ...(overrides.revalidation
+      ? { revalidation: overrides.revalidation }
+      : {})
   });
 }
 
@@ -370,6 +465,82 @@ describe("fact-check report · agent claims are not citations", () => {
     ]);
     expect(report.gaps.unresolvedConflicts).toHaveLength(1);
     expect(report.gaps.unresolvedConflicts[0]!.summary).toContain("Procurement");
+  });
+});
+
+describe("fact-check report · source monitoring is reported, never folded in", () => {
+  it("carries the monitoring warnings next to the conclusion", () => {
+    const report = build({ revalidation: monitoringWarningsFixture() });
+
+    expect(report.revalidation?.openTaskCount).toBe(1);
+    expect(report.revalidation?.inReviewTaskCount).toBe(1);
+    expect(
+      report.revalidation?.changedSources.map((item) => item.title).sort()
+    ).toEqual(["Q4 shipment statistics", "Vendor blog"]);
+    expect(
+      report.revalidation?.evidenceNeedingReconfirmation.map(
+        (item) => item.title
+      )
+    ).toEqual(["Quarterly figures"]);
+    expect(
+      report.revalidation?.affectedClaims.map((item) => item.statement)
+    ).toEqual(["Shipments grew 12% last quarter."]);
+    expect(report.revalidation?.lastCheckedAt).toBe(NOW_ISO);
+    // The exact version each conclusion was drawn from stays on the record.
+    expect(
+      report.revalidation?.sourceVersions.map((item) => item.contentHash).sort()
+    ).toEqual([OLD_HASH, NEW_HASH]);
+  });
+
+  it("names the open re-checks as a limit without touching the verdict", () => {
+    const before = build();
+    const report = build({ revalidation: monitoringWarningsFixture() });
+
+    expect(report.limits.join(" ")).toContain(
+      "有 1 项待处理、1 项复核中的来源变化：相关结论所依据的材料版本可能已更新，结论本身未因此改变。"
+    );
+    // Monitoring cannot reach the verdict pipeline: same material, same verdict.
+    expect(report.findings.map((finding) => finding.verdict)).toEqual(
+      before.findings.map((finding) => finding.verdict)
+    );
+    expect(report.materialsFingerprint).toBe(before.materialsFingerprint);
+  });
+
+  it("omits the revalidation block entirely when monitoring never ran", () => {
+    const report = build();
+
+    expect(report.revalidation).toBeUndefined();
+    expect(report.limits.join(" ")).not.toContain("来源变化");
+  });
+
+  it("stays silent in the limits when every task is already closed", () => {
+    const closed = deriveRevalidationWarnings({
+      tasks: [
+        monitoringTaskFixture({ status: "resolved" }),
+        monitoringTaskFixture({
+          id: newId(),
+          sourceId: CHANGED_SOURCE_ID,
+          sourceTitle: "Vendor blog",
+          status: "dismissed"
+        })
+      ],
+      claims: [claimFixture()],
+      evidence: [evidenceFixture()],
+      sources: [sourceFixture(), changedSourceFixture()],
+      latestSnapshots: [
+        snapshotFixture(SOURCE_ID, NEW_HASH),
+        snapshotFixture(CHANGED_SOURCE_ID, OLD_HASH)
+      ]
+    });
+    const report = build({ revalidation: closed });
+
+    expect(report.revalidation?.openTaskCount).toBe(0);
+    expect(report.revalidation?.inReviewTaskCount).toBe(0);
+    expect(report.limits.join(" ")).not.toContain("来源变化");
+    // The versions the report was built from are still on the record.
+    expect(
+      report.revalidation?.sourceVersions.map((item) => item.contentHash).sort()
+    ).toEqual([OLD_HASH, NEW_HASH]);
   });
 });
 
@@ -691,5 +862,53 @@ describe("markdown rendering", () => {
     expect(markdown).toContain("**证据缺口与建议补充材料**");
     expect(markdown).toContain("建议（待验证，未执行检索）");
     expect(markdown).toContain("命中规则");
+  });
+
+  it("renders the monitoring warnings exactly as the json reports them", () => {
+    const report = build({ revalidation: monitoringWarningsFixture() });
+    const markdown = renderFactCheckReportMarkdown(report);
+    const warnings = report.revalidation!;
+
+    expect(markdown).toContain("## 来源监测与重新核查");
+    expect(markdown).toContain(
+      `- 待处理复核任务：${warnings.openTaskCount} 项；复核中：${warnings.inReviewTaskCount} 项`
+    );
+    expect(markdown).toContain(`- 最近一次来源检查：${warnings.lastCheckedAt}`);
+    for (const source of warnings.changedSources) {
+      expect(markdown).toContain(
+        `《${source.title}》（检查于 ${source.checkedAt}，当前版本 ${source.currentContentHash.slice(0, 12)}…）`
+      );
+    }
+    // Each block lands under its own heading, so a reader can tell what kind
+    // of statement they are looking at.
+    const reconfirmAt = markdown.indexOf("需要再次确认的材料：");
+    expect(reconfirmAt).toBeGreaterThan(-1);
+    for (const item of warnings.evidenceNeedingReconfirmation) {
+      expect(markdown.slice(reconfirmAt)).toContain(`${item.title}：${item.reason}`);
+    }
+    const claimsAt = markdown.indexOf("可能受影响、建议重新核查的主张：");
+    expect(claimsAt).toBeGreaterThan(-1);
+    for (const claim of warnings.affectedClaims) {
+      expect(markdown.slice(claimsAt)).toContain(claim.statement);
+    }
+    const versionsAt = markdown.indexOf("报告所用来源版本：");
+    expect(versionsAt).toBeGreaterThan(-1);
+    for (const version of warnings.sourceVersions) {
+      expect(markdown.slice(versionsAt)).toContain(
+        `《${version.title}》：${version.contentHash ? `${version.contentHash.slice(0, 12)}…` : "无已保存版本"}`
+      );
+    }
+    // The same sentence the json limits carry, and the standing disclaimer
+    // that a drift is a reason to re-read, never a changed conclusion.
+    expect(markdown).toContain(
+      "有 1 项待处理、1 项复核中的来源变化：相关结论所依据的材料版本可能已更新，结论本身未因此改变。"
+    );
+    expect(markdown).toContain("以上变化不改变本报告任何结论");
+  });
+
+  it("omits the monitoring section when monitoring never ran", () => {
+    const markdown = renderFactCheckReportMarkdown(build());
+
+    expect(markdown).not.toContain("来源监测与重新核查");
   });
 });

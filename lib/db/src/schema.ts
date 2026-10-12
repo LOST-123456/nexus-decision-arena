@@ -266,6 +266,152 @@ export const sourceFiles = pgTable(
   })
 );
 
+/**
+ * One monitoring check of a source.
+ *
+ * Append-only and never a verdict: it records what a check established about
+ * the page itself — unchanged, changed, or unreadable — and never touches
+ * `sources.retrieval_status` or `evidence.verification_status`. A `changed`
+ * row must carry both hashes, so drift can only be recorded where there is a
+ * before and an after to point at.
+ */
+export const sourceChecks = pgTable(
+  "source_checks",
+  {
+    id: uuid("id").primaryKey(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => decisionSessions.id),
+    sourceId: uuid("source_id")
+      .notNull()
+      .references(() => sources.id, { onDelete: "cascade" }),
+    status: text("status").notNull(),
+    reasonCode: text("reason_code"),
+    message: text("message").notNull(),
+    previousSnapshotId: uuid("previous_snapshot_id").references(
+      () => sourceSnapshots.id,
+      { onDelete: "set null" }
+    ),
+    currentSnapshotId: uuid("current_snapshot_id").references(
+      () => sourceSnapshots.id,
+      { onDelete: "set null" }
+    ),
+    previousContentHash: text("previous_content_hash"),
+    currentContentHash: text("current_content_hash"),
+    httpStatus: integer("http_status"),
+    errorCode: text("error_code"),
+    errorMessage: text("error_message"),
+    newVersionStored: boolean("new_version_stored").notNull().default(false),
+    checkedBy: text("checked_by").notNull(),
+    checkedAt: timestampColumn("checked_at").notNull().defaultNow(),
+    createdAt: timestampColumn("created_at").notNull().defaultNow()
+  },
+  (table) => ({
+    sourceChecked: index("source_checks_source_checked_idx").on(
+      table.sourceId,
+      table.checkedAt
+    ),
+    sessionChecked: index("source_checks_session_checked_idx").on(
+      table.sessionId,
+      table.checkedAt
+    )
+  })
+);
+
+/**
+ * A re-check a person owes because a source moved underneath a conclusion.
+ *
+ * One row per task: the id stays stable across transitions, and every status
+ * change is appended to `revalidation_task_events` below, so who closed a task
+ * and why is never lost. The unique index on (session, source, trigger hash)
+ * is what makes repeated checks idempotent — checking the same version again
+ * resolves to the row that is already open instead of opening a second
+ * reminder.
+ */
+export const revalidationTasks = pgTable(
+  "revalidation_tasks",
+  {
+    id: uuid("id").primaryKey(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => decisionSessions.id),
+    sourceId: uuid("source_id")
+      .notNull()
+      .references(() => sources.id, { onDelete: "cascade" }),
+    sourceTitle: text("source_title").notNull(),
+    /** Content hash of the version that opened this task. */
+    triggerContentHash: text("trigger_content_hash").notNull(),
+    previousSnapshotId: uuid("previous_snapshot_id").references(
+      () => sourceSnapshots.id,
+      { onDelete: "set null" }
+    ),
+    currentSnapshotId: uuid("current_snapshot_id").references(
+      () => sourceSnapshots.id,
+      { onDelete: "set null" }
+    ),
+    affectedEvidenceIds: jsonb("affected_evidence_ids").notNull().default([]),
+    affectedClaimIds: jsonb("affected_claim_ids").notNull().default([]),
+    reason: text("reason").notNull(),
+    status: text("status").notNull().default("open"),
+    createdAt: timestampColumn("created_at").notNull().defaultNow(),
+    updatedAt: timestampColumn("updated_at").notNull().defaultNow(),
+    resolvedAt: timestampColumn("resolved_at"),
+    resolvedBy: text("resolved_by"),
+    resolutionNote: text("resolution_note")
+  },
+  (table) => ({
+    // One task per version of a source: re-running the same check resolves to
+    // the existing row instead of opening a second reminder. The task keeps
+    // its id across transitions; the history lives in revalidation_task_events.
+    current: uniqueIndex("revalidation_tasks_current_idx").on(
+      table.sessionId,
+      table.sourceId,
+      table.triggerContentHash
+    ),
+    sessionStatus: index("revalidation_tasks_session_status_idx").on(
+      table.sessionId,
+      table.status
+    ),
+    source: index("revalidation_tasks_source_idx").on(table.sourceId)
+  })
+);
+
+/**
+ * Every status change of a re-check, appended.
+ *
+ * The task row above is updated in place, so this table is the only place the
+ * history survives: "who moved this to resolved, and on what grounds" cannot
+ * be edited away by a later transition.
+ */
+export const revalidationTaskEvents = pgTable(
+  "revalidation_task_events",
+  {
+    id: uuid("id").primaryKey(),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => revalidationTasks.id, { onDelete: "cascade" }),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => decisionSessions.id),
+    /** Null on the event that opened the task. */
+    fromStatus: text("from_status"),
+    toStatus: text("to_status").notNull(),
+    note: text("note"),
+    actor: text("actor").notNull(),
+    createdAt: timestampColumn("created_at").notNull().defaultNow()
+  },
+  (table) => ({
+    task: index("revalidation_task_events_task_idx").on(
+      table.taskId,
+      table.createdAt.desc()
+    ),
+    session: index("revalidation_task_events_session_idx").on(
+      table.sessionId,
+      table.createdAt.desc()
+    )
+  })
+);
+
 export const evidence = pgTable("evidence", {
   id: uuid("id").primaryKey(),
   sessionId: uuid("session_id")

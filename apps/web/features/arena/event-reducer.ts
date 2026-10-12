@@ -120,11 +120,19 @@ function applyContiguousEvent(
     }
     // Source intake follows the same rule. A retrieval that failed is still an
     // event worth showing, but it must not be read as evidence arriving, and it
-    // changes nothing about the debate phase.
+    // changes nothing about the debate phase. Monitoring events join them: a
+    // check that found drift records work for a person, not material for the
+    // debate, and a re-check being closed is likewise a record about work.
     case "SOURCE_REGISTERED":
     case "SOURCE_RETRIEVED":
     case "SOURCE_RETRIEVAL_FAILED":
-    case "SOURCE_EXCERPTS_RECHECKED": {
+    case "SOURCE_EXCERPTS_RECHECKED":
+    case "SOURCE_CHECK_STARTED":
+    case "SOURCE_CHECK_COMPLETED":
+    case "SOURCE_CONTENT_CHANGED":
+    case "SOURCE_CHECK_FAILED":
+    case "REVALIDATION_TASK_CREATED":
+    case "REVALIDATION_TASK_RESOLVED": {
       return { ...current, lastSequence: event.sequence };
     }
     // Analysis produces candidates, not material: a result here changes nothing

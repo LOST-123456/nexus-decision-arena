@@ -29,4 +29,5 @@ export * from "./verification/research-plan";
 export * from "./research/search-task";
 export * from "./research/evidence-map";
 export * from "./research/source-file";
+export * from "./research/source-monitoring";
 export * from "./replay/decision-replay";
