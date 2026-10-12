@@ -79,6 +79,21 @@ function testApp(enabled = true, fileIngestion = ingestion()) {
   );
 }
 
+/**
+ * One application for a whole scenario.
+ *
+ * This matters for more than tidiness: the idempotency store and the file
+ * storage live inside the app instance. A replay can only be observed if the
+ * second upload hits the same store, and a retry can only re-read bytes that
+ * were written to the same storage. Calls that deliberately change one of those
+ * (unauthenticated, smaller ceiling) build their own instance on purpose.
+ */
+let sharedApp: ReturnType<typeof testApp> | null = null;
+function defaultApp(): ReturnType<typeof testApp> {
+  sharedApp ??= testApp();
+  return sharedApp;
+}
+
 const encode = (value: string) => new TextEncoder().encode(value);
 
 async function upload(options: {
@@ -89,11 +104,14 @@ async function upload(options: {
   idempotencyKey?: string;
   app?: ReturnType<typeof testApp>;
 }) {
-  const target = options.app ?? testApp();
+  const target = options.app ?? defaultApp();
   return await target.inject({
     method: "POST",
     url: `/api/sessions/${options.sessionId ?? SESSION_ID}/files`,
     headers: {
+      // The browser client always sends the bytes as an explicit octet-stream;
+      // nothing here infers the type from it (that is done from the signature).
+      "content-type": options.contentType ?? "application/octet-stream",
       "x-file-name": encodeURIComponent(options.fileName),
       ...(options.idempotencyKey === null
         ? {}
@@ -151,12 +169,12 @@ describe("POST /api/sessions/:id/files", () => {
 
   it("stores the extracted text so it can be read back", async () => {
     await upload({ fileName: "notes.txt", bytes: TXT_BYTES });
-    const list = await testApp().inject({
+    const list = await defaultApp().inject({
       method: "GET",
       url: `/api/sessions/${SESSION_ID}/files`
     });
     const fileId = list.json().files[0].id as string;
-    const content = await testApp().inject({
+    const content = await defaultApp().inject({
       method: "GET",
       url: `/api/sessions/${SESSION_ID}/files/${fileId}/content`
     });
@@ -174,7 +192,7 @@ describe("POST /api/sessions/:id/files", () => {
     });
     expect(response.statusCode).toBe(201);
     const fileId = response.json().file.id as string;
-    const content = await testApp().inject({
+    const content = await defaultApp().inject({
       method: "GET",
       url: `/api/sessions/${SESSION_ID}/files/${fileId}/content`
     });
@@ -201,7 +219,7 @@ describe("POST /api/sessions/:id/files", () => {
     });
     expect(first.json().file.id).not.toBe(second.json().file.id);
     // Both are readable; only their Source titles had to be distinguished.
-    const list = await testApp().inject({
+    const list = await defaultApp().inject({
       method: "GET",
       url: `/api/sessions/${SESSION_ID}/files`
     });
@@ -219,7 +237,7 @@ describe("POST /api/sessions/:id/files", () => {
     });
     expect(response.statusCode).toBe(415);
     expect(response.json().code).toBe("unsupported_type");
-    const list = await testApp().inject({
+    const list = await defaultApp().inject({
       method: "GET",
       url: `/api/sessions/${SESSION_ID}/files`
     });
@@ -259,7 +277,7 @@ describe("POST /api/sessions/:id/files", () => {
   it("lets a viewer read files", async () => {
     await upload({ fileName: "notes.txt", bytes: TXT_BYTES });
     role = "viewer";
-    const list = await testApp().inject({
+    const list = await defaultApp().inject({
       method: "GET",
       url: `/api/sessions/${SESSION_ID}/files`
     });
@@ -268,10 +286,13 @@ describe("POST /api/sessions/:id/files", () => {
   });
 
   it("requires an idempotency key", async () => {
-    const response = await testApp().inject({
+    const response = await defaultApp().inject({
       method: "POST",
       url: `/api/sessions/${SESSION_ID}/files`,
-      headers: { "x-file-name": encodeURIComponent("notes.txt") },
+      headers: {
+        "content-type": "application/octet-stream",
+        "x-file-name": encodeURIComponent("notes.txt")
+      },
       payload: Buffer.from(TXT_BYTES)
     });
     expect(response.statusCode).toBe(400);
@@ -292,7 +313,7 @@ describe("POST /api/sessions/:id/files", () => {
     });
     expect(first.statusCode).toBe(201);
     expect(second.statusCode).toBe(201);
-    const list = await testApp().inject({
+    const list = await defaultApp().inject({
       method: "GET",
       url: `/api/sessions/${SESSION_ID}/files`
     });
@@ -310,7 +331,7 @@ describe("POST /api/sessions/:id/files", () => {
     expect(response.json().file.parseStatus).toBe("failed");
     expect(response.json().file.parseError).toBeTruthy();
     // The row exists, so the failure stays visible in the file list.
-    const list = await testApp().inject({
+    const list = await defaultApp().inject({
       method: "GET",
       url: `/api/sessions/${SESSION_ID}/files`
     });
@@ -323,7 +344,7 @@ describe("file reads across sessions", () => {
   it("does not expose another session's files", async () => {
     const uploaded = await upload({ fileName: "notes.txt", bytes: TXT_BYTES });
     const fileId = uploaded.json().file.id as string;
-    const other = await testApp().inject({
+    const other = await defaultApp().inject({
       method: "GET",
       url: `/api/sessions/${SESSION_B_ID}/files/${fileId}`
     });
@@ -334,7 +355,7 @@ describe("file reads across sessions", () => {
   it("lists only the session's own files", async () => {
     await upload({ fileName: "notes.txt", bytes: TXT_BYTES });
     await upload({ fileName: "other.txt", bytes: encode("Session B file.\n"), sessionId: SESSION_B_ID });
-    const mine = await testApp().inject({
+    const mine = await defaultApp().inject({
       method: "GET",
       url: `/api/sessions/${SESSION_ID}/files`
     });
@@ -350,7 +371,7 @@ describe("POST /api/sessions/:id/files/:fileId/retry", () => {
       bytes: encode("%PDF-1.4 not really a document")
     });
     const fileId = failed.json().file.id as string;
-    const response = await testApp().inject({
+    const response = await defaultApp().inject({
       method: "POST",
       url: `/api/sessions/${SESSION_ID}/files/${fileId}/retry`,
       headers: { "idempotency-key": newId() }
@@ -358,7 +379,7 @@ describe("POST /api/sessions/:id/files/:fileId/retry", () => {
     // Still unreadable, because nothing about the bytes changed: the retry must
     // say so rather than succeed.
     expect(response.statusCode).toBe(422);
-    const stored = await testApp().inject({
+    const stored = await defaultApp().inject({
       method: "GET",
       url: `/api/sessions/${SESSION_ID}/files/${fileId}`
     });
@@ -369,7 +390,7 @@ describe("POST /api/sessions/:id/files/:fileId/retry", () => {
     const uploaded = await upload({ fileName: "notes.txt", bytes: TXT_BYTES });
     const fileId = uploaded.json().file.id as string;
     role = "viewer";
-    const response = await testApp().inject({
+    const response = await defaultApp().inject({
       method: "POST",
       url: `/api/sessions/${SESSION_ID}/files/${fileId}/retry`,
       headers: { "idempotency-key": newId() }
