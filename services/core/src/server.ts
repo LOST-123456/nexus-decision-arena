@@ -11,7 +11,8 @@ import {
   ReviewRepository,
   ClaimExtractionRepository,
   CitationReviewRepository,
-  SourceIndependenceRepository
+  SourceIndependenceRepository,
+  SourceFileRepository
 } from "@nexus/db";
 import { OpenAiCompatibleProvider, type LlmProvider } from "@nexus/llm";
 import { createApp } from "./app";
@@ -37,6 +38,8 @@ import { DeterministicExtractionProvider } from "./research/deterministic-extrac
 import { createPageFetcher } from "./research/page-fetch";
 import { createNodePageTransport, dnsAddressResolver } from "./research/node-page-transport";
 import { SourceImportService } from "./research/source-import-service";
+import { FileIngestionService } from "./research/file-ingestion-service";
+import { DiskFileStorage } from "./research/file-storage";
 import { AuthService } from "./auth";
 
 import { dirname, resolve } from "node:path";
@@ -179,6 +182,34 @@ const pageFetcher = createPageFetcher({
   transport: createNodePageTransport()
 });
 
+/**
+ * Where imported files are kept.
+ *
+ * Outside the database, outside the web root, and reached only through the
+ * session-scoped file endpoints. The ceiling below is a deployment decision
+ * rather than a default nobody chose, and it is enforced again by the ingestion
+ * service so the two cannot drift apart unnoticed.
+ */
+const fileStorage = new DiskFileStorage(
+  process.env.NEXUS_FILE_STORAGE_DIR ??
+    resolve(dirname(fileURLToPath(import.meta.url)), "../../..", ".data", "files")
+);
+const configuredMaxMb = Number(process.env.NEXUS_MAX_UPLOAD_MB ?? 10);
+
+/**
+ * Local research files: one uploaded document becomes one Source plus one
+ * capture, or a recorded explanation of why it could not be read.
+ */
+const fileIngestion = new FileIngestionService({
+  files: new SourceFileRepository(database),
+  evidence: researchEvidence,
+  storage: fileStorage,
+  maxBytes:
+    Number.isFinite(configuredMaxMb) && configuredMaxMb > 0
+      ? Math.floor(configuredMaxMb * 1024 * 1024)
+      : undefined
+});
+
 const app = createApp(
   {
     sessions,
@@ -195,6 +226,7 @@ const app = createApp(
       // contacted.
       fetch: (url) => pageFetcher.fetch(url)
     }),
+    fileIngestion,
     claimExtraction: new ClaimExtractionService({
       provider: extractionProvider.provider,
       providerName: extractionProvider.name,

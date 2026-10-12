@@ -218,6 +218,54 @@ export const sourceSnapshots = pgTable(
   })
 );
 
+/**
+ * A local research file that was uploaded into a session.
+ *
+ * This row is the *ledger entry* for an uploaded document: its identity
+ * (sha256), what the bytes really are, and how the read settled. It never holds
+ * the bytes (those live in managed storage) and it never holds the text (that
+ * is a `source_snapshots` row once parsing succeeded). Keeping those three
+ * apart is why a file can exist without being readable, and why readable text
+ * can be cited without a second set of records.
+ */
+export const sourceFiles = pgTable(
+  "source_files",
+  {
+    id: uuid("id").primaryKey(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => decisionSessions.id),
+    /** Set once text exists; stays null for `needs_ocr` and `failed`. */
+    sourceId: uuid("source_id").references(() => sources.id, {
+      onDelete: "set null"
+    }),
+    /** As the uploader named it. Display only. */
+    fileName: text("file_name").notNull(),
+    /** What the client claimed; kept for audit, never trusted. */
+    declaredMimeType: text("declared_mime_type").notNull(),
+    /** What the server established from the file signature. */
+    detectedKind: text("detected_kind").notNull(),
+    byteSize: integer("byte_size").notNull(),
+    sha256: text("sha256").notNull(),
+    parseStatus: text("parse_status").notNull(),
+    parseError: text("parse_error"),
+    parseStats: jsonb("parse_stats"),
+    /** Opaque key into the managed file store — never a filesystem path. */
+    storageKey: text("storage_key").notNull(),
+    parserVersion: text("parser_version").notNull(),
+    createdAt: timestampColumn("created_at").notNull().defaultNow(),
+    updatedAt: timestampColumn("updated_at").notNull().defaultNow()
+  },
+  (table) => ({
+    sessionHash: uniqueIndex("source_files_session_hash_idx").on(
+      table.sessionId,
+      table.sha256
+    ),
+    session: index("source_files_session_idx").on(table.sessionId),
+    source: index("source_files_source_idx").on(table.sourceId)
+  })
+);
+
 export const evidence = pgTable("evidence", {
   id: uuid("id").primaryKey(),
   sessionId: uuid("session_id")

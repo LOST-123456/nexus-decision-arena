@@ -42,6 +42,8 @@ import { CitationReviewPanel } from "./citation-review";
 import { SourceIndependencePanel } from "./source-independence";
 import { ResearchPlanPanel } from "./research-plan";
 import { EvidenceMapPanel } from "./evidence-map";
+import { FileImportPanel } from "./file-import";
+import { FileReader } from "./file-reader";
 import { SourceReader } from "./source-reader";
 import {
   claimStatusLabel,
@@ -68,7 +70,9 @@ type Panel =
   | "citations"
   | "independence"
   | "plan"
-  | "map";
+  | "map"
+  | "files"
+  | "filereader";
 
 /**
  * `claims` and `detail` are their own tabs only where the layout collapses: on
@@ -90,7 +94,8 @@ const PANELS: Array<{ id: Panel; label: string; narrowOnly?: boolean }> = [
   { id: "citations", label: "引用核查" },
   { id: "independence", label: "来源关系" },
   { id: "plan", label: "研究计划" },
-  { id: "map", label: "证据地图" }
+  { id: "map", label: "证据地图" },
+  { id: "files", label: "文件导入" }
 ];
 
 /**
@@ -172,6 +177,8 @@ export function ResearchWorkspace({
    * so closing the reader returns to whatever excerpt the user came from.
    */
   const [readerSourceId, setReaderSourceId] = useState<string | null>(null);
+  /** Which imported file the file reader is showing, if any. */
+  const [readerFileId, setReaderFileId] = useState<string | null>(null);
   /** Which source the AI candidate review is working on. */
   const [analyzeSourceId, setAnalyzeSourceId] = useState<string | null>(null);
   const [importRows, setImportRows] = useState<ImportRow[] | null>(null);
@@ -752,6 +759,73 @@ export function ResearchWorkspace({
               }}
             />
           </div>
+        </div>
+      </>
+    );
+  }
+
+  /**
+   * Local files get the full width too: importing several documents and reading
+   * their outcome side by side does not work in a column, and a table needs the
+   * room even more than prose does.
+   */
+  if (panel === "files") {
+    return (
+      <>
+        {tabs}
+        <div
+          className="research-body"
+          data-testid="research-body"
+          data-mode="analyze"
+        >
+          <FileImportPanel
+            sessionId={sessionId}
+            canEdit={canEdit}
+            onOpenFile={(file) => {
+              setReaderFileId(file.id);
+              setPanel("filereader");
+            }}
+            onChanged={async () => {
+              await reload();
+              await refreshHistory();
+            }}
+          />
+        </div>
+      </>
+    );
+  }
+
+  if (panel === "filereader") {
+    return (
+      <>
+        {tabs}
+        <div
+          className="research-body"
+          data-testid="research-body"
+          data-mode="reader"
+        >
+          {readerFileId ? (
+            <FileReader
+              sessionId={sessionId}
+              fileId={readerFileId}
+              claims={workspace.claims}
+              defaultClaimId={selectedClaimId}
+              canEdit={canEdit}
+              onClose={() => setPanel("files")}
+              onChanged={async () => {
+                await reload();
+                await refreshHistory();
+              }}
+            />
+          ) : (
+            <div className="research-column">
+              <section className="research-panel">
+                <p className="research-muted">
+                  还没有选择要阅读的文件。先在「文件导入」里上传，再点该文件的「打开阅读」。
+                </p>
+              </section>
+            </div>
+          )}
         </div>
       </>
     );

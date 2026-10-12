@@ -402,6 +402,82 @@ export function locatorKindLabel(
   return "—";
 }
 
+/* ------------------------------------------------------------------ *
+ * Imported local files
+ * ------------------------------------------------------------------ */
+
+/**
+ * The kind decided by the server from the bytes, never from the file name — so
+ * it is labelled as a fact about the file rather than as its extension.
+ */
+export function sourceFileKindLabel(
+  kind: "pdf" | "docx" | "txt" | "markdown" | "csv" | undefined
+): string {
+  if (kind === "pdf") return "PDF";
+  if (kind === "docx") return "Word 文档";
+  if (kind === "csv") return "CSV 表格";
+  if (kind === "markdown") return "Markdown";
+  return "纯文本";
+}
+
+/**
+ * How reading a file went.
+ *
+ * `needs_ocr` and `failed` are outcomes, not errors to hide: a document we could
+ * not read must be visible as one, because "no text" and "nothing was found"
+ * are very different claims.
+ */
+export function fileParseStatusLabel(
+  status: "parsed" | "needs_ocr" | "failed" | undefined
+): string {
+  if (status === "parsed") return "已读取原文";
+  if (status === "needs_ocr") return "需要 OCR（无文字层）";
+  if (status === "failed") return "读取失败";
+  return "未知状态";
+}
+
+export function fileParseStatusTone(
+  status: "parsed" | "needs_ocr" | "failed" | undefined
+): string {
+  if (status === "parsed") return "research-pill-verified";
+  if (status === "failed") return "research-pill-rejected";
+  if (status === "needs_ocr") return "research-pill-unverified";
+  return "research-pill-neutral";
+}
+
+/**
+ * What failure code means for the person holding the file.
+ *
+ * Each line says what to do next where there is something to do, and none of
+ * them implies the file was read.
+ */
+export function fileFailureCodeMessage(
+  code: string | undefined,
+  fallback: string
+): string {
+  if (code === "unsupported_type") {
+    return "不支持的文件类型：只接受 PDF、Word(.docx)、TXT、Markdown 与 CSV。";
+  }
+  if (code === "file_too_large") return "文件超过大小上限，请压缩或拆分后重试。";
+  if (code === "empty_file") return "文件为空，没有可读内容。";
+  if (code === "storage_unavailable") {
+    return "文件存储不可用：请稍后重试，或联系管理员检查存储目录。";
+  }
+  return fallback;
+}
+
+/** Per-column csv type, as a display hint inferred from the values present. */
+export function csvColumnTypeLabel(
+  type: "integer" | "number" | "boolean" | "date" | "text" | "empty"
+): string {
+  if (type === "integer") return "整数（推断）";
+  if (type === "number") return "数值（推断）";
+  if (type === "boolean") return "布尔（推断）";
+  if (type === "date") return "日期（推断）";
+  if (type === "empty") return "无值";
+  return "文本";
+}
+
 /**
  * Progress of one url inside a multi-url import.
  *

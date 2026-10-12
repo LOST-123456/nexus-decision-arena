@@ -2447,3 +2447,92 @@ dd {
     height: clamp(360px, 55vh, 560px);
   }
 }
+
+/* ---------- Local research files (import + reader) ---------- */
+
+.research-dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  padding: 1.25rem 1rem;
+  border: 1px dashed var(--wb-border, rgba(0, 0, 0, 0.28));
+  border-radius: 12px;
+  background: var(--wb-surface-subtle, rgba(0, 0, 0, 0.02));
+  text-align: center;
+}
+
+.research-dropzone[data-dragging="true"] {
+  border-color: var(--wb-accent, #2563eb);
+  background: var(--wb-surface-active, rgba(37, 99, 235, 0.06));
+}
+
+.research-dropzone p {
+  margin: 0;
+  opacity: 0.75;
+  font-size: 12px;
+}
+
+.research-file-input {
+  display: none;
+}
+
+.research-progress {
+  width: 100%;
+  height: 6px;
+  margin-top: 6px;
+  border-radius: 999px;
+  background: var(--wb-surface-subtle, rgba(0, 0, 0, 0.08));
+  overflow: hidden;
+}
+
+.research-progress span {
+  display: block;
+  height: 100%;
+  background: var(--wb-accent, #2563eb);
+  transition: width 120ms ease-out;
+}
+
+.research-table-wrap {
+  max-height: 420px;
+  margin-top: 8px;
+  overflow: auto;
+  border: 1px solid var(--wb-border, rgba(0, 0, 0, 0.12));
+  border-radius: 10px;
+}
+
+.research-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.research-table th,
+.research-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--wb-border, rgba(0, 0, 0, 0.08));
+  text-align: left;
+  vertical-align: top;
+}
+
+.research-table th {
+  position: sticky;
+  top: 0;
+  background: var(--wb-surface-subtle, rgba(0, 0, 0, 0.04));
+  font-weight: 600;
+}
+
+.research-table tbody tr:nth-child(even) {
+  background: var(--wb-surface-subtle, rgba(0, 0, 0, 0.02));
+}
+
+@media (max-width: 700px) {
+  .research-dropzone {
+    padding: 1rem 0.75rem;
+  }
+
+  .research-table {
+    font-size: 12px;
+  }
+}

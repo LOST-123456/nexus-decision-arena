@@ -18,6 +18,7 @@ import { registerAuthRoutes } from "./api/routes/auth";
 import { registerEvidenceRoutes } from "./api/routes/evidence";
 import { registerEvidenceMapRoutes } from "./api/routes/evidence-map";
 import { registerEventRoutes } from "./api/routes/events";
+import { registerFileRoutes } from "./api/routes/files";
 import { registerHumanDecisionRoutes } from "./api/routes/human-decisions";
 import { registerInspectorRoutes } from "./api/routes/inspector";
 import { registerReportRoutes } from "./api/routes/reports";
@@ -34,6 +35,7 @@ import type { CrossReviewService } from "./research/cross-review-service";
 import type { ClaimExtractionService } from "./research/claim-extraction-service";
 import type { CitationReviewService } from "./research/citation-review-service";
 import type { SourceImportService } from "./research/source-import-service";
+import type { FileIngestionService } from "./research/file-ingestion-service";
 import type { SourceIndependenceService } from "./research/source-independence-service";
 
 export type ProjectInput = {
@@ -83,6 +85,15 @@ export type AppDependencies = {
   crossReview?: CrossReviewService;
   /** Imports a page and keeps the failure record when it cannot be read. */
   sourceIntake?: SourceImportService;
+  /**
+   * Imports local research files (PDF/DOCX/TXT/Markdown/CSV).
+   *
+   * A successful read registers a Source and stores one capture of the text;
+   * both go through the evidence repository, so nothing here can create a
+   * second way of becoming citable. Unreadable files stay visible as
+   * `needs_ocr` or `failed`.
+   */
+  fileIngestion?: FileIngestionService;
   /** Suggests claims and excerpts from a saved capture for a person to rule on. */
   claimExtraction?: ClaimExtractionService;
   /**
@@ -186,6 +197,44 @@ export function createApp(
 
   app.get("/health", async () => ({ status: "ok" }));
 
+  // File uploads arrive as raw bytes, so those content types are read as buffers
+  // with an explicit ceiling: unbounded bodies are not accepted anywhere, and
+  // the ingestion service repeats this check rather than relying on it alone.
+  if (dependencies.fileIngestion) {
+    const configuredMb = Number(process.env.NEXUS_MAX_UPLOAD_MB ?? 10);
+    const maxUploadBytes =
+      (Number.isFinite(configuredMb) && configuredMb > 0
+        ? configuredMb
+        : 10) *
+      1024 *
+      1024;
+    // A megabyte of slack lets the service answer with a useful message about
+    // the limit instead of the connection being cut mid-body.
+    const bodyLimit = maxUploadBytes + 1024 * 1024;
+    const parseAsBuffer = (
+      _request: unknown,
+      body: unknown,
+      done: (error: Error | null, value: unknown) => void
+    ) => done(null, body);
+    for (const contentType of [
+      "application/octet-stream",
+      "application/pdf",
+      "text/csv",
+      "text/markdown",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    ]) {
+      app.addContentTypeParser(contentType, { parseAs: "buffer", bodyLimit }, parseAsBuffer);
+    }
+    // `text/plain` has a built-in string parser; replace it so an .txt upload is
+    // handled the same way as every other file instead of being decoded twice.
+    try {
+      app.removeContentTypeParser("text/plain");
+      app.addContentTypeParser("text/plain", { parseAs: "buffer", bodyLimit }, parseAsBuffer);
+    } catch {
+      // Nothing to replace: text uploads keep working through the other types.
+    }
+  }
+
   app.get("/api/runtime", async () =>
     options.runtimeInfo ?? {
       mode: "mock",
@@ -207,6 +256,7 @@ export function createApp(
   registerCitationReviewRoutes(app, dependencies, idempotency);
   registerSourceIndependenceRoutes(app, dependencies, idempotency);
   registerSourceIntakeRoutes(app, dependencies, idempotency);
+  registerFileRoutes(app, dependencies, idempotency);
   registerResearchPlanRoutes(app, dependencies, idempotency);
   registerResearchSearchRoutes(app, dependencies, idempotency);
   registerReviewRoutes(app, dependencies, idempotency, eventBus);

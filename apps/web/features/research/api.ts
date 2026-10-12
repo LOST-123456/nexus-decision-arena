@@ -41,7 +41,10 @@ import type {
   ResearchSearchTaskStatus,
   SearchCandidate,
   ResearchSearchFailureCode,
-  EvidenceMapGraph
+  EvidenceMapGraph,
+  SourceFileRecord,
+  FileIngestionFailureCode,
+  CsvColumnType
 } from "@nexus/shared";
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "";
 
@@ -1438,6 +1441,206 @@ export function listResearchSearchTasks(
   return requestWithSearchCode<{ tasks: ResearchSearchTaskListItem[] }>(
     `/api/sessions/${encodeURIComponent(sessionId)}/research-search-tasks`,
     {}
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * Local research files (PDF / DOCX / TXT / Markdown / CSV)
+ * ------------------------------------------------------------------ */
+
+/** One row returned when the text of a file is read back. */
+export type SourceFileTable = {
+  columns: string[];
+  columnTypes: CsvColumnType[];
+  rows: string[][];
+  rowCount: number;
+};
+
+export type SourceFileContent = {
+  file: SourceFileRecord;
+  source: Source | null;
+  snapshot: SourceSnapshot | null;
+  content: string;
+  contentType: string;
+  table?: SourceFileTable;
+};
+
+export type UploadSourceFileInput = {
+  sessionId: string;
+  file: File;
+  /** Fires with 0–100 while the upload itself runs. */
+  onProgress?: (percent: number) => void;
+};
+
+export type UploadSourceFileResult = {
+  file: SourceFileRecord;
+  source: Source | null;
+  duplicated: boolean;
+};
+
+export class FileIngestionFailedError extends Error {
+  constructor(
+    message: string,
+    readonly code?: FileIngestionFailureCode,
+    /** Present when the failure still left a recorded row behind. */
+    readonly file?: SourceFileRecord | null
+  ) {
+    super(message);
+    this.name = "FileIngestionFailedError";
+  }
+}
+
+/**
+ * Uploads a local file.
+ *
+ * Why this one route does not use `fetch`: only XMLHttpRequest reports *upload*
+ * progress, and an import that takes a while should say how far along it is
+ * rather than sitting silent. Everything else matches the shared client: the
+ * file name travels percent-encoded in a header (never as a path), and the row
+ * that comes back is whatever the server recorded — including `needs_ocr` and
+ * `failed`, which are outcomes rather than errors to swallow.
+ */
+export function uploadSourceFile(
+  input: UploadSourceFileInput
+): Promise<UploadSourceFileResult> {
+  const { sessionId, file, onProgress } = input;
+  const url = `${apiUrl}/api/sessions/${encodeURIComponent(sessionId)}/files`;
+  return new Promise<UploadSourceFileResult>((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open("POST", url);
+    request.setRequestHeader("content-type", "application/octet-stream");
+    request.setRequestHeader("x-file-name", encodeURIComponent(file.name));
+    request.setRequestHeader(
+      "idempotency-key",
+      idempotencyKey("file-upload")
+    );
+    request.upload.addEventListener("progress", (event) => {
+      if (event.lengthComputable && onProgress) {
+        onProgress(Math.round((event.loaded / event.total) * 100));
+      }
+    });
+    request.addEventListener("load", () => {
+      const payload = parseBody(request.responseText);
+      if (request.status >= 200 && request.status < 300) {
+        resolve(payload as UploadSourceFileResult);
+        return;
+      }
+      reject(toFileIngestionError(request.status, payload));
+    });
+    request.addEventListener("error", () => {
+      reject(new Error("上传失败：网络中断，请重试。"));
+    });
+    request.addEventListener("abort", () => {
+      reject(new Error("上传已取消。"));
+    });
+    request.send(file);
+  });
+}
+
+/** Same contract as the other typed helpers, scoped to the file failure codes. */
+async function requestWithFileCode<T>(
+  path: string,
+  init: RequestInit & { idempotencyKey?: string } = {}
+): Promise<T> {
+  const { idempotencyKey: key, ...rest } = init;
+  const hasBody = rest.body !== undefined && rest.body !== null;
+  const response = await fetch(`${apiUrl}${path}`, {
+    cache: "no-store",
+    ...rest,
+    headers: {
+      ...(hasBody ? { "content-type": "application/json" } : {}),
+      ...(key ? { "idempotency-key": key } : {}),
+      ...(rest.headers ?? {})
+    }
+  });
+  if (!response.ok) {
+    throw toFileIngestionError(response.status, await readPayload(response));
+  }
+  return response.json() as Promise<T>;
+}
+
+function parseBody(text: string): UploadSourceFileResult | {
+  error?: string;
+  code?: FileIngestionFailureCode;
+  file?: SourceFileRecord;
+} {
+  try {
+    return JSON.parse(text) as UploadSourceFileResult;
+  } catch {
+    return { error: "上传失败：服务器返回的内容无法解析。" };
+  }
+}
+
+async function readPayload(response: Response): Promise<{
+  error?: string;
+  code?: FileIngestionFailureCode;
+  file?: SourceFileRecord;
+}> {
+  return (await response.json().catch(() => null)) as {
+    error?: string;
+    code?: FileIngestionFailureCode;
+    file?: SourceFileRecord;
+  } | null ?? {};
+}
+
+function toFileIngestionError(
+  status: number,
+  payload: {
+    error?: string;
+    code?: FileIngestionFailureCode;
+    file?: SourceFileRecord;
+  }
+): FileIngestionFailedError {
+  return new FileIngestionFailedError(
+    payload.error ?? `Request failed: ${status}`,
+    payload.code,
+    payload.file ?? null
+  );
+}
+
+/** Every file imported into the session, newest first. */
+export function listSourceFiles(
+  sessionId: string
+): Promise<{ files: SourceFileRecord[] }> {
+  return requestWithFileCode<{ files: SourceFileRecord[] }>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/files`
+  );
+}
+
+/** Reads one file: what it is, and how its parse settled. */
+export function getSourceFile(
+  sessionId: string,
+  fileId: string
+): Promise<{ file: SourceFileRecord }> {
+  return requestWithFileCode<{ file: SourceFileRecord }>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/files/${encodeURIComponent(fileId)}`
+  );
+}
+
+/**
+ * Reads the text of one file so a person can excerpt from it.
+ *
+ * Nothing here decides what the text means. Selecting words and saving them is
+ * still a separate act — and an excerpt created from this page arrives
+ * `unverified` like every other one, because the server decides that, not us.
+ */
+export function getSourceFileContent(
+  sessionId: string,
+  fileId: string
+): Promise<SourceFileContent> {
+  return requestWithFileCode<SourceFileContent>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/files/${encodeURIComponent(fileId)}/content`
+  );
+}
+
+/** Asks the server to try again to read a file it could not read before. */
+export function retrySourceFileParse(
+  sessionId: string,
+  fileId: string
+): Promise<UploadSourceFileResult> {
+  return requestWithFileCode<UploadSourceFileResult>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/files/${encodeURIComponent(fileId)}/retry`,
+    { method: "POST", idempotencyKey: idempotencyKey("file-retry") }
   );
 }
 
