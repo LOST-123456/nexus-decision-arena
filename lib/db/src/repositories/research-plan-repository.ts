@@ -2,7 +2,12 @@ import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { ResearchPlanItemSchema, type ExecutionEvent, type ResearchPlanItem } from "@nexus/shared";
 import type { Database } from "../client";
 import { claims, researchPlanItems } from "../schema";
-import { appendEvent, type AppendEventInput, type DbExecutor } from "./append-event";
+import {
+  appendEvent,
+  type AppendEventInput,
+  type DbExecutor,
+  type ReadExecutor
+} from "./append-event";
 import { iso } from "./domain-mapper";
 
 export class ResearchPlanItemNotFoundError extends Error {
@@ -134,8 +139,11 @@ export class ResearchPlanRepository {
     });
   }
 
-  async listCurrentPlanItems(sessionId: string): Promise<ResearchPlanItem[]> {
-    const rows = await this.database
+  async listCurrentPlanItems(
+    sessionId: string,
+    executor: ReadExecutor = this.database
+  ): Promise<ResearchPlanItem[]> {
+    const rows = await executor
       .select()
       .from(researchPlanItems)
       .where(

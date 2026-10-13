@@ -28,6 +28,7 @@ import { registerClaimExtractionRoutes } from "./api/routes/claim-extraction";
 import { registerCitationReviewRoutes } from "./api/routes/citation-review";
 import { registerResearchPlanRoutes } from "./api/routes/research-plan";
 import { registerResearchSearchRoutes } from "./api/routes/research-search";
+import { registerReportSnapshotRoutes } from "./api/routes/report-snapshots";
 import { registerSourceIndependenceRoutes } from "./api/routes/source-independence";
 import { registerSourceIntakeRoutes } from "./api/routes/source-intake";
 import { registerSourceMonitoringRoutes } from "./api/routes/source-monitoring";
@@ -39,6 +40,7 @@ import type { SourceImportService } from "./research/source-import-service";
 import type { FileIngestionService } from "./research/file-ingestion-service";
 import type { SourceIndependenceService } from "./research/source-independence-service";
 import type { SourceMonitorService } from "./research/source-monitor-service";
+import type { ResearchReportSnapshotService } from "./research/report-snapshot-service";
 
 export type ProjectInput = {
   name: string;
@@ -116,6 +118,14 @@ export type AppDependencies = {
    * services/core/src/research/source-monitor-service.ts.
    */
   sourceMonitor?: SourceMonitorService;
+  /**
+   * Immutable report versions: saving the current fact-check report as a
+   * frozen snapshot, reading history, comparing two versions and exporting
+   * one. Writes nothing but the snapshot row and its audit event — a save
+   * never touches a claim status, a verification status or a ruling. See
+   * services/core/src/research/report-snapshot-service.ts.
+   */
+  reportSnapshots?: ResearchReportSnapshotService;
   /**
    * The research plan: which diagnosed gaps a person decided to pursue, and
    * what came of each. Gaps are derived; plan items are stored and attributed.
@@ -270,6 +280,7 @@ export function createApp(
   registerFileRoutes(app, dependencies, idempotency);
   registerResearchPlanRoutes(app, dependencies, idempotency);
   registerResearchSearchRoutes(app, dependencies, idempotency);
+  registerReportSnapshotRoutes(app, dependencies, idempotency);
   registerReviewRoutes(app, dependencies, idempotency, eventBus);
   registerEventRoutes(app, {
     bus: eventBus,

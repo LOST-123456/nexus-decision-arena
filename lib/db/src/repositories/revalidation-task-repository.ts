@@ -7,6 +7,7 @@ import {
 } from "@nexus/shared";
 import type { Database } from "../client";
 import { revalidationTasks, revalidationTaskEvents } from "../schema";
+import type { ReadExecutor } from "./append-event";
 import { iso } from "./domain-mapper";
 
 export class RevalidationTaskNotFoundError extends Error {
@@ -173,13 +174,14 @@ export class RevalidationTaskRepository {
   /** Every task in a session, newest first; `status` narrows it when given. */
   async listTasks(
     sessionId: string,
-    options: { status?: RevalidationTaskStatus | undefined } = {}
+    options: { status?: RevalidationTaskStatus | undefined } = {},
+    executor: ReadExecutor = this.database
   ): Promise<RevalidationTask[]> {
     const filters = [eq(revalidationTasks.sessionId, sessionId)];
     if (options.status) {
       filters.push(eq(revalidationTasks.status, options.status));
     }
-    const rows = await this.database
+    const rows = await executor
       .select()
       .from(revalidationTasks)
       .where(and(...filters))

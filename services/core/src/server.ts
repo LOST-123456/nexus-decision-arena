@@ -8,6 +8,7 @@ import {
   InspectorRepository,
   ResearchPlanRepository,
   ResearchSearchRepository,
+  ReportSnapshotRepository,
   RevalidationTaskRepository,
   ReviewRepository,
   ClaimExtractionRepository,
@@ -42,6 +43,7 @@ import { createNodePageTransport, dnsAddressResolver } from "./research/node-pag
 import { SourceImportService } from "./research/source-import-service";
 import { FileIngestionService } from "./research/file-ingestion-service";
 import { SourceMonitorService } from "./research/source-monitor-service";
+import { ResearchReportSnapshotService } from "./research/report-snapshot-service";
 import { ResearchWorkspaceService } from "./research/workspace-service";
 import { DiskFileStorage } from "./research/file-storage";
 import { AuthService } from "./auth";
@@ -70,6 +72,12 @@ const arena = new ArenaRepository(database);
 const reports = new FinalReportRepository(database);
 const researchEvidence = new EvidenceRepository(database);
 const researchReviews = new ReviewRepository(database);
+// One task repository for the process: source monitoring creates re-checks,
+// and a report version records the same risk state the monitor sees.
+const revalidationTasks = new RevalidationTaskRepository(database);
+// Shared with the plan routes and the snapshot service, so a saved version
+// reads the plan items the plan page shows.
+const researchPlan = new ResearchPlanRepository(database);
 
 const auth = new AuthService({
   usersPath:
@@ -284,7 +292,7 @@ const app = createApp(
     sourceMonitor: new SourceMonitorService({
       evidence: researchEvidence,
       checks: new SourceCheckRepository(database),
-      tasks: new RevalidationTaskRepository(database),
+      tasks: revalidationTasks,
       files: new SourceFileRepository(database),
       fetch: (url) => pageFetcher.fetch(url),
       workspace: async (sessionId) => {
@@ -299,9 +307,24 @@ const app = createApp(
       },
       appendEvent: (input) => events.append(input)
     }),
+    // Immutable report versions. The same read path the live report uses,
+    // wrapped in one repeatable-read transaction per save so a version can
+    // never straddle an update; the monitor's task repository is shared so
+    // the risk state a version records is the state at that moment.
+    reportSnapshots: new ResearchReportSnapshotService({
+      database,
+      sessions,
+      arena,
+      evidence: researchEvidence,
+      reviews: researchReviews,
+      events,
+      researchPlan,
+      monitorTasks: revalidationTasks,
+      snapshots: new ReportSnapshotRepository(database)
+    }),
     // No controlled web-search integration exists in this build, so the plan
     // is wired with searchAvailable=false and offers start_search nowhere.
-    researchPlan: new ResearchPlanRepository(database),
+    researchPlan,
     // Controlled research search: the deterministic, network-free provider is
     // the default; approving a task creates sources, never evidence.
     researchSearch: new ResearchSearchRepository(database),

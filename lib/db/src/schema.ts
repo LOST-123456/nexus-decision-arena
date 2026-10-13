@@ -412,6 +412,75 @@ export const revalidationTaskEvents = pgTable(
   })
 );
 
+/**
+ * One saved version of the fact-check report.
+ *
+ * The row is written once and never updated: there is no edit path, and the
+ * service exposes none. What makes an old version honest is that it carries
+ * its own payload — reading version 2 renders version 2's stored report, not
+ * a fresh build over today's rows. `materials_fingerprint` answers "was this
+ * built from the same material as that one"; `snapshot_hash` answers "is
+ * this the exact payload that was saved".
+ *
+ * The reference sets record the rows the payload was drawn from so the
+ * history list and the diff can be answered without parsing the payload,
+ * and so a reader can see which capture each conclusion cited. They are
+ * references, not foreign keys: a capture may be cleaned up later, and the
+ * reader is told it is gone rather than shown a dangling pointer.
+ */
+export const researchReportSnapshots = pgTable(
+  "research_report_snapshots",
+  {
+    id: uuid("id").primaryKey(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => decisionSessions.id, { onDelete: "cascade" }),
+    version: integer("version").notNull(),
+    createdAt: timestampColumn("created_at").notNull().defaultNow(),
+    /** From the server's own session; never from a request body. */
+    createdBy: text("created_by").notNull(),
+    researchQuestion: text("research_question"),
+    /** The shape `reportPayload` was written in; see REPORT_SCHEMA_VERSION. */
+    reportSchemaVersion: integer("report_schema_version")
+      .notNull()
+      .default(1),
+    materialsFingerprint: text("materials_fingerprint").notNull(),
+    /** sha256 over the canonical form of `reportPayload`. */
+    snapshotHash: text("snapshot_hash").notNull(),
+    /** The report as built at save time. Never regenerated on read. */
+    reportPayload: jsonb("report_payload").notNull(),
+    sourceReferences: jsonb("source_references").notNull().default([]),
+    evidenceReferences: jsonb("evidence_references").notNull().default([]),
+    claimReferences: jsonb("claim_references").notNull().default([]),
+    reviewReferences: jsonb("review_references").notNull().default([]),
+    monitoringReferences: jsonb("monitoring_references")
+      .notNull()
+      .default([]),
+    /** Why this version was saved, in the saver's own words. */
+    changeReason: text("change_reason"),
+    /** The idempotency key the save arrived with, when it had one. */
+    idempotencyKey: text("idempotency_key")
+  },
+  (table) => ({
+    // One version number per session: a concurrent double-save collides here
+    // instead of producing two rows that both claim to be version 3.
+    sessionVersion: uniqueIndex(
+      "research_report_snapshots_session_version_idx"
+    ).on(table.sessionId, table.version),
+    // One version per idempotency key: a re-submitted save resolves to the
+    // version it already created.
+    sessionIdempotency: uniqueIndex(
+      "research_report_snapshots_session_idempotency_idx"
+    )
+      .on(table.sessionId, table.idempotencyKey)
+      .where(sql`"idempotency_key" IS NOT NULL`),
+    sessionCreated: index("research_report_snapshots_session_created_idx").on(
+      table.sessionId,
+      table.createdAt.desc()
+    )
+  })
+);
+
 export const evidence = pgTable("evidence", {
   id: uuid("id").primaryKey(),
   sessionId: uuid("session_id")

@@ -183,7 +183,13 @@ function applyContiguousEvent(
     case "SEARCH_TASK_CREATED":
     case "SEARCH_COMPLETED":
     case "SEARCH_FAILED":
-    case "SOURCE_CANDIDATE_FOUND": {
+    case "SOURCE_CANDIDATE_FOUND":
+    // A saved report version is a record about a document, not about the
+    // debate: it freezes what the material supported at one moment and
+    // changes neither the phase nor any verdict input. The report surfaces
+    // re-read the snapshot list from the backend, so here it only advances
+    // the replay cursor.
+    case "REPORT_SNAPSHOT_CREATED": {
       return { ...current, lastSequence: event.sequence };
     }
     default: {

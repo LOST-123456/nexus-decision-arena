@@ -10,6 +10,7 @@ import {
   type SessionView
 } from "@nexus/shared";
 import type { Database } from "../client";
+import type { ReadExecutor } from "./append-event";
 import {
   conflicts,
   agentRuns,
@@ -195,8 +196,8 @@ export class DecisionSessionRepository {
     return created ?? null;
   }
 
-  async getById(id: string) {
-    const [session] = await this.database
+  async getById(id: string, executor: ReadExecutor = this.database) {
+    const [session] = await executor
       .select()
       .from(decisionSessions)
       .where(eq(decisionSessions.id, id))

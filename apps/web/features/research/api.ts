@@ -44,7 +44,14 @@ import type {
   EvidenceMapGraph,
   SourceFileRecord,
   FileIngestionFailureCode,
-  CsvColumnType
+  CsvColumnType,
+  ReportSnapshotSummary,
+  ResearchReportSnapshot,
+  ReportVersionDiff,
+  ReportDiffEntry,
+  ReportDiffEntityType,
+  ReportDiffChangeKind,
+  ReportDiffCategory
 } from "@nexus/shared";
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "";
 
@@ -1643,6 +1650,108 @@ export function retrySourceFileParse(
     { method: "POST", idempotencyKey: idempotencyKey("file-retry") }
   );
 }
+
+/* ------------------------------------------------------------------ *
+ * Immutable report versions (snapshots)
+ * ------------------------------------------------------------------ */
+
+/**
+ * Every saved version of the report, newest first.
+ *
+ * A version is a frozen document, not a fingerprint: the list carries what
+ * each save recorded (who, when, why, what it covered) so the researcher can
+ * pick the one they mean before reading or comparing it.
+ */
+export function listReportSnapshots(
+  sessionId: string
+): Promise<{ snapshots: ReportSnapshotSummary[] }> {
+  return request<{ snapshots: ReportSnapshotSummary[] }>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/report-snapshots`
+  );
+}
+
+/**
+ * Saves the current report as a new version.
+ *
+ * The idempotency key is generated here per submit, so a double press or a
+ * retried request resolves to the version the first attempt created instead
+ * of stacking a second copy. The server attributes the save to its own
+ * session; nothing in this call claims who pressed the button.
+ */
+export function createReportSnapshot(
+  sessionId: string,
+  changeReason?: string
+): Promise<ResearchReportSnapshot> {
+  return request<ResearchReportSnapshot>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/report-snapshots`,
+    {
+      method: "POST",
+      body: JSON.stringify(changeReason ? { changeReason } : {}),
+      idempotencyKey: idempotencyKey("report-snapshot")
+    }
+  );
+}
+
+/**
+ * One stored version, payload included.
+ *
+ * What comes back is what was frozen: reading an old version never rebuilds
+ * the report from today's rows, which is the whole point of saving one.
+ */
+export function getReportSnapshot(
+  sessionId: string,
+  snapshotId: string
+): Promise<ResearchReportSnapshot> {
+  return request<ResearchReportSnapshot>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/report-snapshots/${encodeURIComponent(snapshotId)}`
+  );
+}
+
+/**
+ * Compares two saved versions.
+ *
+ * Entities are matched by id server-side and every entry is categorised as a
+ * conclusion change or a source-currency change; the two never collapse into
+ * one status, so a page that moved can never be read as a verdict that fell.
+ */
+export function compareReportSnapshots(
+  sessionId: string,
+  fromSnapshotId: string,
+  toSnapshotId: string
+): Promise<ReportVersionDiff> {
+  const query = new URLSearchParams({
+    from: fromSnapshotId,
+    to: toSnapshotId
+  });
+  return request<ReportVersionDiff>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/report-snapshots/compare?${query.toString()}`
+  );
+}
+
+/**
+ * Absolute url for exporting one stored version, so it can be a real
+ * download link. The body is rendered from the frozen payload, so an export
+ * can never mix in material that arrived after the save.
+ */
+export function reportSnapshotExportUrl(
+  sessionId: string,
+  snapshotId: string,
+  format: "markdown" | "html"
+): string {
+  return `${apiUrl}/api/sessions/${encodeURIComponent(sessionId)}/report-snapshots/${encodeURIComponent(
+    snapshotId
+  )}/export?format=${format}&download=1`;
+}
+
+export type {
+  ReportSnapshotSummary,
+  ResearchReportSnapshot,
+  ReportVersionDiff,
+  ReportDiffEntry,
+  ReportDiffEntityType,
+  ReportDiffChangeKind,
+  ReportDiffCategory
+};
 
 export type {
   CandidateClaimType,

@@ -30,4 +30,5 @@ export * from "./research/search-task";
 export * from "./research/evidence-map";
 export * from "./research/source-file";
 export * from "./research/source-monitoring";
+export * from "./research/report-snapshot";
 export * from "./replay/decision-replay";

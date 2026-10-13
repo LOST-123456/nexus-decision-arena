@@ -10,7 +10,12 @@ import {
 } from "@nexus/shared";
 import type { Database } from "../client";
 import { claims, conflicts, evidence, sourceSnapshots, sources } from "../schema";
-import { appendEvent, type AppendEventInput, type DbExecutor } from "./append-event";
+import {
+  appendEvent,
+  type AppendEventInput,
+  type DbExecutor,
+  type ReadExecutor
+} from "./append-event";
 import {
   parseClaims,
   parseConflicts,
@@ -131,8 +136,11 @@ export class EvidenceRepository {
     });
   }
 
-  async listSources(sessionId: string): Promise<Source[]> {
-    const rows = await this.database
+  async listSources(
+    sessionId: string,
+    executor: ReadExecutor = this.database
+  ): Promise<Source[]> {
+    const rows = await executor
       .select()
       .from(sources)
       .where(eq(sources.sessionId, sessionId));
@@ -393,8 +401,11 @@ export class EvidenceRepository {
    * analysis can fingerprint every source without an N+1 walk. The newest row
    * per source wins, which is the same rule `getCurrentSnapshot` applies.
    */
-  async listLatestSnapshots(sessionId: string): Promise<SourceSnapshot[]> {
-    const rows = await this.database
+  async listLatestSnapshots(
+    sessionId: string,
+    executor: ReadExecutor = this.database
+  ): Promise<SourceSnapshot[]> {
+    const rows = await executor
       .select()
       .from(sourceSnapshots)
       .where(eq(sourceSnapshots.sessionId, sessionId))
@@ -432,7 +443,8 @@ export class EvidenceRepository {
       claimId?: string;
       verificationStatus?: string;
       direction?: string;
-    } = {}
+    } = {},
+    executor: ReadExecutor = this.database
   ): Promise<Evidence[]> {
     const conditions = [eq(evidence.sessionId, sessionId)];
     if (filter.claimId) {
@@ -444,7 +456,7 @@ export class EvidenceRepository {
     if (filter.direction) {
       conditions.push(eq(evidence.direction, filter.direction));
     }
-    const rows = await this.database
+    const rows = await executor
       .select()
       .from(evidence)
       .where(and(...conditions))

@@ -1,6 +1,7 @@
 import { and, asc, eq, gt, sql } from "drizzle-orm";
 import { newId, type ExecutionEvent } from "@nexus/shared";
 import type { Database } from "../client";
+import type { ReadExecutor } from "./append-event";
 import { decisionSessions, executionEvents } from "../schema";
 
 type AppendEventInput = Pick<
@@ -55,8 +56,12 @@ export class EventRepository {
     });
   }
 
-  async listAfter(sessionId: string, sequence: number) {
-    return this.database
+  async listAfter(
+    sessionId: string,
+    sequence: number,
+    executor: ReadExecutor = this.database
+  ) {
+    return executor
       .select()
       .from(executionEvents)
       .where(

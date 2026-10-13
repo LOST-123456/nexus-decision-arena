@@ -15,6 +15,17 @@ export type DbExecutor = Parameters<
 >[0];
 
 /**
+ * The minimal read contract a repository method needs: `select`.
+ *
+ * Both the database itself and an open transaction satisfy it, which is what
+ * lets a read be scoped to one caller's transaction when consistency matters
+ * (a saved report version must not mix material from two moments) and default
+ * to the plain connection otherwise. Deliberately narrow: a read that needs
+ * to write does not take this type.
+ */
+export type ReadExecutor = Pick<DbExecutor, "select">;
+
+/**
  * Writes an execution event inside an existing transaction, taking the next
  * sequence number from the session row so ordering stays consistent with the
  * state change it describes.

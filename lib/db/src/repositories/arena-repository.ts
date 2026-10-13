@@ -21,7 +21,7 @@ import {
   projects,
   promptVersions
 } from "../schema";
-import { appendEvent, type AppendEventInput } from "./append-event";
+import { appendEvent, type AppendEventInput, type ReadExecutor } from "./append-event";
 import {
   parseChallenges,
   parseClaims,
@@ -361,23 +361,26 @@ export class ArenaRepository {
     });
   }
 
-  async getSessionArtifacts(sessionId: string) {
+  async getSessionArtifacts(
+    sessionId: string,
+    executor: ReadExecutor = this.database
+  ) {
     const [
       sessionClaims,
       sessionEvidence,
       sessionChallenges,
       sessionConflicts
     ] = await Promise.all([
-      this.database.select().from(claims).where(eq(claims.sessionId, sessionId)),
-      this.database
+      executor.select().from(claims).where(eq(claims.sessionId, sessionId)),
+      executor
         .select()
         .from(evidence)
         .where(eq(evidence.sessionId, sessionId)),
-      this.database
+      executor
         .select()
         .from(challenges)
         .where(eq(challenges.sessionId, sessionId)),
-      this.database
+      executor
         .select()
         .from(conflicts)
         .where(eq(conflicts.sessionId, sessionId))

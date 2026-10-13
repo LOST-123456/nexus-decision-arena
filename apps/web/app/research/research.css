@@ -664,9 +664,50 @@
   margin-top: 6px;
 }
 
+/*
+ * Saved versions. A version row reads like a document entry: which version,
+ * who saved it and when, what it covered, and why — so two versions can be
+ * told apart before either is opened.
+ */
+.research-report-version {
+  border-left: 3px solid var(--rw-line-strong);
+  padding: 6px 0 6px 10px;
+  margin-bottom: 10px;
+}
+
+.research-report-version-banner {
+  border: 1px solid var(--rw-line-strong);
+  border-left: 3px solid var(--rw-context);
+  border-radius: 8px;
+  background: var(--rw-panel-soft);
+  padding: 10px 12px;
+  margin: 8px 0 14px;
+  font-size: 12.5px;
+}
+
+/*
+ * One difference. The category tone is what keeps the two axes apart on
+ * sight: a conclusion change and a source moving never look like one thing.
+ */
+.research-report-diff-entry {
+  border-left: 3px solid var(--rw-line-strong);
+  padding: 6px 0 6px 10px;
+  margin-bottom: 8px;
+  font-size: 12.5px;
+}
+
+.research-report-diff-entry[data-category="verdict"] {
+  border-left-color: var(--rw-unverified);
+}
+
+.research-report-diff-entry[data-category="risk"] {
+  border-left-color: var(--rw-context);
+}
+
 /* The report is meant to be printed or saved as PDF as-is. */
 @media print {
   .research-nav,
+  .research-tabs,
   .research-report-actions {
     display: none !important;
   }

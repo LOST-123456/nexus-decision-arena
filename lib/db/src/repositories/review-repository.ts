@@ -13,7 +13,11 @@ import {
   evidence,
   sources
 } from "../schema";
-import { appendEvent, type AppendEventInput } from "./append-event";
+import {
+  appendEvent,
+  type AppendEventInput,
+  type ReadExecutor
+} from "./append-event";
 import { parseClaimReviews } from "./domain-mapper";
 
 export class ReviewClaimNotFoundError extends Error {
@@ -158,9 +162,10 @@ export class ReviewRepository {
 
   async listReviews(
     sessionId: string,
-    filter: { claimId?: string } = {}
+    filter: { claimId?: string } = {},
+    executor: ReadExecutor = this.database
   ): Promise<ClaimReview[]> {
-    const rows = await this.database
+    const rows = await executor
       .select()
       .from(claimReviews)
       .where(
@@ -184,8 +189,11 @@ export class ReviewRepository {
     return [...rows].reverse();
   }
 
-  async listAgentRuns(sessionId: string): Promise<AgentRun[]> {
-    const rows = await this.database
+  async listAgentRuns(
+    sessionId: string,
+    executor: ReadExecutor = this.database
+  ): Promise<AgentRun[]> {
+    const rows = await executor
       .select()
       .from(agentRuns)
       .where(eq(agentRuns.sessionId, sessionId))

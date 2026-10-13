@@ -30,7 +30,10 @@ import type {
   ConflictStatus,
   EvidenceMapNode,
   EvidenceMapNodeType,
-  EvidenceMapRelation
+  EvidenceMapRelation,
+  ReportDiffEntityType,
+  ReportDiffChangeKind,
+  ReportDiffCategory
 } from "@nexus/shared";
 
 /**
@@ -865,4 +868,112 @@ export function evidenceMapNodeStatusLabel(node: EvidenceMapNode): string {
     case "challenge":
       return challengeStatusLabel(node.status);
   }
+}
+
+/* ---------------------------------------------------------------------- */
+/* Immutable report versions                                               */
+/* ---------------------------------------------------------------------- */
+
+/**
+ * Which kind of thing moved between two versions.
+ *
+ * The entity type names the row, never a judgement about it: a "source" entry
+ * says a capture changed, nothing about what the new text means.
+ */
+export function reportDiffEntityLabel(type: ReportDiffEntityType): string {
+  switch (type) {
+    case "claim":
+      return "主张";
+    case "evidence":
+      return "材料摘录";
+    case "source":
+      return "来源版本";
+    case "review":
+      return "人工裁定";
+    case "conflict":
+      return "未解决冲突";
+    default:
+      return "来源监测任务";
+  }
+}
+
+export function reportDiffKindLabel(kind: ReportDiffChangeKind): string {
+  if (kind === "added") return "新增";
+  if (kind === "removed") return "已消失";
+  return "已变化";
+}
+
+export function reportDiffKindTone(kind: ReportDiffChangeKind): string {
+  if (kind === "added") return "research-pill-supports";
+  if (kind === "removed") return "research-pill-opposes";
+  return "research-pill-unverified";
+}
+
+/**
+ * The one distinction the comparison exists to keep:
+ *
+ * - `verdict` — what the material supports changed (a conclusion, a ruling).
+ * - `risk` — whether that material is still current changed (a capture, a
+ *   locator, a monitoring task).
+ *
+ * They are shown side by side and never merged, because "the page changed"
+ * is not "the finding was overturned".
+ */
+export function reportDiffCategoryLabel(
+  category: ReportDiffCategory
+): string {
+  if (category === "verdict") return "结论 / 裁定变化";
+  return "来源时效风险";
+}
+
+export function reportDiffCategoryTone(
+  category: ReportDiffCategory
+): string {
+  if (category === "verdict") return "research-pill-unverified";
+  return "research-pill-context";
+}
+
+/** The field that moved, spelled out the way the report spells it. */
+export function reportDiffFieldLabel(field: string | null): string {
+  switch (field) {
+    case "statement":
+      return "主张表述";
+    case "claimStatus":
+      return "主张状态";
+    case "verdictStatus":
+      return "核查结论";
+    case "verdictConfidence":
+      return "结论把握度";
+    case "verificationStatus":
+      return "核实状态";
+    case "locatorStatus":
+      return "原文定位状态";
+    case "contentHash":
+      return "所引原文版本";
+    case "snapshotId":
+      return "所引快照";
+    case "outcome":
+      return "裁定结果";
+    default:
+      return field ?? "—";
+  }
+}
+
+/** A monitoring task as a version recorded it. */
+export function reportSnapshotTaskStatusLabel(status: string): string {
+  if (status === "open") return "待处理";
+  if (status === "in_review") return "复核中";
+  if (status === "resolved") return "已处理";
+  return "已忽略";
+}
+
+/** Date and time, for save moments that can share a calendar day. */
+export function formatDateTime(value: string | null | undefined): string {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  const pad = (part: number) => String(part).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
+    date.getDate()
+  )} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
