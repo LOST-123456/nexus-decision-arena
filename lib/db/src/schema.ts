@@ -94,8 +94,25 @@ export const agentRuns = pgTable("agent_runs", {
   input: jsonb("input"),
   output: jsonb("output"),
   error: text("error"),
+  /** Coarse task type; the fine one is `input.kind`. Defaults to "unknown". */
+  taskType: text("task_type").notNull().default("unknown"),
+  /** Closed failure category, when the executor recorded one. */
+  errorCode: text("error_code"),
+  provider: text("provider"),
+  model: text("model"),
+  /** 1-based attempt; retries open a new row with a higher attempt. */
+  attempt: integer("attempt").notNull().default(1),
+  /** For retries: the run this one re-attempted. Self-reference, declared in
+   *  migration 0016 as `REFERENCES agent_runs(id)`; left un-typed here so the
+   *  Drizzle table definition does not self-reference and break type inference. */
+  parentRunId: uuid("parent_run_id"),
+  /** Real token accounting, or null when the executor did not report it. */
+  tokenUsage: jsonb("token_usage"),
+  createdAt: timestampColumn("created_at").notNull().defaultNow(),
   startedAt: timestampColumn("started_at").notNull().defaultNow(),
-  completedAt: timestampColumn("completed_at")
+  completedAt: timestampColumn("completed_at"),
+  /** Wall-clock duration in ms, filled only when the run finishes. */
+  durationMs: integer("duration_ms")
 });
 
 export const claims = pgTable("claims", {

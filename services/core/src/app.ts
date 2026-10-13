@@ -32,8 +32,10 @@ import { registerReportSnapshotRoutes } from "./api/routes/report-snapshots";
 import { registerSourceIndependenceRoutes } from "./api/routes/source-independence";
 import { registerSourceIntakeRoutes } from "./api/routes/source-intake";
 import { registerSourceMonitoringRoutes } from "./api/routes/source-monitoring";
+import { registerAgentRunRoutes } from "./api/routes/agent-runs";
 import { EventBus } from "./execution/event-bus";
 import type { CrossReviewService } from "./research/cross-review-service";
+import type { AgentRunService } from "./research/agent-run-service";
 import type { ClaimExtractionService } from "./research/claim-extraction-service";
 import type { CitationReviewService } from "./research/citation-review-service";
 import type { SourceImportService } from "./research/source-import-service";
@@ -87,6 +89,8 @@ export type AppDependencies = {
   reviews?: ReviewRepository;
   /** Runs cross-examination against a single claim, reusing the arena. */
   crossReview?: CrossReviewService;
+  /** Surfaces agent runs as an operations center; reuses `agent_runs`. */
+  agentRuns?: AgentRunService;
   /** Imports a page and keeps the failure record when it cannot be read. */
   sourceIntake?: SourceImportService;
   /**
@@ -281,6 +285,7 @@ export function createApp(
   registerResearchPlanRoutes(app, dependencies, idempotency);
   registerResearchSearchRoutes(app, dependencies, idempotency);
   registerReportSnapshotRoutes(app, dependencies, idempotency);
+  registerAgentRunRoutes(app, dependencies, idempotency);
   registerReviewRoutes(app, dependencies, idempotency, eventBus);
   registerEventRoutes(app, {
     bus: eventBus,

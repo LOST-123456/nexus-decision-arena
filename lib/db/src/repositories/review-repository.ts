@@ -1,16 +1,21 @@
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import {
   type AgentRun,
+  type AgentRunEvent,
   type AgentRunStatus,
+  type AgentRunTokenUsage,
+  type AgentRunView,
   type ClaimReview,
   type ExecutionEvent
 } from "@nexus/shared";
 import type { Database } from "../client";
 import {
   agentRuns,
+  agentRoles,
   claimReviews,
   claims,
   evidence,
+  executionEvents,
   sources
 } from "../schema";
 import {
@@ -58,13 +63,27 @@ function toAgentRun(row: AgentRunRow): AgentRun {
     promptVersionId: row.promptVersionId,
     status: row.status as AgentRunStatus,
     purpose,
+    taskType: row.taskType ?? "unknown",
     ...(targetClaimId ? { targetClaimId } : {}),
     ...(row.error ? { error: row.error } : {}),
+    ...(row.errorCode ? { errorCode: row.errorCode as AgentRun["errorCode"] } : {}),
+    ...(row.provider ? { provider: row.provider } : {}),
+    ...(row.model ? { model: row.model } : {}),
+    attempt: row.attempt ?? 1,
+    ...(row.parentRunId ? { parentRunId: row.parentRunId } : {}),
+    tokenUsage: (row.tokenUsage as AgentRunTokenUsage | null) ?? null,
+    createdAt: new Date(row.createdAt).toISOString(),
     startedAt: new Date(row.startedAt).toISOString(),
     ...(row.completedAt
       ? { completedAt: new Date(row.completedAt).toISOString() }
-      : {})
+      : {}),
+    ...(typeof row.durationMs === "number" ? { durationMs: row.durationMs } : {})
   };
+}
+
+/** The operations-center view: the run plus its role's human-readable name. */
+function toAgentRunView(row: AgentRunRow, roleName: string): AgentRunView {
+  return { ...toAgentRun(row), roleName };
 }
 
 /**
@@ -202,6 +221,146 @@ export class ReviewRepository {
   }
 
   /**
+   * The operations-center list: the same rows, newest first, joined with the
+   * role name so the dashboard never has to resolve `roleId` client-side.
+   */
+  async listAgentRunsDetailed(
+    sessionId: string,
+    executor: ReadExecutor = this.database
+  ): Promise<AgentRunView[]> {
+    const rows = await executor
+      .select({
+        run: agentRuns,
+        roleName: agentRoles.name
+      })
+      .from(agentRuns)
+      .leftJoin(agentRoles, eq(agentRoles.id, agentRuns.roleId))
+      .where(eq(agentRuns.sessionId, sessionId))
+      .orderBy(desc(agentRuns.createdAt));
+    return rows.map((row) =>
+      toAgentRunView(row.run, row.roleName ?? "未知角色")
+    );
+  }
+
+  /** One run by id, scoped to the session, or null. Never crosses sessions. */
+  async getAgentRunById(
+    sessionId: string,
+    runId: string,
+    executor: ReadExecutor = this.database
+  ): Promise<AgentRunView | null> {
+    const rows = await executor
+      .select({
+        run: agentRuns,
+        roleName: agentRoles.name
+      })
+      .from(agentRuns)
+      .leftJoin(agentRoles, eq(agentRoles.id, agentRuns.roleId))
+      .where(and(eq(agentRuns.sessionId, sessionId), eq(agentRuns.id, runId)))
+      .limit(1);
+    if (rows.length === 0) return null;
+    return toAgentRunView(rows[0]!.run, rows[0]!.roleName ?? "未知角色");
+  }
+
+  /**
+   * A run's event timeline, read from the session's execution log by the run's
+   * correlation id. Cross-review emits `AGENT_RUN_STARTED` / `_COMPLETED` /
+   * `_FAILED` with the run id as correlation id, so this is the same ledger the
+   * rest of the app uses — no second timeline is minted here.
+   */
+  async listAgentRunEvents(
+    sessionId: string,
+    runId: string,
+    executor: ReadExecutor = this.database
+  ): Promise<AgentRunEvent[]> {
+    const rows = await executor
+      .select()
+      .from(executionEvents)
+      .where(
+        and(
+          eq(executionEvents.sessionId, sessionId),
+          eq(executionEvents.correlationId, runId)
+        )
+      )
+      .orderBy(asc(executionEvents.sequence));
+    return rows.map((row) => ({
+      sequence: row.sequence,
+      type: row.type,
+      occurredAt: row.occurredAt,
+      payload: row.payload
+    }));
+  }
+
+  /**
+   * Marks a run cancelled. The guard is the where-clause: only a `queued` or
+   * `running` run can be cancelled, so a terminal run (or a missing one) leaves
+   * the row untouched and the caller sees `null`. `cancelled_by_user` is the
+   * only failure code this writes, and `completedAt` is set so the duration is
+   * honest about how long the run was alive before cancellation.
+   */
+  async cancelAgentRun(
+    sessionId: string,
+    runId: string
+  ): Promise<AgentRunView | null> {
+    const now = new Date().toISOString();
+    const [row] = await this.database
+      .update(agentRuns)
+      .set({
+        status: "cancelled",
+        errorCode: "cancelled_by_user",
+        completedAt: now,
+        durationMs: sql`EXTRACT(EPOCH FROM (${now}::timestamptz - ${agentRuns.startedAt}))::integer * 1000`
+      })
+      .where(
+        and(
+          eq(agentRuns.sessionId, sessionId),
+          eq(agentRuns.id, runId),
+          inArray(agentRuns.status, ["queued", "running"])
+        )
+      )
+      .returning();
+    if (!row) return null;
+    const role = await this.database
+      .select({ name: agentRoles.name })
+      .from(agentRoles)
+      .where(eq(agentRoles.id, row.roleId))
+      .limit(1);
+    return toAgentRunView(row, role[0]?.name ?? "未知角色");
+  }
+
+  /** Records retry metadata on a freshly started run (attempt + parent). */
+  async setRunRetryMeta(
+    runId: string,
+    meta: { attempt: number; parentRunId: string }
+  ): Promise<void> {
+    await this.database
+      .update(agentRuns)
+      .set({ attempt: meta.attempt, parentRunId: meta.parentRunId })
+      .where(eq(agentRuns.id, runId));
+  }
+
+  /**
+   * How many runs already target this claim, for the retry cap. Counts every
+   * run whose `input` names this claim as its cross-review target.
+   */
+  async countRunsForTarget(
+    sessionId: string,
+    targetClaimId: string,
+    executor: ReadExecutor = this.database
+  ): Promise<number> {
+    const rows = await executor
+      .select({ id: agentRuns.id })
+      .from(agentRuns)
+      .where(
+        and(
+          eq(agentRuns.sessionId, sessionId),
+          sql`${agentRuns.input} ->> 'kind' = 'cross_review'`,
+          sql`${agentRuns.input} ->> 'targetClaimId' = ${targetClaimId}`
+        )
+      );
+    return rows.length;
+  }
+
+  /**
    * A cross-review run that is still going for this claim. Two reviewers
    * pressing "run" at once must not spawn two competing examinations.
    */
@@ -232,6 +391,13 @@ export class ReviewRepository {
     targetClaimId: string;
     requestedBy: string;
     correlationId: string;
+    /** Retries carry the attempt number and the run they re-attempted. */
+    attempt?: number;
+    parentRunId?: string;
+    /** Optional failure category recorded up front (e.g. for retries). */
+    errorCode?: AgentRun["errorCode"];
+    provider?: string;
+    model?: string;
   }): Promise<AgentRun> {
     const [row] = await this.database
       .insert(agentRuns)
@@ -247,6 +413,12 @@ export class ReviewRepository {
           targetClaimId: input.targetClaimId,
           requestedBy: input.requestedBy
         },
+        taskType: "cross_review",
+        attempt: input.attempt ?? 1,
+        ...(input.parentRunId ? { parentRunId: input.parentRunId } : {}),
+        ...(input.errorCode ? { errorCode: input.errorCode } : {}),
+        ...(input.provider ? { provider: input.provider } : {}),
+        ...(input.model ? { model: input.model } : {}),
         startedAt: new Date().toISOString()
       })
       .returning();
@@ -262,7 +434,8 @@ export class ReviewRepository {
       .set({
         status: "completed",
         output: input.output,
-        completedAt: new Date().toISOString()
+        completedAt: new Date().toISOString(),
+        durationMs: sql`EXTRACT(EPOCH FROM (now() - ${agentRuns.startedAt}))::integer * 1000`
       })
       .where(and(eq(agentRuns.id, input.runId), eq(agentRuns.status, "running")));
   }
@@ -270,13 +443,16 @@ export class ReviewRepository {
   async failCrossReviewRun(input: {
     runId: string;
     error: string;
+    errorCode?: AgentRun["errorCode"];
   }): Promise<void> {
     await this.database
       .update(agentRuns)
       .set({
         status: "failed",
         error: input.error,
-        completedAt: new Date().toISOString()
+        ...(input.errorCode ? { errorCode: input.errorCode } : {}),
+        completedAt: new Date().toISOString(),
+        durationMs: sql`EXTRACT(EPOCH FROM (now() - ${agentRuns.startedAt}))::integer * 1000`
       })
       .where(and(eq(agentRuns.id, input.runId), eq(agentRuns.status, "running")));
   }

@@ -44,6 +44,7 @@ export const ExecutionEventTypeSchema = z.enum([
   "REPORT_SNAPSHOT_CREATED",
   "HUMAN_REVIEW_REQUIRED",
   "AGENT_RUN_FAILED",
+  "AGENT_RUN_CANCELLED",
   "CHALLENGE_FAILED",
   "SESSION_COMPLETED"
 ]);

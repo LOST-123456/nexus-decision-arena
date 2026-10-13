@@ -64,6 +64,7 @@ function applyContiguousEvent(
     case "AGENT_RUN_STARTED":
     case "AGENT_RUN_COMPLETED":
     case "AGENT_RUN_FAILED":
+    case "AGENT_RUN_CANCELLED":
     case "CHALLENGE_FAILED": {
       return { ...current, lastSequence: event.sequence };
     }

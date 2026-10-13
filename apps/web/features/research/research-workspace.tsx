@@ -43,6 +43,7 @@ import { SourceIndependencePanel } from "./source-independence";
 import { ResearchPlanPanel } from "./research-plan";
 import { EvidenceMapPanel } from "./evidence-map";
 import { FileImportPanel } from "./file-import";
+import { AgentOpsPanel } from "./agent-ops";
 import { FileReader } from "./file-reader";
 import { SourceReader } from "./source-reader";
 import {
@@ -72,7 +73,8 @@ type Panel =
   | "plan"
   | "map"
   | "files"
-  | "filereader";
+  | "filereader"
+  | "agentops";
 
 /**
  * `claims` and `detail` are their own tabs only where the layout collapses: on
@@ -95,7 +97,8 @@ const PANELS: Array<{ id: Panel; label: string; narrowOnly?: boolean }> = [
   { id: "independence", label: "来源关系" },
   { id: "plan", label: "研究计划" },
   { id: "map", label: "证据地图" },
-  { id: "files", label: "文件导入" }
+  { id: "files", label: "文件导入" },
+  { id: "agentops", label: "运行中心" }
 ];
 
 /**
@@ -844,6 +847,25 @@ export function ResearchWorkspace({
         >
           <div className="research-column">
             <EvidenceMapPanel sessionId={sessionId} />
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  // The Agent Operations Center gets the full width: the run list and the
+  // run detail sit in a responsive grid that collapses to one column on mobile.
+  if (panel === "agentops") {
+    return (
+      <>
+        {tabs}
+        <div
+          className="research-body"
+          data-testid="research-body"
+          data-mode="analyze"
+        >
+          <div className="research-column">
+            <AgentOpsPanel sessionId={sessionId} canEdit={canEdit} />
           </div>
         </div>
       </>

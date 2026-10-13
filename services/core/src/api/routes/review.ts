@@ -33,7 +33,7 @@ function getIdempotencyKey(request: FastifyRequest): string | null {
   return typeof key === "string" && key.length > 0 ? key : null;
 }
 
-function actorName(
+export function actorName(
   user: { displayName: string; username: string } | null,
   fallback?: string
 ): string | null {

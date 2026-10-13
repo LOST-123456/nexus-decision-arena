@@ -9,6 +9,8 @@ import type {
   EvidenceCandidate,
   ExtractionFailureCode,
   AgentRun,
+  AgentRunView,
+  AgentRunDetail,
   Challenge,
   Claim,
   ClaimReview,
@@ -1741,6 +1743,65 @@ export function reportSnapshotExportUrl(
   return `${apiUrl}/api/sessions/${encodeURIComponent(sessionId)}/report-snapshots/${encodeURIComponent(
     snapshotId
   )}/export?format=${format}&download=1`;
+}
+
+/* ------------------------------------------------------------------ *
+ * Agent Operations Center
+ * ------------------------------------------------------------------ */
+
+/** Every agent run for the session, newest first, with its role name. */
+export function listAgentRuns(
+  sessionId: string
+): Promise<{ runs: AgentRunView[] }> {
+  return request<{ runs: AgentRunView[] }>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/agent-runs`
+  );
+}
+
+/** One run: its detail, event timeline and the work it produced. */
+export function getAgentRun(
+  sessionId: string,
+  runId: string
+): Promise<AgentRunDetail> {
+  return request<AgentRunDetail>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/agent-runs/${encodeURIComponent(runId)}`
+  );
+}
+
+/**
+ * Cancels a run.
+ *
+ * Safe: the server only cancels a run that is still `queued` or `running`; a
+ * terminal run (other than one already cancelled) is refused with a 409, and a
+ * run from another session is a 404. An already-cancelled run answers 200 again
+ * instead of erroring, so a retry after a network blip does not look like a
+ * failure.
+ */
+export function cancelAgentRun(
+  sessionId: string,
+  runId: string
+): Promise<{ run: AgentRunView; alreadyCancelled: boolean }> {
+  return request<{ run: AgentRunView; alreadyCancelled: boolean }>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/agent-runs/${encodeURIComponent(runId)}/cancel`,
+    { method: "POST", idempotencyKey: idempotencyKey("agent-run-cancel") }
+  );
+}
+
+/**
+ * Retries a failed cross-review run.
+ *
+ * The server opens a *new* run (a new id, a higher attempt, a pointer back at
+ * the run being retried) and reuses the same cross-examination engine. The
+ * response is the same `CrossReviewResult` the panel already knows how to show.
+ */
+export function retryAgentRun(
+  sessionId: string,
+  runId: string
+): Promise<CrossReviewResult> {
+  return request<CrossReviewResult>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/agent-runs/${encodeURIComponent(runId)}/retry`,
+    { method: "POST", idempotencyKey: idempotencyKey("agent-run-retry") }
+  );
 }
 
 export type {

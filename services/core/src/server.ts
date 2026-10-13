@@ -34,6 +34,7 @@ import type { AgentRunner } from "./arena/agent-runner";
 import { ProviderAgentRunner } from "./arena/provider-agent-runner";
 import { EventBus } from "./execution/event-bus";
 import { CrossReviewService } from "./research/cross-review-service";
+import { AgentRunService } from "./research/agent-run-service";
 import { ClaimExtractionService } from "./research/claim-extraction-service";
 import { CitationReviewService } from "./research/citation-review-service";
 import { SourceIndependenceService } from "./research/source-independence-service";
@@ -255,6 +256,13 @@ const app = createApp(
     evidence: researchEvidence,
     reviews: researchReviews,
     crossReview,
+    /** Agent Operations Center: surfaces `agent_runs`, reusing the same table. */
+    agentRuns: new AgentRunService({
+      reviews: researchReviews,
+      arena,
+      events,
+      crossReview
+    }),
     sourceIntake: new SourceImportService({
       evidence: researchEvidence,
       // One fetcher for the process: the concurrency limit is only meaningful
