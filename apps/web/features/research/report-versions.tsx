@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   compareReportSnapshots,
   createReportSnapshot,
+  getFactCheckReport,
   getReportSnapshot,
   listReportSnapshots,
   reportSnapshotExportUrl,
@@ -89,6 +90,14 @@ export function ReportVersionsPanel({
   const [user, setUser] = useState<AuthUser | null>(null);
   const [userLoaded, setUserLoaded] = useState(false);
   const [snapshots, setSnapshots] = useState<ReportSnapshotSummary[] | null>(null);
+  /**
+   * The fingerprint of the material as it stands now, re-read whenever the
+   * list is refreshed. Taking it once from the parent and keeping it would
+   * let this panel keep saying "matches the current material" after someone
+   * else changed that material — the sentence is about the material, not
+   * about the report this page happens to have rendered.
+   */
+  const [liveFingerprint, setLiveFingerprint] = useState(currentFingerprint);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [changeReason, setChangeReason] = useState("");
   const [saving, setSaving] = useState(false);
@@ -117,8 +126,15 @@ export function ReportVersionsPanel({
   const reload = useCallback(async () => {
     setLoadError(null);
     try {
-      const { snapshots: next } = await listReportSnapshots(sessionId);
+      // A failure to re-read the live material must not cost the reader the
+      // version list. When the current fingerprint cannot be read, the last
+      // known one stays on screen rather than being replaced by a guess.
+      const [{ snapshots: next }, live] = await Promise.all([
+        listReportSnapshots(sessionId),
+        getFactCheckReport(sessionId).catch(() => null)
+      ]);
       setSnapshots(next);
+      if (live) setLiveFingerprint(live.materialsFingerprint);
     } catch (cause) {
       setLoadError(errorText(cause, "历史版本加载失败"));
     }
@@ -301,7 +317,7 @@ export function ReportVersionsPanel({
                   <span className="research-muted">
                     保存于 {formatDateTime(item.createdAt)} · {item.createdBy}
                   </span>
-                  {item.materialsFingerprint !== currentFingerprint ? (
+                  {item.materialsFingerprint !== liveFingerprint ? (
                     <StatusPill tone="research-pill-unverified">
                       与当前资料已不同（指纹不同）
                     </StatusPill>

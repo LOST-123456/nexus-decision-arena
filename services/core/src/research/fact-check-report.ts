@@ -353,6 +353,15 @@ function materialsTimeRange(
   };
 }
 
+/**
+ * The fingerprint covers the material and nothing else.
+ *
+ * The ledger position is deliberately left out. It is carried separately in
+ * `provenance.lastEventSequence`, because folding it in made the fingerprint
+ * move every time anything at all was recorded — including the audit event a
+ * version save writes. That turned "this version matches the current
+ * material" into a sentence that was false the moment it was printed.
+ */
 function fingerprint(parts: {
   claims: readonly Claim[];
   evidence: readonly Evidence[];
@@ -360,7 +369,6 @@ function fingerprint(parts: {
   challenges: readonly Challenge[];
   reviews: readonly ClaimReview[];
   runs: readonly AgentRun[];
-  lastEventSequence: number;
 }): string {
   const payload = [
     parts.claims.map((item) => `${item.id}:${item.status}:${item.updatedAt}`).sort(),
@@ -370,8 +378,7 @@ function fingerprint(parts: {
     parts.sources.map((item) => `${item.id}:${item.updatedAt}`).sort(),
     parts.challenges.map((item) => `${item.id}:${item.status}`).sort(),
     parts.reviews.map((item) => `${item.id}:${item.outcome}`).sort(),
-    parts.runs.map((item) => `${item.id}:${item.status}`).sort(),
-    [`seq:${parts.lastEventSequence}`]
+    parts.runs.map((item) => `${item.id}:${item.status}`).sort()
   ]
     .map((group) => group.join(","))
     .join("|");
@@ -667,8 +674,7 @@ export function buildFactCheckReport(
       sources: input.sources,
       challenges: input.challenges,
       reviews: input.reviews,
-      runs: input.agentRuns,
-      lastEventSequence: input.lastEventSequence
+      runs: input.agentRuns
     }),
     workflow: {
       phase: input.session.phase,

@@ -558,6 +558,20 @@ describe("fact-check report · traceability", () => {
     expect(changed.materialsFingerprint).not.toBe(base.materialsFingerprint);
   });
 
+  /**
+   * Saving a version writes an audit event, which moves the ledger on. If the
+   * ledger position were part of the fingerprint, every version would be born
+   * "different from the current material" and the claim could never be true.
+   */
+  it("leaves the fingerprint alone when only the ledger moves on", () => {
+    const before = build({ lastEventSequence: 7 });
+    const after = build({ lastEventSequence: 42 });
+
+    expect(after.materialsFingerprint).toBe(before.materialsFingerprint);
+    // The ledger position is still reported, just not through this field.
+    expect(after.provenance.lastEventSequence).toBe(42);
+  });
+
   it("links the report to the exact rows it was built from", () => {
     const report = build({ lastEventSequence: 42 });
 

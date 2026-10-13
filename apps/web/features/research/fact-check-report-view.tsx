@@ -61,6 +61,18 @@ export function FactCheckReportView({ sessionId }: { sessionId: string }) {
     );
   }
 
+  /**
+   * "Current" has to mean current. The report is read once when the page
+   * opens, and the material can move on while this tab is not the one being
+   * looked at — another reviewer verifies an excerpt, a source is added.
+   * Coming back to the live view re-reads it, so the tab never shows a
+   * conclusion the material no longer supports.
+   */
+  function showTab(next: ReportTab): void {
+    setTab(next);
+    if (next === "current") void load();
+  }
+
   if (!report) {
     return (
       <div className="research-report-shell">
@@ -89,7 +101,7 @@ export function FactCheckReportView({ sessionId }: { sessionId: string }) {
             role="tab"
             className="research-tab"
             aria-selected={tab === item.id}
-            onClick={() => setTab(item.id)}
+            onClick={() => showTab(item.id)}
           >
             {item.label}
           </button>

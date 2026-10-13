@@ -19,6 +19,7 @@ const createReportSnapshot = vi.fn();
 const getReportSnapshot = vi.fn();
 const compareReportSnapshots = vi.fn();
 const reportSnapshotExportUrl = vi.fn();
+const getFactCheckReport = vi.fn();
 const getCurrentUser = vi.fn();
 
 vi.mock("./api", () => ({
@@ -28,7 +29,8 @@ vi.mock("./api", () => ({
   getReportSnapshot: (...args: unknown[]) => getReportSnapshot(...args),
   listReportSnapshots: (...args: unknown[]) => listReportSnapshots(...args),
   reportSnapshotExportUrl: (...args: unknown[]) =>
-    reportSnapshotExportUrl(...args)
+    reportSnapshotExportUrl(...args),
+  getFactCheckReport: (...args: unknown[]) => getFactCheckReport(...args)
 }));
 
 vi.mock("../arena/api-client", () => ({
@@ -244,6 +246,7 @@ beforeEach(() => {
     getReportSnapshot,
     compareReportSnapshots,
     reportSnapshotExportUrl,
+    getFactCheckReport,
     getCurrentUser
   ]) {
     mock.mockReset();
@@ -255,6 +258,9 @@ beforeEach(() => {
     role: "reviewer"
   });
   listReportSnapshots.mockResolvedValue({ snapshots: [] });
+  getFactCheckReport.mockResolvedValue({
+    materialsFingerprint: "2edc38437d97f6b4"
+  });
   reportSnapshotExportUrl.mockImplementation(
     (sessionId: string, snapshotId: string, format: string) =>
       `/api/sessions/${sessionId}/report-snapshots/${snapshotId}/export?format=${format}&download=1`
@@ -322,6 +328,10 @@ describe("ReportVersionsPanel", () => {
         summary()
       ]
     });
+    // The live material no longer matches what either version was built from.
+    getFactCheckReport.mockResolvedValue({
+      materialsFingerprint: "0000000000000000"
+    });
     render(<ReportVersionsPanel sessionId={SESSION_ID} currentFingerprint="0000000000000000" />);
 
     const items = await waitFor(() => screen.getAllByTestId("report-snapshot-item"));
@@ -377,6 +387,52 @@ describe("ReportVersionsPanel", () => {
     expect(
       screen.getByTestId("report-snapshot-export-markdown")
     ).toBeTruthy();
+  });
+
+  it("re-reads the current fingerprint instead of trusting the one it opened with", async () => {
+    listReportSnapshots.mockResolvedValue({ snapshots: [summary()] });
+    getFactCheckReport.mockResolvedValue({
+      materialsFingerprint: "2edc38437d97f6b4"
+    });
+
+    render(<ReportVersionsPanel sessionId={SESSION_ID} currentFingerprint="2edc38437d97f6b4" />);
+    const items = await waitFor(() => screen.getAllByTestId("report-snapshot-item"));
+    expect(items[0]?.textContent).toContain("与当前资料一致");
+
+    // The material moved on somewhere else — an excerpt was verified in
+    // another browser, say. "Matches the current material" is a sentence
+    // about the material, so the panel has to go and look again rather than
+    // keep repeating what it was told when the page opened.
+    getFactCheckReport.mockResolvedValue({
+      materialsFingerprint: "aaaaaaaaaaaaaaaa"
+    });
+    fireEvent.click(screen.getByText("刷新列表"));
+    await waitFor(() =>
+      expect(screen.getByTestId("report-snapshot-item").textContent).toContain(
+        "与当前资料已不同"
+      )
+    );
+  });
+
+  it("keeps the last known fingerprint when the live material cannot be read", async () => {
+    listReportSnapshots.mockResolvedValue({ snapshots: [summary()] });
+    getFactCheckReport.mockResolvedValue({
+      materialsFingerprint: "2edc38437d97f6b4"
+    });
+
+    render(<ReportVersionsPanel sessionId={SESSION_ID} currentFingerprint="2edc38437d97f6b4" />);
+    await waitFor(() =>
+      expect(screen.getByTestId("report-snapshot-item")).toBeTruthy()
+    );
+
+    // A failed fingerprint read must not cost the reader the version list.
+    getFactCheckReport.mockRejectedValue(new Error("报告生成失败"));
+    fireEvent.click(screen.getByText("刷新列表"));
+    await waitFor(() => expect(getFactCheckReport).toHaveBeenCalledTimes(2));
+    expect(screen.getByTestId("report-snapshot-item").textContent).toContain(
+      "与当前资料一致"
+    );
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("shows the failure and offers a retry when the list will not load", async () => {
