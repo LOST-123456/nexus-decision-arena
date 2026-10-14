@@ -45,6 +45,7 @@ import { SourceImportService } from "./research/source-import-service";
 import { FileIngestionService } from "./research/file-ingestion-service";
 import { SourceMonitorService } from "./research/source-monitor-service";
 import { ResearchReportSnapshotService } from "./research/report-snapshot-service";
+import { ResearchQualityService } from "./research/research-quality-service";
 import { ResearchWorkspaceService } from "./research/workspace-service";
 import { DiskFileStorage } from "./research/file-storage";
 import { AuthService } from "./auth";
@@ -79,6 +80,10 @@ const revalidationTasks = new RevalidationTaskRepository(database);
 // Shared with the plan routes and the snapshot service, so a saved version
 // reads the plan items the plan page shows.
 const researchPlan = new ResearchPlanRepository(database);
+// Controlled research search: the deterministic, network-free provider is the
+// default; approving a task creates sources, never evidence. The quality
+// assessment reads its task rows to report what was actually executed.
+const researchSearch = new ResearchSearchRepository(database);
 
 const auth = new AuthService({
   usersPath:
@@ -234,6 +239,19 @@ const fileStorage = new DiskFileStorage(
 const configuredMaxMb = Number(process.env.NEXUS_MAX_UPLOAD_MB ?? 10);
 
 /**
+ * Which sources are the same information, so reprints are not counted as
+ * corroboration. One instance for the process: the quality assessment reads
+ * the same analysis the workspace panel does.
+ */
+const sourceIndependence = new SourceIndependenceService({
+  sources: researchEvidence,
+  assertions: new SourceIndependenceRepository(database)
+});
+// The human relation rows behind that analysis, shared so a saved report
+// version freezes the same pair statements the live reading merges with.
+const sourceRelations = new SourceIndependenceRepository(database);
+
+/**
  * Local research files: one uploaded document becomes one Source plus one
  * capture, or a recorded explanation of why it could not be read.
  */
@@ -289,10 +307,7 @@ const app = createApp(
       providerName: extractionProvider.name,
       model: extractionProvider.model
     }),
-    sourceIndependence: new SourceIndependenceService({
-      sources: researchEvidence,
-      assertions: new SourceIndependenceRepository(database)
-    }),
+    sourceIndependence,
     // Source monitoring: whether registered pages and documents have moved,
     // what that reaches, and the re-check a person owes when they have. The
     // same fetcher and the same SSRF guard as the intake, and the same
@@ -328,14 +343,32 @@ const app = createApp(
       events,
       researchPlan,
       monitorTasks: revalidationTasks,
+      // Read inside the save transaction so a frozen version records the
+      // quality reading of its own moment, never a later one.
+      sourceRelations,
+      searchTasks: researchSearch,
       snapshots: new ReportSnapshotRepository(database)
     }),
     // No controlled web-search integration exists in this build, so the plan
     // is wired with searchAvailable=false and offers start_search nowhere.
     researchPlan,
+    // Research quality assessment: a read-only projection over the same
+    // workspace the research UI reads, plus the analyses that are configured.
+    // It writes nothing; each absent analysis makes its dimension answer
+    // "insufficient data" instead of guessing.
+    researchQuality: new ResearchQualityService({
+      workspace: async (sessionId) => workspaceService.getWorkspace(sessionId),
+      independence: sourceIndependence,
+      monitoring: {
+        tasks: revalidationTasks,
+        snapshots: researchEvidence
+      },
+      planItems: researchPlan,
+      searchTasks: researchSearch
+    }),
     // Controlled research search: the deterministic, network-free provider is
     // the default; approving a task creates sources, never evidence.
-    researchSearch: new ResearchSearchRepository(database),
+    researchSearch,
     arena,
     reports,
     events,

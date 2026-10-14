@@ -6,7 +6,7 @@ import type {
 } from "@nexus/shared";
 import type { Database } from "../client";
 import { sourceProfileOverrides, sourceRelations, sources } from "../schema";
-import { appendEvent, type AppendEventInput, type DbExecutor } from "./append-event";
+import { appendEvent, type AppendEventInput, type DbExecutor, type ReadExecutor } from "./append-event";
 import {
   parseSourceProfileOverrides,
   parseSourceRelations
@@ -160,8 +160,11 @@ export class SourceIndependenceRepository {
   }
 
   /** Every current human statement in a session. */
-  async listCurrentRelations(sessionId: string): Promise<SourceRelation[]> {
-    const rows = await this.database
+  async listCurrentRelations(
+    sessionId: string,
+    executor: ReadExecutor = this.database
+  ): Promise<SourceRelation[]> {
+    const rows = await executor
       .select()
       .from(sourceRelations)
       .where(

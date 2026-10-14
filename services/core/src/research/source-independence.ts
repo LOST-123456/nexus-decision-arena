@@ -1,4 +1,12 @@
-import type { Source } from "@nexus/shared";
+import {
+  detectConfirmedSourceLinks,
+  detectSuspectedSourceLinks,
+  mergeSourceLinks,
+  type Source,
+  type SourceLink,
+  type SourceRelation,
+  type SourceSnapshot
+} from "@nexus/shared";
 
 /**
  * Deterministic, explainable signals the independence analysis runs on.
@@ -128,3 +136,69 @@ export function extractExplicitReferences(input: {
 
 /** The version of these rules, recorded next to every analysis result. */
 export const SOURCE_INDEPENDENCE_ALGORITHM = "source-independence-v1";
+
+/**
+ * Builds the link set from stored sources, their current captures, and the
+ * human statements on record.
+ *
+ * Pure and shared so the live analysis, the fact-check report and a saved
+ * report version all see exactly the same links for the same rows — three
+ * implementations of "which pages are the same information" would eventually
+ * disagree, and a disagreement about independence is exactly the kind of
+ * quiet inconsistency this build refuses to ship.
+ *
+ * Nothing here asserts that two pages ARE the same source: confirmed links
+ * come from rules that cannot be argued with (same normalized url, identical
+ * content hash) or from a person; everything else is a suspicion, offered for
+ * confirmation rather than merged.
+ */
+export function buildIndependenceLinks(input: {
+  sources: readonly Source[];
+  /** The current capture per source id. Sources without one are still compared by url. */
+  snapshotBySource: ReadonlyMap<string, SourceSnapshot>;
+  /** Human statements about pairs, as persisted. */
+  humanRelations: readonly SourceRelation[];
+}): SourceLink[] {
+  const { sources, snapshotBySource, humanRelations } = input;
+
+  const fingerprints: Record<string, string> = {};
+  const captureHashes: Record<string, string> = {};
+  for (const [sourceId, snapshot] of snapshotBySource) {
+    fingerprints[sourceId] = sourceTextFingerprint(snapshot.content);
+    const hash = snapshot.contentHash.trim();
+    if (hash) captureHashes[sourceId] = hash;
+  }
+
+  const detected: SourceLink[] = [
+    ...detectConfirmedSourceLinks(sources, captureHashes),
+    ...detectSuspectedSourceLinks({ sources, fingerprints })
+  ];
+
+  // Explicit references found in the stored text. Suspected, not asserted:
+  // a link on a page says the page pointed at another page, not that it
+  // copied it.
+  const seenCitation = new Set<string>();
+  for (const [sourceId, snapshot] of snapshotBySource) {
+    for (const referencedId of extractExplicitReferences({
+      text: snapshot.content,
+      selfSourceId: sourceId,
+      sources
+    })) {
+      const key = `${sourceId}->${referencedId}`;
+      if (seenCitation.has(key)) continue;
+      seenCitation.add(key);
+      detected.push({
+        fromSourceId: sourceId,
+        toSourceId: referencedId,
+        kind: "quotes",
+        basis: "explicit_citation",
+        confidence: "suspected",
+        similarity: null,
+        reason: "正文中出现了指向本会话另一个来源的链接，疑似引用/转载，需人工确认。",
+        origin: "system"
+      });
+    }
+  }
+
+  return mergeSourceLinks({ detected, assertions: humanRelations });
+}

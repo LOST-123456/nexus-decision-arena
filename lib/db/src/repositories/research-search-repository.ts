@@ -8,7 +8,7 @@ import {
 } from "@nexus/shared";
 import type { Database } from "../client";
 import { researchPlanItems, researchSearchTasks, searchCandidates } from "../schema";
-import { appendEvent, type AppendEventInput, type DbExecutor } from "./append-event";
+import { appendEvent, type AppendEventInput, type DbExecutor, type ReadExecutor } from "./append-event";
 import { iso } from "./domain-mapper";
 
 export class ResearchSearchTaskNotFoundError extends Error {
@@ -136,8 +136,11 @@ export class ResearchSearchRepository {
     return mapSearchTask(row);
   }
 
-  async listSearchTasks(sessionId: string): Promise<ResearchSearchTask[]> {
-    const rows = await this.database
+  async listSearchTasks(
+    sessionId: string,
+    executor: ReadExecutor = this.database
+  ): Promise<ResearchSearchTask[]> {
+    const rows = await executor
       .select()
       .from(researchSearchTasks)
       .where(eq(researchSearchTasks.sessionId, sessionId))
@@ -170,11 +173,12 @@ export class ResearchSearchRepository {
    * person expands a task to inspect them).
    */
   async listSearchTasksWithCounts(
-    sessionId: string
+    sessionId: string,
+    executor: ReadExecutor = this.database
   ): Promise<Array<ResearchSearchTask & { candidateCount: number }>> {
-    const tasks = await this.listSearchTasks(sessionId);
+    const tasks = await this.listSearchTasks(sessionId, executor);
     if (tasks.length === 0) return [];
-    const rows = await this.database
+    const rows = await executor
       .select({
         taskId: searchCandidates.taskId,
         count: sql<number>`count(*)::int`

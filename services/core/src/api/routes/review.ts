@@ -74,6 +74,7 @@ export function registerReviewRoutes(
     | "crossReview"
     | "researchPlan"
     | "sourceMonitor"
+    | "researchQuality"
   >,
   idempotency: IdempotencyStore,
   eventBus: EventBus
@@ -428,6 +429,14 @@ export function registerReviewRoutes(
       ? await dependencies.sourceMonitor.reportWarnings(sessionId)
       : undefined;
 
+    // The read-only research quality assessment, reported next to the
+    // conclusion and never folded into it: it describes how well the material
+    // supports the conclusions, not whether the conclusions are true. Absent
+    // when the assessment is not configured — never invented.
+    const researchQuality = dependencies.researchQuality
+      ? await dependencies.researchQuality.assess(sessionId)
+      : null;
+
     const verdicts = deriveClaimVerdicts(artifacts.claims, evidence, {
       challenges: artifacts.challenges,
       reviews
@@ -456,7 +465,8 @@ export function registerReviewRoutes(
       lastEventSequence,
       generatedAt: new Date().toISOString(),
       planItems,
-      ...(revalidation ? { revalidation } : {})
+      ...(revalidation ? { revalidation } : {}),
+      ...(researchQuality ? { researchQuality } : {})
     });
 
     const format = request.query.format === "markdown" ? "markdown" : "json";

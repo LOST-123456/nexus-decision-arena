@@ -13,6 +13,7 @@ import {
   type EvidenceGapKind,
   type ResearchPlanItem,
   type ResearchPlanStatus,
+  type ResearchQualityAssessment,
   type RevalidationReportWarnings,
   type Source,
   diagnoseEvidenceGaps,
@@ -240,6 +241,15 @@ export type FactCheckReport = {
    * the verdict pipeline cannot see this block.
    */
   revalidation?: RevalidationReportWarnings | undefined;
+  /**
+   * The research quality assessment frozen with this report.
+   *
+   * Read-only and never folded into a verdict: it describes how well the
+   * material supports the conclusions, not whether the conclusions are true,
+   * and `deriveClaimVerdicts()` cannot see it. Absent when the quality
+   * assessment is not configured or the caller did not pass one.
+   */
+  researchQuality?: ResearchQualityAssessment | undefined;
   limits: string[];
   /** Links the report back to the exact rows it was generated from. */
   provenance: {
@@ -405,6 +415,17 @@ export type BuildFactCheckReportInput = {
    * read, and the report stays a pure function of its inputs.
    */
   revalidation?: RevalidationReportWarnings | undefined;
+  /**
+   * The read-only research quality assessment to freeze with this report.
+   *
+   * Passed in rather than derived here for the same reason as `revalidation`:
+   * the assessment is a projection over rows this function never sees (plan
+   * items, monitoring tasks, human source relations), and the report stays a
+   * pure function of its inputs. A saved version records the assessment that
+   * was current when it was saved; a historical version renders the one it
+   * froze, never a fresh one.
+   */
+  researchQuality?: ResearchQualityAssessment | undefined;
 };
 
 /** The plan's answer to one gap, from the plan row's own fields. */
@@ -625,6 +646,16 @@ export function buildFactCheckReport(
       `有 ${revalidation.openTaskCount} 项待处理、${revalidation.inReviewTaskCount} 项复核中的来源变化：相关结论所依据的材料版本可能已更新，结论本身未因此改变。`
     );
   }
+  // Quality findings are reported, never acted on: a critical finding is a
+  // reason for a person to go and look, not a reason to move a verdict.
+  const criticalQualityFindings = (input.researchQuality?.findings ?? []).filter(
+    (finding) => finding.severity === "critical"
+  );
+  if (criticalQualityFindings.length > 0) {
+    limits.add(
+      `质量评估发现 ${criticalQualityFindings.length} 项关键问题（详见「研究质量评估」）：这些问题说明材料仍有缺口，不改变本报告的任何结论。`
+    );
+  }
 
   const counts = input.evidence.reduce(
     (accumulator, item) => {
@@ -753,6 +784,10 @@ export function buildFactCheckReport(
     },
     // Reported only when monitoring is wired in and has something to say.
     ...(revalidation ? { revalidation } : {}),
+    // The frozen quality assessment, when the caller supplied one. Rendered
+    // by the export paths exactly as passed, so a historical version keeps
+    // the assessment it was saved with.
+    ...(input.researchQuality ? { researchQuality: input.researchQuality } : {}),
     limits: [...limits],
     provenance: {
       evidenceIds: input.evidence.map((item) => item.id).sort(),

@@ -29,6 +29,7 @@ import { registerCitationReviewRoutes } from "./api/routes/citation-review";
 import { registerResearchPlanRoutes } from "./api/routes/research-plan";
 import { registerResearchSearchRoutes } from "./api/routes/research-search";
 import { registerReportSnapshotRoutes } from "./api/routes/report-snapshots";
+import { registerResearchQualityRoutes } from "./api/routes/research-quality";
 import { registerSourceIndependenceRoutes } from "./api/routes/source-independence";
 import { registerSourceIntakeRoutes } from "./api/routes/source-intake";
 import { registerSourceMonitoringRoutes } from "./api/routes/source-monitoring";
@@ -43,6 +44,7 @@ import type { FileIngestionService } from "./research/file-ingestion-service";
 import type { SourceIndependenceService } from "./research/source-independence-service";
 import type { SourceMonitorService } from "./research/source-monitor-service";
 import type { ResearchReportSnapshotService } from "./research/report-snapshot-service";
+import type { ResearchQualityService } from "./research/research-quality-service";
 
 export type ProjectInput = {
   name: string;
@@ -142,6 +144,14 @@ export type AppDependencies = {
     | "getPlanItem"
     | "replacePlanItem"
   >;
+  /**
+   * Research quality assessment: a read-only projection of the workspace into
+   * six explainable dimensions, findings and recommendations. Writes nothing —
+   * it cannot change a claim status, a verdict, a verification state, a ruling
+   * or a saved report. See
+   * services/core/src/research/research-quality-projection.ts.
+   */
+  researchQuality?: ResearchQualityService;
   /**
    * The controlled research search: tasks and the candidates they surface.
    * Approving a task copies candidates into `sources`; it never writes
@@ -285,6 +295,7 @@ export function createApp(
   registerResearchPlanRoutes(app, dependencies, idempotency);
   registerResearchSearchRoutes(app, dependencies, idempotency);
   registerReportSnapshotRoutes(app, dependencies, idempotency);
+  registerResearchQualityRoutes(app, dependencies);
   registerAgentRunRoutes(app, dependencies, idempotency);
   registerReviewRoutes(app, dependencies, idempotency, eventBus);
   registerEventRoutes(app, {

@@ -1,4 +1,8 @@
 import {
+  QUALITY_DIMENSION_LABELS,
+  QUALITY_FINDING_CATEGORY_LABELS,
+  QUALITY_SEVERITY_LABELS,
+  QUALITY_STATUS_LABELS,
   reviewOutcomeLabel,
   type ClaimVerdictStatus,
   type EvidenceGap,
@@ -346,6 +350,12 @@ export function renderFactCheckReportMarkdown(
     );
   }
 
+  // Research quality, reported from the frozen assessment and never folded
+  // into a conclusion. Absent entirely when the caller passed none.
+  if (report.researchQuality) {
+    lines.push(...researchQualityLines(report.researchQuality));
+  }
+
   lines.push("## 可追溯性", "");
   lines.push(`- 材料指纹：${report.materialsFingerprint}`);
   lines.push(`- 事件序号上界：${report.provenance.lastEventSequence}`);
@@ -358,4 +368,93 @@ export function renderFactCheckReportMarkdown(
   lines.push("");
 
   return lines.join("\n");
+}
+
+/**
+ * The research quality block.
+ *
+ * Rendered from the same object the JSON answers with, so the two formats
+ * cannot disagree. The one sentence that must appear every time: a quality
+ * score is not a probability that the conclusions are true — it describes how
+ * well the material supports them. A dimension that could not be computed is
+ * printed as 无法计算 with its reason, never as a zero.
+ */
+function researchQualityLines(
+  assessment: NonNullable<FactCheckReport["researchQuality"]>
+): string[] {
+  const lines: string[] = [];
+  lines.push("## 研究质量评估", "");
+  lines.push(`- 评估时间：${assessment.assessedAt}`);
+  lines.push(
+    `- 规则版本：${assessment.ruleVersion}（结构 v${assessment.schemaVersion}）`
+  );
+  lines.push(`- 材料范围指纹：${assessment.inputFingerprint}`);
+  lines.push(
+    assessment.overall.score === null
+      ? "- 综合评分：**无法计算**（可计算权重不足总权重的一半，或没有任何维度可计算）"
+      : `- 综合评分：**${assessment.overall.score} / 100**（覆盖权重 ${Math.round(assessment.overall.coverage * 100)}%，${assessment.overall.assessedDimensions}/6 个维度参与）`
+  );
+  lines.push(`- 综合状态：${QUALITY_STATUS_LABELS[assessment.overall.status]}`);
+  lines.push(`- 综合说明：${assessment.overall.explanation}`);
+  lines.push(
+    "- 质量分数不是结论正确的概率：它只描述材料对结论的支持程度，不改变本报告的任何结论。"
+  );
+  lines.push("");
+
+  lines.push("### 六个维度", "");
+  for (const dimension of assessment.dimensions) {
+    const label = QUALITY_DIMENSION_LABELS[dimension.id];
+    const head =
+      dimension.score === null
+        ? `- **${label}**：无法计算（权重 ${dimension.weight}%）— ${QUALITY_STATUS_LABELS[dimension.status]}`
+        : `- **${label}**：${dimension.score} / 100（权重 ${dimension.weight}%）— ${QUALITY_STATUS_LABELS[dimension.status]}`;
+    lines.push(head);
+    lines.push(`  - 计算依据：${dimension.explanation}`);
+    const metrics = Object.entries(dimension.inputMetrics)
+      .map(([key, value]) => `${key}=${value === null ? "未知" : String(value)}`)
+      .join("，");
+    if (metrics) lines.push(`  - 输入指标：${metrics}`);
+    for (const limitation of dimension.limitations) {
+      lines.push(`  - 局限：${limitation}`);
+    }
+  }
+  lines.push("");
+
+  lines.push("### 质量问题清单", "");
+  if (assessment.findings.length === 0) {
+    lines.push("- 未发现规则命中项。");
+  }
+  for (const finding of assessment.findings) {
+    lines.push(
+      `- [${QUALITY_SEVERITY_LABELS[finding.severity]}] ${QUALITY_FINDING_CATEGORY_LABELS[finding.category]}（${finding.scope} · ${finding.entityId}）：${finding.reason}`
+    );
+    lines.push(`  - 命中规则：${finding.ruleId}`);
+    if (finding.evidenceReferences.length > 0) {
+      lines.push(`  - 涉及材料：${finding.evidenceReferences.join("、")}`);
+    }
+    if (finding.claimId) {
+      lines.push(`  - 相关主张：${finding.claimId}`);
+    }
+    lines.push(`  - 建议动作：${finding.recommendation}`);
+  }
+  lines.push("");
+
+  if (assessment.recommendations.length > 0) {
+    lines.push("### 改进建议", "");
+    for (const recommendation of assessment.recommendations) {
+      lines.push(`- ${recommendation.title}：${recommendation.detail}`);
+      lines.push(`  - 动作：${recommendation.action}`);
+    }
+    lines.push("");
+  }
+
+  if (assessment.limitations.length > 0) {
+    lines.push("### 评估局限", "");
+    for (const limitation of assessment.limitations) {
+      lines.push(`- ${limitation}`);
+    }
+    lines.push("");
+  }
+
+  return lines;
 }

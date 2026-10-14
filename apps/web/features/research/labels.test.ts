@@ -3,6 +3,7 @@ import {
   claimStatusLabel,
   directionLabel,
   pendingVerificationLabel,
+  qualityRuleVersionLabel,
   verificationLabel,
   verdictLabel,
   workflowLabel
@@ -45,5 +46,15 @@ describe("research labels", () => {
   it("describes the verification backlog", () => {
     expect(pendingVerificationLabel(0)).toBe("无待核实材料");
     expect(pendingVerificationLabel(3)).toBe("3 条待核实");
+  });
+
+  it("names the known rule version and passes an unknown one through untouched", () => {
+    expect(qualityRuleVersionLabel("research-quality-v1")).toBe("研究质量-v1");
+    // No label is invented for rules this build does not know about: the
+    // reader must see exactly which rules ran, not a friendly guess.
+    expect(qualityRuleVersionLabel("research-quality-v9-draft")).toBe(
+      "research-quality-v9-draft"
+    );
+    expect(qualityRuleVersionLabel("")).toBe("");
   });
 });

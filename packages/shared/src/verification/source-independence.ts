@@ -207,10 +207,21 @@ export type IndependenceSummary = {
    */
   suspectedIndependentSources: number;
   clusters: SourceCluster[];
+  /**
+   * Confirmed links — including a person's `unrelated` statement, which is a
+   * confirmed record of *independence* between two pages. It never merges
+   * them (see `buildClusters`); readers that merge must skip
+   * `kind === "unrelated"`, readers that assess independence must not.
+   */
   confirmedLinks: SourceLink[];
   /** Suspected links, surfaced for confirmation. Not merged into clusters. */
   suspectedLinks: SourceLink[];
-  /** Sources with no relation to any other source in the session. */
+  /**
+   * Sources with no relation to any other source in the session — no detected
+   * link and no human ruling either way. A source a person has explicitly
+   * ruled `unrelated` against another is no longer unexamined, so it is not
+   * listed here.
+   */
   unlinkedSourceIds: string[];
   notes: string[];
 };
@@ -399,8 +410,13 @@ export function detectSuspectedSourceLinks(input: {
  * Applies human assertions over the detected links.
  *
  * A person's assertion about a pair replaces whatever was detected for that
- * pair — including `unrelated`, which says "these are different" and removes
- * the pair from consideration entirely. Human silence leaves detection as-is.
+ * pair. `unrelated` — "these are different information sources" — removes the
+ * pair's detected links *and* stays on record as a confirmed statement of
+ * independence: it is the only thing in this build that proves two pages are
+ * not the same information, so dropping it would make a human ruling invisible
+ * to everything that reads the links afterwards (the fact-check report, the
+ * saved report versions, the quality projection). Merging never follows it —
+ * see `buildClusters`. Human silence leaves detection as-is.
  */
 export function mergeSourceLinks(input: {
   detected: readonly SourceLink[];
@@ -417,7 +433,6 @@ export function mergeSourceLinks(input: {
   );
 
   for (const assertion of input.assertions) {
-    if (assertion.kind === "unrelated") continue;
     merged.push(assertionToLink(assertion));
   }
 
@@ -472,6 +487,9 @@ function clusterCount(
   const set = new DisjointSet();
   for (const id of sourceIds) set.find(id);
   for (const link of links) {
+    // A person's `unrelated` statement records independence; it must never
+    // merge two pages into one information source.
+    if (link.kind === "unrelated") continue;
     if (sourceIds.includes(link.fromSourceId) && sourceIds.includes(link.toSourceId)) {
       set.union(link.fromSourceId, link.toSourceId);
     }
@@ -484,9 +502,11 @@ function clusterCount(
  *
  * Clusters are built on **confirmed** links only. Suspected links are reported
  * separately and are not merged, so the headline count never quietly treats a
- * near-duplicate as a duplicate. `summarizeIndependence` also reports the
- * lower bound that would result if every suspected link were confirmed, so a
- * reader can see the range instead of a single number pretending to be exact.
+ * near-duplicate as a duplicate. A person's `unrelated` statement is confirmed
+ * but records independence, so it never merges either. `summarizeIndependence`
+ * also reports the lower bound that would result if every suspected link were
+ * confirmed, so a reader can see the range instead of a single number
+ * pretending to be exact.
  */
 export function summarizeIndependence(input: {
   sessionId: string;
@@ -547,6 +567,9 @@ function buildClusters(
   const set = new DisjointSet();
   for (const id of sourceIds) set.find(id);
   for (const link of links) {
+    // A person's `unrelated` statement records independence; it must never
+    // merge two pages into one information source.
+    if (link.kind === "unrelated") continue;
     if (sourceIds.includes(link.fromSourceId) && sourceIds.includes(link.toSourceId)) {
       set.union(link.fromSourceId, link.toSourceId);
     }
@@ -564,7 +587,9 @@ function buildClusters(
     const representative = sorted[0]!;
     const inner = links.filter(
       (link) =>
-        members.includes(link.fromSourceId) && members.includes(link.toSourceId)
+        link.kind !== "unrelated" &&
+        members.includes(link.fromSourceId) &&
+        members.includes(link.toSourceId)
     );
     clusters.push({
       clusterId: root,

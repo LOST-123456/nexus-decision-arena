@@ -165,7 +165,43 @@ describe("mergeSourceLinks", () => {
         })
       ]
     });
-    expect(merged).toHaveLength(0);
+    // The detected duplicate link is gone…
+    expect(
+      merged.filter((link) => link.kind !== "unrelated")
+    ).toHaveLength(0);
+    // …and the person's statement of independence survives as a confirmed
+    // link, so readers after this point can still see the ruling.
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.kind).toBe("unrelated");
+    expect(merged[0]?.confidence).toBe("confirmed");
+    expect(merged[0]?.origin).toBe("human");
+  });
+
+  it("keeps a human 'unrelated' statement out of the merge", () => {
+    const a = source({ canonicalUrl: "https://example.com/p" });
+    const b = source({ canonicalUrl: "https://example.com/p" });
+    const links = mergeSourceLinks({
+      detected: detectConfirmedSourceLinks([a, b]),
+      assertions: [
+        relation({ fromSourceId: a.id, toSourceId: b.id, kind: "unrelated" })
+      ]
+    });
+    const summary = summarizeIndependence({
+      sessionId: "session-1",
+      sources: [a, b],
+      links
+    });
+    // Detection alone would have merged the identical url into one source;
+    // the ruling overrides the merge and the count reflects it.
+    expect(summary.confirmedIndependentSources).toBe(2);
+    expect(summary.clusters.every((cluster) => cluster.pageCount === 1)).toBe(
+      true
+    );
+    expect(
+      summary.clusters.flatMap((cluster) => cluster.confirmedKinds)
+    ).not.toContain("unrelated");
+    // The pair is no longer unexamined: a human ruled on it.
+    expect(summary.unlinkedSourceIds).toHaveLength(0);
   });
 
   it("adds a human-declared link that detection could not make", () => {

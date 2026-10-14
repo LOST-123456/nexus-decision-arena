@@ -1,4 +1,9 @@
-import { CANDIDATE_CLAIM_TYPE_LABELS } from "@nexus/shared";
+import {
+  CANDIDATE_CLAIM_TYPE_LABELS,
+  QUALITY_DIMENSION_LABELS,
+  QUALITY_FINDING_CATEGORY_LABELS,
+  RESEARCH_QUALITY_RULE_VERSION
+} from "@nexus/shared";
 import type {
   ResearchPlanStatus,
   ResearchSearchTaskStatus,
@@ -33,7 +38,13 @@ import type {
   EvidenceMapRelation,
   ReportDiffEntityType,
   ReportDiffChangeKind,
-  ReportDiffCategory
+  ReportDiffCategory,
+  QualityStatus,
+  QualitySeverity,
+  QualityFindingCategory,
+  QualityFindingScope,
+  QualityRecommendationAction,
+  QualityDimensionId
 } from "@nexus/shared";
 
 /**
@@ -976,4 +987,130 @@ export function formatDateTime(value: string | null | undefined): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
     date.getDate()
   )} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Research quality assessment                                              */
+/* ---------------------------------------------------------------------- */
+
+/**
+ * The status vocabulary of the quality assessment.
+ *
+ * `insufficient_data` is a real answer and gets a real label: "we could not
+ * compute this" is never dressed up as a low score, and never as a blank.
+ */
+export function qualityStatusLabel(status: QualityStatus): string {
+  switch (status) {
+    case "strong":
+      return "充分";
+    case "adequate":
+      return "基本满足";
+    case "weak":
+      return "偏弱";
+    case "at_risk":
+      return "存在风险";
+    default:
+      return "数据不足，无法评估";
+  }
+}
+
+export function qualityStatusTone(status: QualityStatus): string {
+  if (status === "strong") return "research-pill-verified";
+  if (status === "adequate") return "research-pill-supports";
+  if (status === "weak") return "research-pill-unverified";
+  if (status === "at_risk") return "research-pill-rejected";
+  return "research-pill-neutral";
+}
+
+/**
+ * Severity is a property of the rule that fired, not of how bad it feels:
+ * a single unverified excerpt is a warning, a severe challenge nobody has
+ * answered is critical. The tone never carries the meaning alone — the text
+ * label does.
+ */
+export function qualitySeverityLabel(severity: QualitySeverity): string {
+  if (severity === "critical") return "严重";
+  if (severity === "warning") return "警告";
+  return "提示";
+}
+
+export function qualitySeverityTone(severity: QualitySeverity): string {
+  if (severity === "critical") return "research-pill-rejected";
+  if (severity === "warning") return "research-pill-unverified";
+  return "research-pill-neutral";
+}
+
+/** What kind of thing a finding is about, in the panel's own words. */
+export function qualityScopeLabel(scope: QualityFindingScope): string {
+  if (scope === "claim") return "主张";
+  if (scope === "evidence") return "材料";
+  if (scope === "source") return "来源";
+  return "会话";
+}
+
+/**
+ * What a recommendation would do. Every action names a surface that already
+ * exists; nothing here promises a write the build cannot perform.
+ */
+export function qualityActionLabel(action: QualityRecommendationAction): string {
+  switch (action) {
+    case "open_claim_detail":
+      return "查看主张详情";
+    case "open_evidence_detail":
+      return "查看材料详情";
+    case "open_source_reader":
+      return "阅读来源原文";
+    case "open_source_relations":
+      return "处理来源关系";
+    case "open_research_plan":
+      return "加入研究计划";
+    case "open_human_review":
+      return "进入人工复核";
+    case "record_source":
+      return "登记来源";
+    case "verify_evidence":
+      return "核实材料";
+    case "add_supporting_evidence":
+      return "补充支持证据";
+    case "add_opposing_evidence":
+      return "补充反方证据";
+    default:
+      return "重新交叉审查";
+  }
+}
+
+/**
+ * A dimension score, or the honest answer when there is none.
+ *
+ * "无法计算" is printed, never 0 and never 100: a dimension the rules could
+ * not evaluate has no score, and showing one would be an invention.
+ */
+export function qualityScoreText(score: number | null): string {
+  return score === null ? "无法计算" : `${score} / 100`;
+}
+
+/** One finding category, from the shared taxonomy so the panel and the API agree. */
+export function qualityFindingCategoryLabel(
+  category: QualityFindingCategory
+): string {
+  return QUALITY_FINDING_CATEGORY_LABELS[category] ?? category;
+}
+
+/** One dimension name, from the shared taxonomy. */
+export function qualityDimensionLabel(dimension: QualityDimensionId): string {
+  return QUALITY_DIMENSION_LABELS[dimension] ?? dimension;
+}
+
+/**
+ * The rule version behind an assessment, in words.
+ *
+ * The overview reads better with a name a person can recognise, but the exact
+ * machine id stays visible in the panel's footer — a reader must always be
+ * able to tell precisely which rules produced the number. An unknown version
+ * is shown as it arrived: no label is ever invented for rules this build does
+ * not know about.
+ */
+export function qualityRuleVersionLabel(version: string): string {
+  if (version === RESEARCH_QUALITY_RULE_VERSION) return "研究质量-v1";
+  return version;
 }

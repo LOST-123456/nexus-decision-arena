@@ -132,8 +132,59 @@ export function renderSnapshotHtml(
   </section>`);
   }
 
-  const unresolved = report.gaps.unresolvedConflicts
-    .map(
+  // The frozen research quality assessment. Rendered from the payload this
+  // version was saved with — never recomputed — so a historical export shows
+  // the quality reading of its own moment.
+  if (report.researchQuality) {
+    const quality = report.researchQuality;
+    const dimensionRows = quality.dimensions
+      .map((dimension) => {
+        const score =
+          dimension.score === null
+            ? "无法计算"
+            : `${dimension.score} / 100`;
+        return `<tr><th scope="row">${escapeHtml(dimension.id)}</th><td>${escapeHtml(score)}</td><td>${dimension.weight}%</td><td>${escapeHtml(dimension.status)}</td></tr>`;
+      })
+      .join("");
+    const findings = quality.findings
+      .map(
+        (finding) =>
+          `<li>[${escapeHtml(finding.severity)}] ${escapeHtml(finding.category)}（${escapeHtml(finding.scope)} · <code>${escapeHtml(finding.entityId)}</code>）：${escapeHtml(finding.reason)}</li>`
+      )
+      .join("");
+    const recommendations = quality.recommendations
+      .map(
+        (recommendation) =>
+          `<li>${escapeHtml(recommendation.title)}：${escapeHtml(recommendation.detail)}</li>`
+      )
+      .join("");
+    const qualityLimits = quality.limitations
+      .map((limitation) => `<li>${escapeHtml(limitation)}</li>`)
+      .join("");
+    sections.push(`
+  <section class="risk">
+    <h2>研究质量评估</h2>
+    <p class="muted">评估时间 ${escapeHtml(quality.assessedAt)} · 规则版本 ${escapeHtml(quality.ruleVersion)} · 材料范围指纹 <code>${escapeHtml(quality.inputFingerprint)}</code></p>
+    <p>${
+      quality.overall.score === null
+        ? "综合评分无法计算：可计算权重不足总权重的一半，或没有任何维度可计算。"
+        : `综合评分 <strong>${quality.overall.score} / 100</strong>（覆盖权重 ${Math.round(quality.overall.coverage * 100)}%，${quality.overall.assessedDimensions}/6 个维度参与），状态 ${escapeHtml(quality.overall.status)}。`
+    }</p>
+    <p>${escapeHtml(quality.overall.explanation)}</p>
+    <table>
+      <caption>六个维度（分数为 null 表示数据不足，从未按 0 分计）</caption>
+      <thead><tr><th scope="col">维度</th><th scope="col">分数</th><th scope="col">权重</th><th scope="col">状态</th></tr></thead>
+      <tbody>${dimensionRows}</tbody>
+    </table>
+    <h4>质量问题（${quality.findings.length}）</h4>
+    ${findings ? `<ul>${findings}</ul>` : "<p class=\"muted\">未发现规则命中项。</p>"}
+    ${recommendations ? `<h4>改进建议</h4><ul>${recommendations}</ul>` : ""}
+    ${qualityLimits ? `<h4>评估局限</h4><ul>${qualityLimits}</ul>` : ""}
+    <p class="note">质量分数不是结论正确的概率：它只描述材料对结论的支持程度，不改变本报告的任何结论。</p>
+  </section>`);
+  }
+
+  const unresolved = report.gaps.unresolvedConflicts    .map(
       (conflict) =>
         `<li>严重度 ${conflict.severity}：${escapeHtml(conflict.summary)}</li>`
     )

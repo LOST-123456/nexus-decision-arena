@@ -41,6 +41,7 @@ import { ClaimCandidatesPanel } from "./claim-candidates";
 import { CitationReviewPanel } from "./citation-review";
 import { SourceIndependencePanel } from "./source-independence";
 import { ResearchPlanPanel } from "./research-plan";
+import { ResearchQualityPanel } from "./research-quality";
 import { EvidenceMapPanel } from "./evidence-map";
 import { FileImportPanel } from "./file-import";
 import { AgentOpsPanel } from "./agent-ops";
@@ -71,6 +72,7 @@ type Panel =
   | "citations"
   | "independence"
   | "plan"
+  | "quality"
   | "map"
   | "files"
   | "filereader"
@@ -96,6 +98,7 @@ const PANELS: Array<{ id: Panel; label: string; narrowOnly?: boolean }> = [
   { id: "citations", label: "引用核查" },
   { id: "independence", label: "来源关系" },
   { id: "plan", label: "研究计划" },
+  { id: "quality", label: "研究质量" },
   { id: "map", label: "证据地图" },
   { id: "files", label: "文件导入" },
   { id: "agentops", label: "运行中心" }
@@ -759,6 +762,46 @@ export function ResearchWorkspace({
               onChanged={async () => {
                 await reload();
                 await refreshHistory();
+              }}
+            />
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  /**
+   * 研究质量 also gets the full width: the overview, the six dimensions and
+   * the findings list are read top-down, and a column would force a reader to
+   * scroll past the claim rail to follow one sentence.
+   */
+  if (panel === "quality") {
+    return (
+      <>
+        {tabs}
+        <div
+          className="research-body"
+          data-testid="research-body"
+          data-mode="analyze"
+        >
+          <div className="research-column">
+            <ResearchQualityPanel
+              sessionId={sessionId}
+              navigation={{
+                onOpenClaim: (claimId) => {
+                  setSelectedClaimId(claimId);
+                  setPanel("review");
+                },
+                onOpenEvidence: (evidenceId) => {
+                  setSelectedEvidenceId(evidenceId);
+                  setPanel("detail");
+                },
+                onOpenSource: () => setPanel("independence"),
+                onOpenReader: (sourceId) => {
+                  setReaderSourceId(sourceId);
+                  setPanel("reader");
+                },
+                onOpenPlan: () => setPanel("plan")
               }}
             />
           </div>

@@ -1,10 +1,7 @@
 import type { EvidenceRepository, SourceIndependenceRepository } from "@nexus/db";
 import {
   buildSourceProfile,
-  detectConfirmedSourceLinks,
-  detectSuspectedSourceLinks,
   isAssertableRelationKind,
-  mergeSourceLinks,
   summarizeIndependence,
   type IndependenceSummary,
   type Source,
@@ -18,9 +15,8 @@ import {
   type SourceSnapshot
 } from "@nexus/shared";
 import {
-  extractExplicitReferences,
-  SOURCE_INDEPENDENCE_ALGORITHM,
-  sourceTextFingerprint
+  buildIndependenceLinks,
+  SOURCE_INDEPENDENCE_ALGORITHM
 } from "./source-independence";
 
 /**
@@ -124,49 +120,16 @@ export class SourceIndependenceService {
       };
     }
 
-    const fingerprints: Record<string, string> = {};
-    const captureHashes: Record<string, string> = {};
-    for (const [sourceId, snapshot] of snapshotBySource) {
-      fingerprints[sourceId] = sourceTextFingerprint(snapshot.content);
-      const hash = snapshot.contentHash.trim();
-      if (hash) captureHashes[sourceId] = hash;
-    }
-
-    const detected: SourceLink[] = [
-      ...detectConfirmedSourceLinks(sources, captureHashes),
-      ...detectSuspectedSourceLinks({ sources, fingerprints })
-    ];
-
-    // Explicit references found in the stored text. Suspected, not asserted:
-    // a link on a page says the page pointed at another page, not that it
-    // copied it.
-    const seenCitation = new Set<string>();
-    for (const [sourceId, snapshot] of snapshotBySource) {
-      for (const referencedId of extractExplicitReferences({
-        text: snapshot.content,
-        selfSourceId: sourceId,
-        sources
-      })) {
-        const key = `${sourceId}->${referencedId}`;
-        if (seenCitation.has(key)) continue;
-        seenCitation.add(key);
-        detected.push({
-          fromSourceId: sourceId,
-          toSourceId: referencedId,
-          kind: "quotes",
-          basis: "explicit_citation",
-          confidence: "suspected",
-          similarity: null,
-          reason: "正文中出现了指向本会话另一个来源的链接，疑似引用/转载，需人工确认。",
-          origin: "system"
-        });
-      }
-    }
-
     const humanRelations = await this.dependencies.assertions.listCurrentRelations(
       sessionId
     );
-    const links = mergeSourceLinks({ detected, assertions: humanRelations });
+    // Same pure link builder the fact-check report and the saved report
+    // versions use, so the live reading and any frozen report agree.
+    const links = buildIndependenceLinks({
+      sources,
+      snapshotBySource,
+      humanRelations
+    });
     const summary = summarizeIndependence({ sessionId, sources, links });
 
     const overrides = await this.dependencies.assertions.listCurrentProfileOverrides(

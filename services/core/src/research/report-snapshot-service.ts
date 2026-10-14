@@ -3,10 +3,14 @@ import {
   deriveClaimVerdicts,
   newId,
   REPORT_SCHEMA_VERSION,
+  type ClaimVerdictForQuality,
   type RevalidationTask,
   type ReportSnapshotSummary,
+  type ResearchPlanItem,
   type ResearchReportSnapshot,
-  type ReportVersionDiff
+  type ReportVersionDiff,
+  type SourceSnapshot,
+  summarizeIndependence
 } from "@nexus/shared";
 import type {
   ArenaRepository,
@@ -15,9 +19,11 @@ import type {
   EventRepository,
   EvidenceRepository,
   ResearchPlanRepository,
+  ResearchSearchRepository,
   RevalidationTaskRepository,
   ReportSnapshotRepository,
-  ReviewRepository
+  ReviewRepository,
+  SourceIndependenceRepository
 } from "@nexus/db";
 import { ReportSnapshotSessionNotFoundError } from "@nexus/db";
 import {
@@ -29,6 +35,9 @@ import { diffReportSnapshots, snapshotPayload } from "./report-diff";
 import { renderFactCheckReportMarkdown } from "./fact-check-report-markdown";
 import { renderSnapshotHtml } from "./report-snapshot-html";
 import { deriveRevalidationWarnings } from "./revalidation-warnings";
+import { buildIndependenceLinks } from "./source-independence";
+import { projectResearchQuality } from "./research-quality-projection";
+import { deriveWorkspaceGaps } from "./workspace-service";
 
 /**
  * Saves, reads, compares and exports immutable versions of the fact-check
@@ -49,6 +58,12 @@ import { deriveRevalidationWarnings } from "./revalidation-warnings";
  * row and its audit event. No claim status, no verification status, no
  * review, no capture is created or touched — saving freezes what those rows
  * said, it does not participate in them.
+ *
+ * The research quality assessment rides along the same way: it is computed
+ * inside the transaction from the same rows, frozen into the payload with its
+ * rule version, and never recomputed for an old version. Reading a historical
+ * version therefore shows the quality reading that existed when it was saved,
+ * which is the only honest thing a history can do.
  */
 export class ResearchReportSnapshotService {
   constructor(
@@ -66,6 +81,18 @@ export class ResearchReportSnapshotService {
       researchPlan?: Pick<ResearchPlanRepository, "listCurrentPlanItems">;
       /** Absent when monitoring is not configured; the version then carries no risk state. */
       monitorTasks?: Pick<RevalidationTaskRepository, "listTasks">;
+      /**
+       * Human statements about source pairs. Read inside the save transaction
+       * so the frozen quality assessment sees the same relations the live
+       * independence analysis would. Absent when the analysis is off.
+       */
+      sourceRelations?: Pick<SourceIndependenceRepository, "listCurrentRelations">;
+      /**
+       * Controlled search tasks. Read inside the save transaction so the
+       * frozen completeness dimension counts executions that really happened.
+       * Absent when search is off.
+       */
+      searchTasks?: Pick<ResearchSearchRepository, "listSearchTasks">;
       snapshots: ReportSnapshotRepository;
     }
   ) {}
@@ -248,12 +275,13 @@ export class ResearchReportSnapshotService {
           0,
           transaction
         );
-        const planItems: FactCheckPlanItemRef[] = this.deps.researchPlan
+        const planRows: ResearchPlanItem[] = this.deps.researchPlan
           ? await this.deps.researchPlan.listCurrentPlanItems(
               input.sessionId,
               transaction
             )
           : [];
+        const planItems: FactCheckPlanItemRef[] = planRows;
         const tasks: RevalidationTask[] = this.deps.monitorTasks
           ? await this.deps.monitorTasks.listTasks(
               input.sessionId,
@@ -261,6 +289,18 @@ export class ResearchReportSnapshotService {
               transaction
             )
           : [];
+        const humanRelations = this.deps.sourceRelations
+          ? await this.deps.sourceRelations.listCurrentRelations(
+              input.sessionId,
+              transaction
+            )
+          : [];
+        const searchRows = this.deps.searchTasks
+          ? await this.deps.searchTasks.listSearchTasks(
+              input.sessionId,
+              transaction
+            )
+          : null;
 
         const verdicts = deriveClaimVerdicts(artifacts.claims, evidence, {
           challenges: artifacts.challenges,
@@ -270,6 +310,81 @@ export class ResearchReportSnapshotService {
           (max, event) => Math.max(max, event.sequence),
           0
         );
+
+        // The research quality assessment frozen with this version.
+        //
+        // Built from the same transaction's rows as the report itself, through
+        // the same pure projection the live quality endpoint uses, so a saved
+        // version and the live reading cannot disagree about the same
+        // material. It is computed here rather than read from the quality
+        // service because a version must not mix rows from two moments — the
+        // whole point of the repeatable-read transaction. Every optional input
+        // keeps its "unknown rather than guessed" behaviour: an absent
+        // dependency makes the matching dimension answer insufficient_data.
+        const researchQuality = projectResearchQuality({
+          sessionId: input.sessionId,
+          assessedAt: new Date().toISOString(),
+          claims: artifacts.claims,
+          evidence,
+          sources,
+          conflicts: artifacts.conflicts,
+          challenges: artifacts.challenges,
+          verdicts: verdicts.map(
+            (verdict): ClaimVerdictForQuality => ({
+              claimId: verdict.claimId,
+              status: verdict.status,
+              counts: {
+                total: verdict.counts.total,
+                verified: verdict.counts.verified,
+                unverified: verdict.counts.unverified,
+                verifiedSupporting: verdict.counts.verifiedSupporting,
+                verifiedOpposing: verdict.counts.verifiedOpposing
+              },
+              basis: {
+                supportingEvidenceIds: verdict.basis.supportingEvidenceIds,
+                opposingEvidenceIds: verdict.basis.opposingEvidenceIds
+              }
+            })
+          ),
+          gaps: deriveWorkspaceGaps({
+            claims: artifacts.claims,
+            verdicts,
+            evidence,
+            sources,
+            challenges: artifacts.challenges
+          }),
+          agentRuns,
+          independence: summarizeIndependence({
+            sessionId: input.sessionId,
+            sources,
+            links: buildIndependenceLinks({
+              sources,
+              snapshotBySource: new Map(
+                latestSnapshots.map((snapshot) => [
+                  snapshot.sourceId,
+                  snapshot
+                ])
+              ),
+              humanRelations
+            })
+          }),
+          monitoring: this.deps.monitorTasks
+            ? {
+                tasks,
+                warnings: deriveRevalidationWarnings({
+                  tasks,
+                  claims: artifacts.claims,
+                  evidence,
+                  sources,
+                  latestSnapshots
+                })
+              }
+            : null,
+          planItems: planRows,
+          searchTasks: searchRows
+            ? searchRows.map((task) => ({ id: task.id, status: task.status }))
+            : null
+        });
 
         // The report is built exactly as the live route builds it — same
         // inputs, same pure function — so a saved version and the report it
@@ -306,7 +421,9 @@ export class ResearchReportSnapshotService {
                   latestSnapshots
                 })
               }
-            : {})
+            : {}),
+          // The frozen quality assessment: computed above from the same rows.
+          researchQuality
         });
 
         const version =

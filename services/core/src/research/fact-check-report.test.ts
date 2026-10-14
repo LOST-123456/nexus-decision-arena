@@ -17,6 +17,7 @@ import {
   type Evidence,
   type RevalidationReportWarnings,
   type RevalidationTask,
+  type ResearchQualityAssessment,
   type Source,
   type SourceSnapshot
 } from "@nexus/shared";
@@ -27,6 +28,7 @@ import {
 } from "./fact-check-report";
 import { renderFactCheckReportMarkdown } from "./fact-check-report-markdown";
 import { deriveRevalidationWarnings } from "./revalidation-warnings";
+import { projectResearchQuality } from "./research-quality-projection";
 
 const SESSION_ID = newId();
 const CLAIM_ID = newId();
@@ -269,6 +271,7 @@ function build(overrides: {
   lastEventSequence?: number;
   planItems?: FactCheckPlanItemRef[];
   revalidation?: RevalidationReportWarnings;
+  researchQuality?: ResearchQualityAssessment;
 } = {}) {
   const claims = overrides.claims ?? [claimFixture()];
   const evidence = overrides.evidence ?? [evidenceFixture()];
@@ -305,7 +308,57 @@ function build(overrides: {
     ...(overrides.planItems ? { planItems: overrides.planItems } : {}),
     ...(overrides.revalidation
       ? { revalidation: overrides.revalidation }
+      : {}),
+    ...(overrides.researchQuality
+      ? { researchQuality: overrides.researchQuality }
       : {})
+  });
+}
+
+/**
+ * A real assessment over the same rows the report reads, produced by the
+ * scoring engine itself — so what the report carries is exactly what the
+ * quality endpoints serve, not a hand-written look-alike.
+ */
+function qualityAssessmentFixture(
+  overrides: {
+    claims?: Claim[];
+    evidence?: Evidence[];
+  } = {}
+): ResearchQualityAssessment {
+  const claims = overrides.claims ?? [claimFixture()];
+  const evidence = overrides.evidence ?? [evidenceFixture()];
+  const sources = [sourceFixture()];
+  const verdicts = deriveClaimVerdicts(claims, evidence, { now: NOW });
+  return projectResearchQuality({
+    sessionId: SESSION_ID,
+    assessedAt: NOW_ISO,
+    claims,
+    evidence,
+    sources,
+    conflicts: [],
+    challenges: [],
+    verdicts: verdicts.map((verdict) => ({
+      claimId: verdict.claimId,
+      status: verdict.status,
+      counts: {
+        total: verdict.counts.total,
+        verified: verdict.counts.verified,
+        unverified: verdict.counts.unverified,
+        verifiedSupporting: verdict.counts.verifiedSupporting,
+        verifiedOpposing: verdict.counts.verifiedOpposing
+      },
+      basis: {
+        supportingEvidenceIds: verdict.basis.supportingEvidenceIds,
+        opposingEvidenceIds: verdict.basis.opposingEvidenceIds
+      }
+    })),
+    gaps: [],
+    agentRuns: [],
+    independence: null,
+    monitoring: null,
+    planItems: [],
+    searchTasks: null
   });
 }
 
@@ -800,6 +853,73 @@ describe("fact-check report · research plan linkage", () => {
 
     expect(markdown).toContain("研究计划：已加入研究计划，尚未执行");
     expect(markdown).toContain("研究计划：尚未加入研究计划");
+  });
+});
+
+describe("fact-check report · the quality section never rewrites the report", () => {
+  it("carries the assessment when one is passed, and only then", () => {
+    const withQuality = build({
+      researchQuality: qualityAssessmentFixture()
+    });
+    expect(withQuality.researchQuality?.ruleVersion).toBe("research-quality-v1");
+
+    const without = build();
+    expect(without.researchQuality).toBeUndefined();
+  });
+
+  it("changes no conclusion, verdict, ruling or traceability row", () => {
+    const plain = build();
+    const withQuality = build({
+      researchQuality: qualityAssessmentFixture()
+    });
+    const { researchQuality: _carried, ...rest } = withQuality;
+
+    // Everything except the carried block is byte-identical: the assessment
+    // is a passenger, never an editor.
+    expect(rest).toEqual(plain);
+  });
+
+  it("reports a critical quality finding as a reason to look, not a verdict move", () => {
+    const report = build({
+      claims: [claimFixture()],
+      evidence: [],
+      sources: [sourceFixture()],
+      researchQuality: qualityAssessmentFixture({ evidence: [] })
+    });
+
+    const critical = report.researchQuality!.findings.filter(
+      (finding) => finding.severity === "critical"
+    );
+    expect(critical.length).toBeGreaterThan(0);
+    expect(report.limits.join(" ")).toContain(
+      `质量评估发现 ${critical.length} 项关键问题`
+    );
+    expect(report.limits.join(" ")).toContain("不改变本报告的任何结论");
+  });
+
+  it("renders the markdown section from the same numbers the json carries", () => {
+    const quality = qualityAssessmentFixture();
+    const report = build({ researchQuality: quality });
+    const markdown = renderFactCheckReportMarkdown(report);
+
+    expect(markdown).toContain("## 研究质量评估");
+    expect(markdown).toContain(`- 规则版本：${quality.ruleVersion}`);
+    expect(markdown).toContain(`- 材料范围指纹：${quality.inputFingerprint}`);
+    // This fixture has only one computable-half session: the score is refused,
+    // and the markdown says so instead of printing a number.
+    expect(markdown).toContain("综合评分：**无法计算**");
+    expect(markdown).toContain("质量分数不是结论正确的概率");
+    for (const finding of quality.findings) {
+      expect(markdown).toContain(finding.reason);
+    }
+    for (const limitation of quality.limitations) {
+      expect(markdown).toContain(limitation);
+    }
+  });
+
+  it("omits the quality section when no assessment rode along", () => {
+    const markdown = renderFactCheckReportMarkdown(build());
+    expect(markdown).not.toContain("## 研究质量评估");
   });
 });
 

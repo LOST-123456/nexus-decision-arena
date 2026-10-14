@@ -1,17 +1,29 @@
 "use client";
 
 import Link from "next/link";
-import type { ClaimVerdictStatus, EvidenceGap } from "@nexus/shared";
+import type {
+  ClaimVerdictStatus,
+  EvidenceGap,
+  ResearchQualityAssessment
+} from "@nexus/shared";
 import {
   citationStatusLabel,
   citationStatusTone,
   directionLabel,
   exclusionReasonLabel,
   formatDate,
+  formatDateTime,
   gapActionLabel,
   gapKindLabel,
   gapSeverityLabel,
   gapSeverityTone,
+  qualityDimensionLabel,
+  qualityFindingCategoryLabel,
+  qualityScoreText,
+  qualitySeverityLabel,
+  qualitySeverityTone,
+  qualityStatusLabel,
+  qualityStatusTone,
   reviewOutcomeLabel,
   reviewOutcomeTone,
   runPurposeLabel,
@@ -157,6 +169,130 @@ function directionToneFor(direction: ReportCitation["direction"]): string {
   if (direction === "supports") return "research-pill-supports";
   if (direction === "opposes") return "research-pill-opposes";
   return "research-pill-context";
+}
+
+/**
+ * The quality block inside the report: the same numbers the workspace's
+ * 研究质量 panel shows, drawn from the payload this document was built (or
+ * frozen) from. A dimension without a score says 无法计算 and says why —
+ * never 0, never 100.
+ */
+function ResearchQualitySection({
+  assessment
+}: {
+  assessment: ResearchQualityAssessment;
+}) {
+  const overall = assessment.overall;
+  const bySeverity = assessment.findings.reduce(
+    (counts, finding) => {
+      const key = finding.severity as "critical" | "warning" | "info";
+      counts[key] = counts[key] + 1;
+      return counts;
+    },
+    { critical: 0, warning: 0, info: 0 }
+  );
+  return (
+    <section className="research-report-section" data-testid="report-quality">
+      <h2>研究质量评估</h2>
+      <p className="research-muted">
+        评估时间 {formatDateTime(assessment.assessedAt)} · 规则版本{" "}
+        {assessment.ruleVersion}（结构 v{assessment.schemaVersion}） · 材料范围指纹{" "}
+        <code>{assessment.inputFingerprint}</code>
+      </p>
+      <div className="research-claim-meta">
+        <StatusPill tone={qualityStatusTone(overall.status)}>
+          综合状态：{qualityStatusLabel(overall.status)}
+        </StatusPill>
+        <StatusPill tone="research-pill-neutral">
+          综合评分：
+          <span data-testid="report-quality-score">{qualityScoreText(overall.score)}</span>
+        </StatusPill>
+        <StatusPill tone="research-pill-neutral">
+          可计算权重 {Math.round(overall.coverage * 100)}%（
+          {overall.assessedDimensions}/6 个维度参与）
+        </StatusPill>
+      </div>
+      <p className="research-muted">{overall.explanation}</p>
+      <p className="research-muted">
+        质量分数不是结论正确的概率：它只描述材料对结论的支持程度，不改变本报告的任何结论。
+      </p>
+
+      <div className="research-label">六个维度</div>
+      <table className="research-table">
+        <thead>
+          <tr>
+            <th scope="col">维度</th>
+            <th scope="col">分数</th>
+            <th scope="col">权重</th>
+            <th scope="col">状态</th>
+          </tr>
+        </thead>
+        <tbody>
+          {assessment.dimensions.map((dimension) => (
+            <tr key={dimension.id} data-testid={`report-quality-dimension-${dimension.id}`}>
+              <td>{qualityDimensionLabel(dimension.id)}</td>
+              <td>{qualityScoreText(dimension.score)}</td>
+              <td className="research-muted">{dimension.weight}%</td>
+              <td>
+                <StatusPill tone={qualityStatusTone(dimension.status)}>
+                  {qualityStatusLabel(dimension.status)}
+                </StatusPill>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      <div className="research-label">
+        质量问题（{assessment.findings.length}：严重 {bySeverity.critical} · 警告{" "}
+        {bySeverity.warning} · 提示 {bySeverity.info}）
+      </div>
+      {assessment.findings.length === 0 ? (
+        <p className="research-muted">未发现规则命中项。</p>
+      ) : (
+        <ul className="research-plain-list">
+          {assessment.findings.map((finding) => (
+            <li key={finding.id}>
+              <div className="research-claim-meta">
+                <StatusPill tone={qualitySeverityTone(finding.severity)}>
+                  {qualitySeverityLabel(finding.severity)}
+                </StatusPill>
+                <StatusPill tone="research-pill-neutral">
+                  {qualityFindingCategoryLabel(finding.category)}
+                </StatusPill>
+                <span className="research-muted">{finding.ruleId}</span>
+              </div>
+              <div>{finding.reason}</div>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {assessment.recommendations.length > 0 ? (
+        <>
+          <div className="research-label">改进建议</div>
+          <ul className="research-plain-list">
+            {assessment.recommendations.map((recommendation) => (
+              <li key={recommendation.id}>
+                <strong>{recommendation.title}</strong>：{recommendation.detail}
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+
+      {assessment.limitations.length > 0 ? (
+        <>
+          <div className="research-label">评估局限</div>
+          <ul className="research-plain-list">
+            {assessment.limitations.map((limitation) => (
+              <li key={limitation}>{limitation}</li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+    </section>
+  );
 }
 
 /**
@@ -582,6 +718,18 @@ export function FactCheckReportBody({
           </ul>
         )}
       </section>
+
+      {/* ---------- research quality ---------- */}
+      {/*
+        Rendered from the assessment the report carries. For a live report
+        that is the reading at generation time; for a stored version it is
+        exactly what that version froze — an old version never recomputes,
+        and a version saved before the quality block existed simply has none.
+        Nothing here feeds a verdict: the verdict pipeline cannot see it.
+      */}
+      {report.researchQuality ? (
+        <ResearchQualitySection assessment={report.researchQuality} />
+      ) : null}
 
       <section className="research-report-section">
         <h2>局限性与时间范围</h2>

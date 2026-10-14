@@ -75,6 +75,38 @@ export type ResearchWorkspace = {
 };
 
 /**
+ * Rule-based gap diagnoses for a whole session.
+ *
+ * Exported so the fact-check report snapshot computes its quality input from
+ * exactly the same rules the workspace renders: one derivation, two readers.
+ * Gaps are derived, never stored, so this stays a pure function of its rows.
+ */
+export function deriveWorkspaceGaps(input: {
+  claims: readonly Claim[];
+  verdicts: readonly ClaimVerdict[];
+  evidence: readonly Evidence[];
+  sources: readonly Source[];
+  challenges: readonly Challenge[];
+}): EvidenceGap[] {
+  const verdictByClaimId = new Map(
+    input.verdicts.map((verdict) => [verdict.claimId, verdict])
+  );
+  return input.claims.flatMap((claim) => {
+    const verdict = verdictByClaimId.get(claim.id);
+    if (!verdict) return [];
+    return diagnoseEvidenceGaps({
+      claim,
+      verdict,
+      evidence: input.evidence.filter((item) => item.claimIds.includes(claim.id)),
+      sources: input.sources,
+      challenges: input.challenges.filter(
+        (challenge) => challenge.targetClaimId === claim.id
+      )
+    });
+  });
+}
+
+/**
  * Assembles the research workspace.
  *
  * The verdicts are derived, never stored: they are a projection of what is
@@ -121,21 +153,12 @@ export class ResearchWorkspaceService {
 
     // Gaps are derived from the same verdict projection the UI shows, so a
     // "what is missing" diagnosis can never contradict the stated conclusion.
-    const verdictByClaimId = new Map(
-      verdicts.map((verdict) => [verdict.claimId, verdict])
-    );
-    const gaps: EvidenceGap[] = claims.flatMap((claim) => {
-      const verdict = verdictByClaimId.get(claim.id);
-      if (!verdict) return [];
-      return diagnoseEvidenceGaps({
-        claim,
-        verdict,
-        evidence: evidence.filter((item) => item.claimIds.includes(claim.id)),
-        sources,
-        challenges: challenges.filter(
-          (challenge) => challenge.targetClaimId === claim.id
-        )
-      });
+    const gaps = deriveWorkspaceGaps({
+      claims,
+      verdicts,
+      evidence,
+      sources,
+      challenges
     });
 
     // The latest ruling per claim, kept only when it explicitly asked for more

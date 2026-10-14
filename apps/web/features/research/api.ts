@@ -53,7 +53,12 @@ import type {
   ReportDiffEntry,
   ReportDiffEntityType,
   ReportDiffChangeKind,
-  ReportDiffCategory
+  ReportDiffCategory,
+  ResearchQualityAssessment,
+  QualityFinding,
+  QualityFindingCategory,
+  QualitySeverity,
+  ClaimQualityFinding
 } from "@nexus/shared";
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "";
 
@@ -256,6 +261,12 @@ export type FactCheckReport = {
     };
   };
   limits: string[];
+  /**
+   * The read-only research quality assessment this report was generated (or
+   * frozen) with. Absent when the assessment is not configured, and — for a
+   * stored version — exactly what that version froze, never a fresh reading.
+   */
+  researchQuality?: ResearchQualityAssessment | undefined;
   provenance: {
     evidenceIds: string[];
     sourceIds: string[];
@@ -1828,3 +1839,101 @@ export type {
   EvidenceCandidate,
   ExtractionFailureCode
 };
+
+/* ------------------------------------------------------------------ *
+ * Research quality assessment
+ * ------------------------------------------------------------------ */
+
+/**
+ * The read-only quality assessment, plus the two narrower views of it.
+ *
+ * Every call here is a GET: the assessment is a projection over persisted
+ * rows, so the client never sends material to be scored and never sends a
+ * claim or evidence id — the server decides the session scope, which is what
+ * keeps a cross-session read impossible.
+ */
+
+export type ResearchQualityClaimsResponse = {
+  sessionId: string;
+  assessedAt: string;
+  ruleVersion: string;
+  claimFindings: ClaimQualityFinding[];
+};
+
+export type ResearchQualityFindingsResponse = {
+  sessionId: string;
+  assessedAt: string;
+  ruleVersion: string;
+  /** The unfiltered count, so a limited view still says how much there is. */
+  total: number;
+  findings: QualityFinding[];
+};
+
+/**
+ * Carries the HTTP status so the panel can tell "no such session" (404) from
+ * "the assessment is not configured on this server" (501) from a plain read
+ * failure — three different things to do next.
+ */
+export class ResearchQualityFailedError extends Error {
+  constructor(
+    message: string,
+    readonly status: number
+  ) {
+    super(message);
+    this.name = "ResearchQualityFailedError";
+  }
+}
+
+async function requestQuality<T>(path: string): Promise<T> {
+  const response = await fetch(`${apiUrl}${path}`, { cache: "no-store" });
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as {
+      error?: string;
+      message?: string;
+    } | null;
+    throw new ResearchQualityFailedError(
+      payload?.message ?? payload?.error ?? `Request failed: ${response.status}`,
+      response.status
+    );
+  }
+  return response.json() as Promise<T>;
+}
+
+/** The full assessment: overall, six dimensions, findings and recommendations. */
+export function getResearchQuality(
+  sessionId: string
+): Promise<ResearchQualityAssessment> {
+  return requestQuality<ResearchQualityAssessment>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/research-quality`
+  );
+}
+
+/** Claim-level diagnostics alone, for a claim-oriented reading. */
+export function getResearchQualityClaims(
+  sessionId: string
+): Promise<ResearchQualityClaimsResponse> {
+  return requestQuality<ResearchQualityClaimsResponse>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/research-quality/claims`
+  );
+}
+
+/** The findings list, optionally narrowed by severity or category. */
+export function getResearchQualityFindings(
+  sessionId: string,
+  filter: {
+    severity?: QualitySeverity;
+    category?: QualityFindingCategory;
+    limit?: number;
+  } = {}
+): Promise<ResearchQualityFindingsResponse> {
+  const query = new URLSearchParams();
+  if (filter.severity) query.set("severity", filter.severity);
+  if (filter.category) query.set("category", filter.category);
+  if (typeof filter.limit === "number") {
+    query.set("limit", String(filter.limit));
+  }
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return requestQuality<ResearchQualityFindingsResponse>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/research-quality/findings${suffix}`
+  );
+}
