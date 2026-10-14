@@ -7,16 +7,27 @@ import { usePathname } from "next/navigation";
  * Deep-navy navigation for the research surface. Every entry points at a page
  * that really exists; contextual entries only appear once a session is open.
  */
+
+/**
+ * Segments under /research that name a fixed destination rather than a session.
+ * Reading "library" as a session id would make the nav claim session-scoped
+ * links for a page that has no session, so the list is checked explicitly.
+ */
+const STATIC_SEGMENTS = new Set(["new", "library"]);
+
 export function ResearchNav() {
   const pathname = usePathname() ?? "/research";
   const segments = pathname.split("/").filter(Boolean);
   const sessionId =
-    segments[0] === "research" && segments[1] && segments[1] !== "new"
+    segments[0] === "research" &&
+    segments[1] &&
+    !STATIC_SEGMENTS.has(segments[1])
       ? segments[1]
       : null;
 
   const links: Array<{ href: string; label: string }> = [
-    { href: "/research", label: "Research Home" }
+    { href: "/research", label: "Research Home" },
+    { href: "/research/library", label: "资料库" }
   ];
   if (sessionId) {
     links.push(

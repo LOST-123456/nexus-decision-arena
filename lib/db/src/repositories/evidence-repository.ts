@@ -24,6 +24,7 @@ import {
   parseSources
 } from "./domain-mapper";
 import { evidenceCoversAnyClaim, evidenceCoversClaim } from "./evidence-link";
+import { markCopyForked } from "./source-library-repository";
 
 export class SourceNotFoundError extends Error {
   constructor(sourceId: string) {
@@ -241,6 +242,13 @@ export class EvidenceRepository {
           contentBytes: input.snapshot.contentBytes,
           charCount: input.snapshot.charCount,
           retrievedAt: input.snapshot.retrievedAt,
+          // A language *registered* for this capture is stored with it; the
+          // column is never filled from a heuristic. Without this the value
+          // was silently dropped on write, so a later read (and the library's
+          // language filter) could never see a language anyone had recorded.
+          ...(input.snapshot.sourceLanguage
+            ? { sourceLanguage: input.snapshot.sourceLanguage }
+            : {}),
           createdAt: input.snapshot.createdAt
         })
         .onConflictDoNothing({
@@ -282,6 +290,18 @@ export class EvidenceRepository {
         input.snapshot.sessionId,
         input.event
       );
+
+      // A capture that differs from the version a copy was made from means
+      // the copy has forked: the target research moved on its own. Recorded
+      // here, inside the same transaction, so a fork never exists without the
+      // capture that caused it — and a re-capture of identical text leaves
+      // the copy `synced`, because nothing diverged.
+      await markCopyForked(transaction, {
+        sessionId: input.snapshot.sessionId,
+        sourceId: input.snapshot.sourceId,
+        contentHash: input.snapshot.contentHash,
+        forkedAt: input.snapshot.createdAt
+      });
 
       // The row that holds this text afterwards: the one just written, or —
       // when this exact capture already existed — the stored one. Resolving

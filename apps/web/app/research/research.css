@@ -814,9 +814,25 @@
   display: none;
 }
 
+/*
+ * 资料库 is a browse-and-copy surface rather than a claim-scoped column layout:
+ * the filters and the visible-research list sit on the left, the results and
+ * the sharing table on the right. It owns its own grid so neither column is
+ * squeezed by the workspace's claim rail, which is not on screen here.
+ */
+.research-library-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr);
+  gap: 16px;
+  align-items: start;
+}
+
 @media (max-width: 1180px) {
   .research-body,
   .research-body[data-mode="focus"] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .research-library-grid {
     grid-template-columns: minmax(0, 1fr);
   }
   /* The claim rail is a tab of its own once there is no room for a sidebar. */

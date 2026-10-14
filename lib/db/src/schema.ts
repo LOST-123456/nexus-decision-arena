@@ -54,6 +54,14 @@ export const decisionSessions = pgTable("decision_sessions", {
   currentConclusion: text("current_conclusion"),
   /** The question under investigation, distinct from the workflow phase. */
   researchQuestion: text("research_question"),
+  /**
+   * Who this research belongs to, taken from the server-side login identity
+   * when the session was created. NULL marks a legacy workspace session
+   * created before ownership existed: its access behaviour is unchanged, and
+   * administering its library grants is restricted to the `owner` role rather
+   * than guessing an owner after the fact.
+   */
+  ownerUserId: text("owner_user_id"),
   nextEventSequence: integer("next_event_sequence").notNull().default(1),
   supplementRound: integer("supplement_round").notNull().default(0),
   pauseReason: text("pause_reason"),
@@ -1301,6 +1309,93 @@ export const terminology = pgTable(
     sessionTerm: uniqueIndex("terminology_session_term_idx").on(
       table.sessionId,
       table.sourceTerm
+    )
+  })
+);
+
+/**
+ * An explicit authorization to browse another research's material.
+ *
+ * Material belongs to the session it was collected in; this row is the only
+ * thing that makes it visible across the session boundary, and revoking it
+ * keeps the row (with who revoked it and why) so the audit trail survives.
+ * The partial unique index in migration 0018 allows one live grant per
+ * (session, subject, scope).
+ */
+export const sourceShareGrants = pgTable(
+  "source_share_grants",
+  {
+    id: uuid("id").primaryKey(),
+    /** The session whose material is shared — the source side. */
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => decisionSessions.id, { onDelete: "cascade" }),
+    /** `user` names one account; `role` names everyone holding that role. */
+    subjectType: text("subject_type").notNull(),
+    subjectId: text("subject_id").notNull(),
+    /** `read` and `copy` both permit browsing; recorded so audit can tell. */
+    scope: text("scope").notNull(),
+    grantedBy: text("granted_by").notNull(),
+    grantedAt: timestampColumn("granted_at").notNull().defaultNow(),
+    revokedAt: timestampColumn("revoked_at"),
+    revokedBy: text("revoked_by"),
+    revokeReason: text("revoke_reason")
+  },
+  (table) => ({
+    live: uniqueIndex("source_share_grants_live_idx")
+      .on(table.sessionId, table.subjectType, table.subjectId, table.scope)
+      .where(sql`${table.revokedAt} IS NULL`),
+    subject: index("source_share_grants_subject_idx")
+      .on(table.subjectType, table.subjectId)
+      .where(sql`${table.revokedAt} IS NULL`)
+  })
+);
+
+/**
+ * The lineage of a source that was copied into this research from another.
+ *
+ * One row per copied source. It records the origin session, the origin
+ * source, the snapshot hash the copy was made from, who copied it and when,
+ * and whether the copy has since forked (a recorded fact about the copy,
+ * maintained by writes inside this session). The origin's own drift is
+ * derived on read and deliberately not stored: a stored "current" would
+ * silently become a lie the moment the origin changed.
+ */
+export const sourceCopies = pgTable(
+  "source_copies",
+  {
+    id: uuid("id").primaryKey(),
+    /** The target session and the source inside it. */
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => decisionSessions.id, { onDelete: "cascade" }),
+    sourceId: uuid("source_id")
+      .notNull()
+      .references(() => sources.id, { onDelete: "cascade" }),
+    /**
+     * Where the material came from. History, not a dependency: these are plain
+     * columns on purpose, because a cascade would delete the target research's
+     * audit trail when the origin is removed and a RESTRICT would let an old
+     * research block its own deletion forever. See 0018_source_library.sql.
+     */
+    originSessionId: uuid("origin_session_id").notNull(),
+    originSourceId: uuid("origin_source_id").notNull(),
+    /** Null for a reference copy: metadata only, no captured text to point at. */
+    originSnapshotId: uuid("origin_snapshot_id"),
+    originSnapshotHash: text("origin_snapshot_hash"),
+    copiedBy: text("copied_by").notNull(),
+    copiedAt: timestampColumn("copied_at").notNull().defaultNow(),
+    forkState: text("fork_state").notNull().default("synced"),
+    forkedAt: timestampColumn("forked_at")
+  },
+  (table) => ({
+    sessionSource: uniqueIndex("source_copies_session_source_idx").on(
+      table.sessionId,
+      table.sourceId
+    ),
+    origin: index("source_copies_origin_idx").on(
+      table.originSessionId,
+      table.originSourceId
     )
   })
 );

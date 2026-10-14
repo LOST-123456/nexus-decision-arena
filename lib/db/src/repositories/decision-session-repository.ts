@@ -51,6 +51,14 @@ type SessionInput = {
   currentConclusion: string | null;
   /** The question this research set out to answer. */
   researchQuestion?: string | null;
+  /**
+   * Who this research belongs to, taken from the server-side login identity.
+   * Null for a session created without an authenticated user (or before
+   * ownership existed): such a session is a legacy workspace session, and the
+   * library restricts grant administration on it to the `owner` role rather
+   * than inventing an owner after the fact.
+   */
+  ownerUserId?: string | null;
 };
 
 type HumanDecisionTransition = {
@@ -106,6 +114,9 @@ export class DecisionSessionRepository {
           ...session,
           ...(session.researchQuestion !== undefined
             ? { researchQuestion: session.researchQuestion }
+            : {}),
+          ...(session.ownerUserId !== undefined
+            ? { ownerUserId: session.ownerUserId }
             : {})
         })
         .onConflictDoNothing({ target: decisionSessions.id })

@@ -15,7 +15,8 @@ import {
   CitationReviewRepository,
   SourceCheckRepository,
   SourceFileRepository,
-  SourceIndependenceRepository
+  SourceIndependenceRepository,
+  SourceLibraryRepository
 } from "@nexus/db";
 import { OpenAiCompatibleProvider, type LlmProvider } from "@nexus/llm";
 import { createApp } from "./app";
@@ -289,6 +290,12 @@ const fileIngestion = new FileIngestionService({
       : undefined
 });
 
+/**
+ * Cross-research library: share grants and copy lineage. The service is
+ * constructed per request in the route; the repository is shared.
+ */
+const sourceLibrary = new SourceLibraryRepository(database);
+
 const app = createApp(
   {
     sessions,
@@ -296,6 +303,7 @@ const app = createApp(
     sessionHistory: sessions,
     inspector: new InspectorRepository(database),
     evidence: researchEvidence,
+    sourceLibrary,
     reviews: researchReviews,
     crossReview,
     /** Agent Operations Center: surfaces `agent_runs`, reusing the same table. */

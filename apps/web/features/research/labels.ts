@@ -44,7 +44,10 @@ import type {
   QualityFindingCategory,
   QualityFindingScope,
   QualityRecommendationAction,
-  QualityDimensionId
+  QualityDimensionId,
+  SourceCopyRecord,
+  ShareGrantScope,
+  ShareGrantSubjectType
 } from "@nexus/shared";
 
 /**
@@ -1113,4 +1116,43 @@ export function qualityDimensionLabel(dimension: QualityDimensionId): string {
 export function qualityRuleVersionLabel(version: string): string {
   if (version === RESEARCH_QUALITY_RULE_VERSION) return "研究质量-v1";
   return version;
+}
+
+/**
+ * Copy lineage labels.
+ *
+ * The origin status is a live reading, not a stored state: "原研究已更新"
+ * means the origin's current capture differs from the version this copy was
+ * made from — it never implies the copy is wrong, only that the two have
+ * parted ways.
+ */
+export function originStatusLabel(status: SourceCopyRecord["originStatus"]): string {
+  if (status === "current") return "与原研究同版本";
+  if (status === "changed") return "原研究已更新";
+  if (status === "revoked") return "原研究已不可访问";
+  return "原研究来源已不可用";
+}
+
+export function originStatusTone(status: SourceCopyRecord["originStatus"]): string {
+  if (status === "current") return "research-pill-verified";
+  if (status === "changed") return "research-pill-context";
+  if (status === "revoked") return "research-pill-rejected";
+  return "research-pill-neutral";
+}
+
+export function forkStateLabel(state: SourceCopyRecord["forkState"]): string {
+  return state === "forked" ? "已分叉" : "未分叉";
+}
+
+export function forkStateTone(state: SourceCopyRecord["forkState"]): string {
+  return state === "forked" ? "research-pill-context" : "research-pill-neutral";
+}
+
+/** What a share grant allows, in words. */
+export function grantScopeLabel(scope: ShareGrantScope): string {
+  return scope === "copy" ? "可浏览并复制" : "可浏览";
+}
+
+export function grantSubjectTypeLabel(subjectType: ShareGrantSubjectType): string {
+  return subjectType === "user" ? "指定账号" : "某个角色";
 }

@@ -198,7 +198,16 @@ function applyContiguousEvent(
     // surfaces re-read them from the backend.
     case "TRANSLATION_RECORDED":
     case "TRANSLATION_REVIEWED":
-    case "TERMINOLOGY_RECORDED": {
+    case "TERMINOLOGY_RECORDED":
+    // Cross-research reuse events are records *about* material moving between
+    // researches, not about this debate. Granting or revoking a share, and
+    // copying a source in, change neither the phase nor any verdict input: a
+    // copy lands unverified and stays unverified until this research records
+    // its own ruling. So they only advance the replay cursor, and the library
+    // surfaces re-read the real state from the backend.
+    case "SOURCE_LIBRARY_GRANTED":
+    case "SOURCE_LIBRARY_REVOKED":
+    case "SOURCE_COPIED_TO_RESEARCH": {
       return { ...current, lastSequence: event.sequence };
     }
     default: {

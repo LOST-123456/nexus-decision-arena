@@ -11,7 +11,8 @@ import type {
   Evidence,
   EvidenceGap,
   EvidenceGapAction,
-  Source
+  Source,
+  SourceCopyRecord
 } from "@nexus/shared";
 import {
   challengeStatusLabel,
@@ -35,6 +36,8 @@ import {
   runStatusTone,
   locatorStatusLabel,
   locatorStatusTone,
+  originStatusLabel,
+  forkStateLabel,
   sourceKindLabel,
   sourceRetrievalLabel,
   sourceRetrievalTone,
@@ -1017,7 +1020,8 @@ export function SourceDetail({
   error,
   canEdit,
   onOpenReader,
-  onOpenAnalysis
+  onOpenAnalysis,
+  copy
 }: {
   evidence: Evidence;
   source: Source | null;
@@ -1030,6 +1034,12 @@ export function SourceDetail({
   onOpenReader?: ((sourceId: string) => void) | undefined;
   /** Opens the AI candidate review for this source. */
   onOpenAnalysis?: ((sourceId: string) => void) | undefined;
+  /**
+   * Lineage when this source was copied in from another research. Shown so a
+   * citation can be traced to where the material really came from — including
+   * the fact that the origin's verification did *not* come with it.
+   */
+  copy?: SourceCopyRecord | undefined;
 }) {
   return (
     <div className="research-column" data-testid="source-detail">
@@ -1112,6 +1122,34 @@ export function SourceDetail({
               <dt>备注</dt>
               <dd>{source.note ?? "—"}</dd>
             </dl>
+            {copy ? (
+              <div data-testid="source-copy-lineage" style={{ marginTop: 8 }}>
+                <div className="research-actions">
+                  <StatusPill tone="research-pill-neutral">副本来源</StatusPill>
+                  <StatusPill tone="research-pill-neutral">
+                    {originStatusLabel(copy.originStatus)}
+                  </StatusPill>
+                  <StatusPill tone="research-pill-neutral">
+                    {forkStateLabel(copy.forkState)}
+                  </StatusPill>
+                </div>
+                <dl className="research-facts" style={{ marginTop: 8 }}>
+                  <dt>来源研究</dt>
+                  <dd style={{ overflowWrap: "anywhere" }}>{copy.originSessionId}</dd>
+                  <dt>复制者</dt>
+                  <dd>{copy.copiedBy}</dd>
+                  <dt>复制时间</dt>
+                  <dd>{formatDate(copy.copiedAt)}</dd>
+                  <dt>源快照哈希</dt>
+                  <dd style={{ overflowWrap: "anywhere" }}>
+                    {copy.originSnapshotHash ?? "—（仅引用，未复制原文）"}
+                  </dd>
+                </dl>
+                <p className="research-muted">
+                  副本是本研究自己的材料：原研究的人工核实结论不会随复制转移，本研究的每一条证据仍需单独核实。
+                </p>
+              </div>
+            ) : null}
             {source.retrievalError ? (
               <p className="research-error" style={{ marginTop: 8 }} role="alert">
                 上次抓取失败：{source.retrievalError}

@@ -6,6 +6,7 @@ export * from "./domain/agent-run";
 export * from "./domain/claim";
 export * from "./domain/evidence";
 export * from "./domain/source";
+export * from "./domain/source-library";
 export * from "./domain/challenge";
 export * from "./domain/conflict";
 export * from "./domain/human-decision";

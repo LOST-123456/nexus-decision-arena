@@ -7,13 +7,15 @@ import {
   isEvidenceNotYetEffective,
   type ClaimReview,
   type EvidenceGap,
-  type EvidenceGapAction
+  type EvidenceGapAction,
+  type SourceCopyRecord
 } from "@nexus/shared";
 import { getEvents } from "./api";
 import {
   createEvidence,
   createResearchClaim,
   createSource,
+  getCopyLineage,
   getEvidenceContext,
   getResearchWorkspace,
   importSource,
@@ -44,6 +46,7 @@ import { ResearchPlanPanel } from "./research-plan";
 import { ResearchQualityPanel } from "./research-quality";
 import { EvidenceMapPanel } from "./evidence-map";
 import { FileImportPanel } from "./file-import";
+import { SourceLibraryPanel } from "./source-library";
 import { AgentOpsPanel } from "./agent-ops";
 import { FileReader } from "./file-reader";
 import { SourceReader } from "./source-reader";
@@ -76,7 +79,8 @@ type Panel =
   | "map"
   | "files"
   | "filereader"
-  | "agentops";
+  | "agentops"
+  | "library";
 
 /**
  * `claims` and `detail` are their own tabs only where the layout collapses: on
@@ -101,7 +105,8 @@ const PANELS: Array<{ id: Panel; label: string; narrowOnly?: boolean }> = [
   { id: "quality", label: "研究质量" },
   { id: "map", label: "证据地图" },
   { id: "files", label: "文件导入" },
-  { id: "agentops", label: "运行中心" }
+  { id: "agentops", label: "运行中心" },
+  { id: "library", label: "资料库" }
 ];
 
 /**
@@ -145,7 +150,13 @@ const HISTORY_EVENT_TYPES = new Set([
   "SEARCH_TASK_CREATED",
   "SEARCH_COMPLETED",
   "SEARCH_FAILED",
-  "SOURCE_CANDIDATE_FOUND"
+  "SOURCE_CANDIDATE_FOUND",
+  // 跨研究复用：授权、撤销与"复制进本研究"都是本研究自己的活动，
+  // 所以它们出现在活动轨迹里；复制事件记的是"这次复制发生在本研究"，
+  // 不是"本研究已经核实了这条材料"。
+  "SOURCE_LIBRARY_GRANTED",
+  "SOURCE_LIBRARY_REVOKED",
+  "SOURCE_COPIED_TO_RESEARCH"
 ]);
 
 const RESEARCH_MODE: Panel[] = ["claims", "content", "detail"];
@@ -194,6 +205,13 @@ export function ResearchWorkspace({
   const [error, setError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [history, setHistory] = useState<string[]>([]);
+  /**
+   * Which sources in this research are copies, keyed by the local source id.
+   * Read back from the backend rather than inferred: the origin status is
+   * derived live against the origin research, so a revoked share shows up here
+   * without anyone writing to this research.
+   */
+  const [copyLineage, setCopyLineage] = useState<Record<string, SourceCopyRecord>>({});
   const [intentApplied, setIntentApplied] = useState(false);
 
   // Cross-examination: real agent runs, so both progress and outcome are kept.
@@ -273,6 +291,27 @@ export function ResearchWorkspace({
       cancelled = true;
     };
   }, [sessionId, selectedEvidenceId]);
+
+  /**
+   * The copy lineage is read when the detail panel is opened, not once at
+   * mount, so a copy just made in 资料库 is already reflected. A lineage this
+   * account may not read is not worth an error banner — the detail panel then
+   * simply shows no copy badge, which is the safe direction to fail in.
+   */
+  useEffect(() => {
+    if (panel !== "detail") return;
+    let cancelled = false;
+    getCopyLineage(sessionId)
+      .then((response) => {
+        if (!cancelled) setCopyLineage(response.lineage);
+      })
+      .catch(() => {
+        if (!cancelled) setCopyLineage({});
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [panel, sessionId]);
 
   // The review panel always shows the backend's own history for the claim, not
   // a locally guessed list, so a ruling recorded elsewhere still shows up.
@@ -572,6 +611,14 @@ export function ResearchWorkspace({
     : [];
 
   const focusMode = !isResearchMode(panel);
+
+  /**
+   * The copy lineage entry for whatever source the detail column is showing.
+   * A source that was created here has no entry, and the detail panel then
+   * shows no copy block at all — absence is the honest answer for a source
+   * that was not copied.
+   */
+  const detailCopy = context?.source ? copyLineage[context.source.id] : undefined;
 
   const tabs = (
     <div
@@ -910,6 +957,33 @@ export function ResearchWorkspace({
           <div className="research-column">
             <AgentOpsPanel sessionId={sessionId} canEdit={canEdit} />
           </div>
+        </div>
+      </>
+    );
+  }
+
+  /**
+   * 资料库 gets the full width: it is a search-and-browse surface with its own
+   * two columns (filters and visible researches on the left, results and the
+   * sharing table on the right), so it cannot live in the claim rail's column.
+   */
+  if (panel === "library") {
+    return (
+      <>
+        {tabs}
+        <div
+          className="research-body"
+          data-testid="research-body"
+          data-mode="analyze"
+        >
+          <SourceLibraryPanel
+            currentSessionId={sessionId}
+            canEdit={canEdit}
+            onChanged={async () => {
+              await reload();
+              await refreshHistory();
+            }}
+          />
         </div>
       </>
     );
@@ -1447,6 +1521,7 @@ export function ResearchWorkspace({
               canEdit={canEdit}
               verifying={busy}
               error={error}
+              {...(detailCopy ? { copy: detailCopy } : {})}
               onVerify={async (status, note) => {
                 if (note.trim() === "") {
                   setError("请填写核实理由。");

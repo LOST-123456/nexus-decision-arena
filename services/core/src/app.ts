@@ -8,6 +8,7 @@ import type {
   ResearchPlanRepository,
   ResearchSearchRepository,
   ReviewRepository,
+  SourceLibraryRepository,
   TerminologyRepository,
   TranslationRepository
 } from "@nexus/db";
@@ -36,6 +37,7 @@ import { registerMultilingualRoutes } from "./api/routes/multilingual";
 import { registerSourceIndependenceRoutes } from "./api/routes/source-independence";
 import { registerSourceIntakeRoutes } from "./api/routes/source-intake";
 import { registerSourceMonitoringRoutes } from "./api/routes/source-monitoring";
+import { registerResearchLibraryRoutes } from "./api/routes/research-library";
 import { registerAgentRunRoutes } from "./api/routes/agent-runs";
 import { EventBus } from "./execution/event-bus";
 import type { CrossReviewService } from "./research/cross-review-service";
@@ -66,6 +68,13 @@ export type SessionInput = {
   currentConclusion: string | null;
   /** The question the research set out to answer. */
   researchQuestion?: string | null;
+  /**
+   * Who the research belongs to, from the server-side login identity. Null
+   * for sessions created without an authenticated user: the library treats
+   * those as legacy workspace sessions and restricts grant administration
+   * on them to the `owner` role.
+   */
+  ownerUserId?: string | null;
 };
 
 export type SessionRecord = NonNullable<
@@ -90,6 +99,13 @@ export type AppDependencies = {
   inspector: Pick<InspectorRepository, "getInspector">;
   /** Research evidence and source management. */
   evidence?: EvidenceRepository;
+  /**
+   * Cross-research library: share grants, copy lineage, and the authorized
+   * reads that back them. A caller sees a session's material only when they
+   * own it or hold a live grant; unknown or unauthorized ids answer 404. See
+   * services/core/src/research/source-library-service.ts.
+   */
+  sourceLibrary?: SourceLibraryRepository;
   /** Cross-examination run records and human fact-check rulings. */
   reviews?: ReviewRepository;
   /** Runs cross-examination against a single claim, reusing the arena. */
@@ -305,6 +321,7 @@ export function createApp(
   registerSourceIndependenceRoutes(app, dependencies, idempotency);
   registerSourceIntakeRoutes(app, dependencies, idempotency);
   registerSourceMonitoringRoutes(app, dependencies, idempotency);
+  registerResearchLibraryRoutes(app, dependencies, idempotency);
   registerFileRoutes(app, dependencies, idempotency);
   registerResearchPlanRoutes(app, dependencies, idempotency);
   registerResearchSearchRoutes(app, dependencies, idempotency);

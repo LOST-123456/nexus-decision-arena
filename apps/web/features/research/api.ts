@@ -65,7 +65,15 @@ import type {
   TranslationFailureCode,
   TranslationFidelityAssessment,
   TranslationRecord,
-  TranslationReview
+  TranslationReview,
+  LibrarySearchResult,
+  LibrarySessionSummary,
+  LibrarySourceDetail,
+  ShareGrant,
+  ShareGrantDraft,
+  ShareGrantScope,
+  ShareGrantSubjectType,
+  SourceCopyRecord
 } from "@nexus/shared";
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "";
 
@@ -2116,5 +2124,201 @@ export function upsertTerminology(
       body: JSON.stringify(input),
       idempotencyKey: idempotencyKey("terminology")
     }
+  );
+}
+
+/**
+ * Cross-research library.
+ *
+ * A copy keeps its origin and lands in the target research as its own source
+ * with its own snapshot; nothing about the origin's human verification travels
+ * with it. Unauthorized ids answer 404, so this client never has to guess
+ * whether something exists.
+ */
+export type LibraryCopyOutcome = {
+  sourceId: string;
+  sessionId: string;
+  mode: "copy" | "reference";
+  copy: SourceCopyRecord;
+};
+
+export type LibraryDuplicateDetail = {
+  sourceId: string;
+  title: string;
+  canonicalUrl: string | null;
+  reason: "canonical_url" | "title";
+};
+
+export class LibraryFailedError extends Error {
+  constructor(
+    message: string,
+    readonly code?: string,
+    readonly duplicate?: LibraryDuplicateDetail
+  ) {
+    super(message);
+    this.name = "LibraryFailedError";
+  }
+}
+
+/** Same contract as the other typed failure helpers. */
+async function requestWithLibraryCode<T>(
+  path: string,
+  init: RequestInit & { idempotencyKey?: string }
+): Promise<T> {
+  const { idempotencyKey: key, ...rest } = init;
+  const hasBody = rest.body !== undefined && rest.body !== null;
+  const response = await fetch(`${apiUrl}${path}`, {
+    cache: "no-store",
+    ...rest,
+    headers: {
+      ...(hasBody ? { "content-type": "application/json" } : {}),
+      ...(key ? { "idempotency-key": key } : {}),
+      ...(rest.headers ?? {})
+    }
+  });
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as {
+      error?: string;
+      code?: string;
+      duplicate?: LibraryDuplicateDetail;
+    } | null;
+    throw new LibraryFailedError(
+      payload?.error ?? `Request failed: ${response.status}`,
+      payload?.code,
+      payload?.duplicate
+    );
+  }
+  return response.json() as Promise<T>;
+}
+
+export type LibrarySearchQuery = {
+  query?: string | undefined;
+  publisher?: string | undefined;
+  author?: string | undefined;
+  domain?: string | undefined;
+  publishedFrom?: string | undefined;
+  publishedTo?: string | undefined;
+  language?: string | undefined;
+  sessionId?: string | undefined;
+  targetSessionId?: string | undefined;
+  limit?: number | undefined;
+  offset?: number | undefined;
+};
+
+function libraryQueryString(query: LibrarySearchQuery): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined && value !== null && `${value}`.length > 0) {
+      params.set(key, `${value}`);
+    }
+  }
+  const encoded = params.toString();
+  return encoded ? `?${encoded}` : "";
+}
+
+/** Sessions the caller may browse: their own plus the ones shared with them. */
+export function listLibrarySessions(): Promise<{
+  sessions: LibrarySessionSummary[];
+}> {
+  return requestWithLibraryCode<{ sessions: LibrarySessionSummary[] }>(
+    "/api/library/sessions",
+    {}
+  );
+}
+
+/** Authorized search across researches, with the filters the spec lists. */
+export function searchLibrarySources(
+  query: LibrarySearchQuery = {}
+): Promise<LibrarySearchResult> {
+  return requestWithLibraryCode<LibrarySearchResult>(
+    `/api/library/sources${libraryQueryString(query)}`,
+    {}
+  );
+}
+
+/** The original source with its immutable version history. */
+export function getLibrarySource(sourceId: string): Promise<LibrarySourceDetail> {
+  return requestWithLibraryCode<LibrarySourceDetail>(
+    `/api/library/sources/${encodeURIComponent(sourceId)}`,
+    {}
+  );
+}
+
+/** One capture's text, for reading what is about to be copied. */
+export function readLibrarySnapshot(
+  sourceId: string,
+  snapshotId: string
+): Promise<{ snapshotId: string; content: string; contentHash: string }> {
+  return requestWithLibraryCode<{
+    snapshotId: string;
+    content: string;
+    contentHash: string;
+  }>(
+    `/api/library/sources/${encodeURIComponent(sourceId)}/snapshots/${encodeURIComponent(snapshotId)}`,
+    {}
+  );
+}
+
+/** Grants a user or a role the right to browse one research's material. */
+export function createShareGrant(
+  draft: ShareGrantDraft
+): Promise<ShareGrant> {
+  return requestWithLibraryCode<ShareGrant>("/api/library/grants", {
+    method: "POST",
+    body: JSON.stringify(draft),
+    idempotencyKey: idempotencyKey("share-grant")
+  });
+}
+
+export function listShareGrants(
+  sessionId: string
+): Promise<{ grants: ShareGrant[] }> {
+  return requestWithLibraryCode<{ grants: ShareGrant[] }>(
+    `/api/library/grants?sessionId=${encodeURIComponent(sessionId)}`,
+    {}
+  );
+}
+
+/** Revokes a live grant; the row and the copies it produced both stay. */
+export function revokeShareGrant(
+  grantId: string,
+  reason: string
+): Promise<ShareGrant> {
+  return requestWithLibraryCode<ShareGrant>(
+    `/api/library/grants/${encodeURIComponent(grantId)}/revoke`,
+    {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+      idempotencyKey: idempotencyKey("share-grant-revoke")
+    }
+  );
+}
+
+/** Copies a library source into this research as an independent source. */
+export function copyLibrarySource(
+  targetSessionId: string,
+  command: {
+    sourceSessionId: string;
+    sourceId: string;
+    mode?: "copy" | "reference";
+  }
+): Promise<LibraryCopyOutcome> {
+  return requestWithLibraryCode<LibraryCopyOutcome>(
+    `/api/sessions/${encodeURIComponent(targetSessionId)}/library/copies`,
+    {
+      method: "POST",
+      body: JSON.stringify({ mode: "copy", ...command }),
+      idempotencyKey: idempotencyKey("library-copy")
+    }
+  );
+}
+
+/** Copy lineage for one research's sources, with the live origin status. */
+export function getCopyLineage(
+  sessionId: string
+): Promise<{ lineage: Record<string, SourceCopyRecord> }> {
+  return requestWithLibraryCode<{ lineage: Record<string, SourceCopyRecord> }>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/library/lineage`,
+    {}
   );
 }

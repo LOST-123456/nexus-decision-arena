@@ -93,7 +93,10 @@ export function registerSessionRoutes(
             phase: "CREATED",
             operationalStatus: "ACTIVE",
             currentConclusion: null,
-            researchQuestion: parsed.data.researchQuestion ?? null
+            researchQuestion: parsed.data.researchQuestion ?? null,
+            // Ownership comes from the server-side identity, never the body:
+            // a research belongs to whoever was logged in when it was made.
+            ownerUserId: authUser?.id ?? null
           }
         );
 
