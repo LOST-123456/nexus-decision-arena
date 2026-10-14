@@ -23,7 +23,8 @@ import type {
   RevalidationTaskRepository,
   ReportSnapshotRepository,
   ReviewRepository,
-  SourceIndependenceRepository
+  SourceIndependenceRepository,
+  TranslationRepository
 } from "@nexus/db";
 import { ReportSnapshotSessionNotFoundError } from "@nexus/db";
 import {
@@ -37,6 +38,7 @@ import { renderSnapshotHtml } from "./report-snapshot-html";
 import { deriveRevalidationWarnings } from "./revalidation-warnings";
 import { buildIndependenceLinks } from "./source-independence";
 import { projectResearchQuality } from "./research-quality-projection";
+import { buildMultilingualReportBlock } from "./multilingual-report";
 import { deriveWorkspaceGaps } from "./workspace-service";
 
 /**
@@ -93,6 +95,16 @@ export class ResearchReportSnapshotService {
        * Absent when search is off.
        */
       searchTasks?: Pick<ResearchSearchRepository, "listSearchTasks">;
+      /**
+       * Stored translations and their reviews. Read inside the save
+       * transaction so the frozen multilingual summary describes the same
+       * moment as everything else. Absent when multilingual research is not
+       * configured; the version then simply carries no reading-aid summary.
+       */
+      translations?: Pick<
+        TranslationRepository,
+        "listSessionTranslations" | "listSessionReviews"
+      >;
       snapshots: ReportSnapshotRepository;
     }
   ) {}
@@ -302,6 +314,24 @@ export class ResearchReportSnapshotService {
             )
           : null;
 
+        // The multilingual reading summary frozen with this version. Read
+        // from the same transaction's rows as everything else, so a version
+        // cannot claim a reading aid that did not exist when it was saved.
+        // Only stored translations exist to read: an unavailable or failed
+        // translation was never persisted, so it cannot appear in history.
+        const multilingualBlock = this.deps.translations
+          ? buildMultilingualReportBlock({
+              translations: await this.deps.translations.listSessionTranslations(
+                input.sessionId,
+                transaction
+              ),
+              reviews: await this.deps.translations.listSessionReviews(
+                input.sessionId,
+                transaction
+              )
+            })
+          : null;
+
         const verdicts = deriveClaimVerdicts(artifacts.claims, evidence, {
           challenges: artifacts.challenges,
           reviews
@@ -423,7 +453,14 @@ export class ResearchReportSnapshotService {
               }
             : {}),
           // The frozen quality assessment: computed above from the same rows.
-          researchQuality
+          researchQuality,
+          // The frozen multilingual reading summary, present only when
+          // something was actually translated. A version with no stored
+          // translation carries no block rather than an all-zero one, so a
+          // reader never mistakes "nothing to report" for "not tracked".
+          ...(multilingualBlock && multilingualBlock.translationCount > 0
+            ? { multilingual: multilingualBlock }
+            : {})
         });
 
         const version =

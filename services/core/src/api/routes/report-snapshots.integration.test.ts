@@ -10,6 +10,8 @@ import {
   ResearchPlanRepository,
   RevalidationTaskRepository,
   ReviewRepository,
+  TranslationRepository,
+  sourceSnapshots,
   type Database
 } from "@nexus/db";
 import { newId, type Claim, type Evidence, type Source } from "@nexus/shared";
@@ -815,5 +817,152 @@ describe("report snapshot routes · export", () => {
       url: `${listUrl(sessionId)}/${newId()}/export`
     });
     expect(response.statusCode).toBe(404);
+  });
+
+  it("freezes the multilingual reading summary with the version it was saved under", async () => {
+    const sessionId = await seededSession();
+    const { sourceId } = await seedMaterial(sessionId);
+
+    // One stored auxiliary translation of this session's capture, written
+    // straight through the repository — the route path is covered by the
+    // multilingual suite; what matters here is only that a row exists.
+    const snapshotId = newId();
+    await database.insert(sourceSnapshots).values({
+      id: snapshotId,
+      sessionId,
+      sourceId,
+      canonicalUrl: "https://example.test/page",
+      contentHash: "hash-ml",
+      contentType: "text/plain",
+      content: "制造业投资增速回落至 4.2%。",
+      contentBytes: 32,
+      charCount: 32,
+      retrievedAt: TIMESTAMP,
+      sourceLanguage: "zh-Hans"
+    });
+    const translations = new TranslationRepository(database);
+    const created = await translations.createTranslation({
+      translationId: newId(),
+      sessionId,
+      sourceSnapshotId: snapshotId,
+      sourceLanguage: "zh-Hans",
+      targetLanguage: "en",
+      textHash: "hash-ml",
+      translatedText: "[0] Manufacturing investment growth fell to 4.2%.",
+      segmentMappings: [
+        { sourceSegmentId: "seg-0", translatedSegmentId: "t-seg-0", mappingStatus: "aligned" }
+      ],
+      provider: "deterministic-mock",
+      model: "deterministic-mock-v1",
+      status: "completed",
+      createdBy: "human"
+    });
+
+    // A second app whose snapshot service can see translations, mirroring the
+    // server wiring. The file-level app deliberately cannot.
+    const multilingualApp = createApp({
+      auth: {
+        userFromRequest: () =>
+          authEnabled
+            ? {
+                id: "user-1",
+                username: "alice",
+                displayName: "Alice Reviewer",
+                role
+              }
+            : null
+      } as never,
+      sessions,
+      inspector: {} as never,
+      runSession: undefined as never,
+      events,
+      evidence: evidenceRepository,
+      reviews: reviewRepository,
+      arena,
+      researchPlan: new ResearchPlanRepository(database),
+      reportSnapshots: new ResearchReportSnapshotService({
+        database,
+        sessions,
+        arena,
+        evidence: evidenceRepository,
+        reviews: reviewRepository,
+        events,
+        researchPlan: new ResearchPlanRepository(database),
+        monitorTasks: revalidationTasks,
+        translations,
+        snapshots: new ReportSnapshotRepository(database)
+      })
+    });
+
+    const save = async (key: string) => {
+      const response = await multilingualApp.inject({
+        method: "POST",
+        url: listUrl(sessionId),
+        headers: { "content-type": "application/json", "idempotency-key": key },
+        payload: {}
+      });
+      expect(response.statusCode).toBe(201);
+      return response.json() as {
+        snapshotId: string;
+        reportPayload: { multilingual?: Record<string, unknown> };
+      };
+    };
+
+    const first = await save("ml-save-1");
+    expect(first.reportPayload.multilingual).toEqual({
+      sourceLanguages: ["zh-Hans"],
+      targetLanguages: ["en"],
+      translationCount: 1,
+      humanReviewedCount: 0,
+      approvedCount: 0,
+      flaggedCount: 0
+    });
+
+    // A person then approves the translation. The next version sees it; the
+    // first one must keep the summary it froze.
+    await translations.recordReview({
+      sessionId,
+      translationId: created.translation.translationId,
+      reviewedBy: "Alice Reviewer (alice)",
+      action: "approve",
+      reviewStatus: "approved",
+      note: "checked",
+      event: {
+        type: "TRANSLATION_REVIEWED",
+        correlationId: sessionId,
+        payload: {
+          translationId: created.translation.translationId,
+          action: "approve",
+          reviewStatus: "approved"
+        }
+      }
+    });
+
+    const second = await save("ml-save-2");
+    expect(second.reportPayload.multilingual).toMatchObject({
+      translationCount: 1,
+      humanReviewedCount: 1,
+      approvedCount: 1,
+      flaggedCount: 0
+    });
+
+    const reread = await multilingualApp.inject({
+      method: "GET",
+      url: `${listUrl(sessionId)}/${first.snapshotId}`
+    });
+    expect(reread.statusCode).toBe(200);
+    const frozen = (reread.json() as { reportPayload: { multilingual?: Record<string, unknown> } })
+      .reportPayload.multilingual;
+    expect(frozen).toMatchObject({ translationCount: 1, humanReviewedCount: 0 });
+
+    // And the export says the one thing it must always say: the translation
+    // is an aid, the original excerpt stays the anchor.
+    const exported = await multilingualApp.inject({
+      method: "GET",
+      url: `${listUrl(sessionId)}/${second.snapshotId}/export`
+    });
+    expect(exported.statusCode).toBe(200);
+    expect(exported.body).toContain("多语言阅读辅助");
+    expect(exported.body).toContain("译文仅供辅助阅读");
   });
 });

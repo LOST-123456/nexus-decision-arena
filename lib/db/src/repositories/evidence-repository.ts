@@ -394,6 +394,25 @@ export class EvidenceRepository {
     return row ? (parseSourceSnapshots([row])[0] ?? null) : null;
   }
 
+  /** A single capture by id, scoped to its session (cross-session → null). */
+  async getSnapshot(
+    sessionId: string,
+    snapshotId: string,
+    executor: ReadExecutor = this.database
+  ): Promise<SourceSnapshot | null> {
+    const [row] = await executor
+      .select()
+      .from(sourceSnapshots)
+      .where(
+        and(
+          eq(sourceSnapshots.sessionId, sessionId),
+          eq(sourceSnapshots.id, snapshotId)
+        )
+      )
+      .limit(1);
+    return row ? (parseSourceSnapshots([row])[0] ?? null) : null;
+  }
+
   /**
    * The capture each source currently points at, for a whole session.
    *

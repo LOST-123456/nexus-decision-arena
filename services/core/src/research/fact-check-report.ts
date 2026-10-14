@@ -11,6 +11,7 @@ import {
   type EvidenceDirection,
   type EvidenceGap,
   type EvidenceGapKind,
+  type MultilingualReportBlock,
   type ResearchPlanItem,
   type ResearchPlanStatus,
   type ResearchQualityAssessment,
@@ -250,6 +251,16 @@ export type FactCheckReport = {
    * assessment is not configured or the caller did not pass one.
    */
   researchQuality?: ResearchQualityAssessment | undefined;
+  /**
+   * The multilingual reading state frozen with this report.
+   *
+   * A summary of the auxiliary translations that existed at report time —
+   * never the translations' content and never a fact about the world. The
+   * citation anchor stays the original excerpt; this block only tells a
+   * reader which languages the material was in and how much human review
+   * the reading aids carry. Absent when no translation was stored.
+   */
+  multilingual?: MultilingualReportBlock | undefined;
   limits: string[];
   /** Links the report back to the exact rows it was generated from. */
   provenance: {
@@ -426,6 +437,13 @@ export type BuildFactCheckReportInput = {
    * froze, never a fresh one.
    */
   researchQuality?: ResearchQualityAssessment | undefined;
+  /**
+   * The multilingual reading summary to freeze with this report. Passed in
+   * rather than derived here: the stored translations live in their own
+   * repository, and the report stays a pure function of its inputs. A saved
+   * version renders the summary it froze, never a fresh one.
+   */
+  multilingual?: MultilingualReportBlock | undefined;
 };
 
 /** The plan's answer to one gap, from the plan row's own fields. */
@@ -788,6 +806,8 @@ export function buildFactCheckReport(
     // by the export paths exactly as passed, so a historical version keeps
     // the assessment it was saved with.
     ...(input.researchQuality ? { researchQuality: input.researchQuality } : {}),
+    // The frozen multilingual reading summary, when the caller supplied one.
+    ...(input.multilingual ? { multilingual: input.multilingual } : {}),
     limits: [...limits],
     provenance: {
       evidenceIds: input.evidence.map((item) => item.id).sort(),

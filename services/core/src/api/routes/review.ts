@@ -18,6 +18,7 @@ import {
 } from "../../research/cross-review-service";
 import { buildFactCheckReport } from "../../research/fact-check-report";
 import { renderFactCheckReportMarkdown } from "../../research/fact-check-report-markdown";
+import { buildMultilingualReportBlock } from "../../research/multilingual-report";
 import { deriveUuidV7 } from "../plugins/deterministic-id";
 import type { EventBus } from "../../execution/event-bus";
 import {
@@ -75,6 +76,7 @@ export function registerReviewRoutes(
     | "researchPlan"
     | "sourceMonitor"
     | "researchQuality"
+    | "translations"
   >,
   idempotency: IdempotencyStore,
   eventBus: EventBus
@@ -437,6 +439,19 @@ export function registerReviewRoutes(
       ? await dependencies.researchQuality.assess(sessionId)
       : null;
 
+    // The multilingual reading summary. Built the same way the snapshot
+    // service builds it, from the same stored rows, so the live report and a
+    // saved version cannot disagree. Absent when multilingual research is
+    // not configured, or when nothing was ever translated.
+    const multilingualBlock = dependencies.translations
+      ? buildMultilingualReportBlock({
+          translations: await dependencies.translations.listSessionTranslations(
+            sessionId
+          ),
+          reviews: await dependencies.translations.listSessionReviews(sessionId)
+        })
+      : null;
+
     const verdicts = deriveClaimVerdicts(artifacts.claims, evidence, {
       challenges: artifacts.challenges,
       reviews
@@ -466,7 +481,10 @@ export function registerReviewRoutes(
       generatedAt: new Date().toISOString(),
       planItems,
       ...(revalidation ? { revalidation } : {}),
-      ...(researchQuality ? { researchQuality } : {})
+      ...(researchQuality ? { researchQuality } : {}),
+      ...(multilingualBlock && multilingualBlock.translationCount > 0
+        ? { multilingual: multilingualBlock }
+        : {})
     });
 
     const format = request.query.format === "markdown" ? "markdown" : "json";

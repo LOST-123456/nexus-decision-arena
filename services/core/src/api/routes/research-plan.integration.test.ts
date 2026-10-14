@@ -305,6 +305,53 @@ describe("transitions", () => {
     expect(history.json().items).toHaveLength(2);
   });
 
+  it("keeps the declared query language, and never invents one", async () => {
+    const itemId = await addItem();
+    const app = testApp();
+    const plan = await getPlan();
+    // A fresh item declares nothing: absent means nobody declared a language.
+    expect(plan.body.items[0].query.queryLanguage).toBeUndefined();
+
+    const declared = await app.inject({
+      method: "POST",
+      url: `/api/sessions/${SESSION_ID}/research-plan/${itemId}/query`,
+      headers: { "idempotency-key": newId() },
+      payload: {
+        terms: ["industry annual report shipment volume"],
+        queryLanguage: "en",
+        notes: "原始材料为英文。"
+      }
+    });
+    expect(declared.statusCode).toBe(200);
+    const declaredItem = declared.json().item;
+    expect(declaredItem.query.queryLanguage).toBe("en");
+
+    // A later edit that says nothing about language keeps the declaration:
+    // it is never guessed and never silently cleared.
+    const silent = await app.inject({
+      method: "POST",
+      url: `/api/sessions/${SESSION_ID}/research-plan/${declaredItem.id}/query`,
+      headers: { "idempotency-key": newId() },
+      payload: { terms: ["industry annual report shipment volume"] }
+    });
+    expect(silent.statusCode).toBe(200);
+    expect(silent.json().item.query.queryLanguage).toBe("en");
+
+    // The superseded rows keep their declarations too — history stays readable:
+    // the declared row and the silent row both carry "en", and the original
+    // row (created from the gap, nobody declared anything) stays undefined.
+    const history = await app.inject({
+      method: "GET",
+      url: `/api/sessions/${SESSION_ID}/research-plan/history?gapId=${declaredItem.gapId}`
+    });
+    expect(history.statusCode).toBe(200);
+    const rows = history.json().items;
+    expect(rows).toHaveLength(3);
+    expect(rows[0].query.queryLanguage).toBe("en");
+    expect(rows[1].query.queryLanguage).toBe("en");
+    expect(rows[2].query.queryLanguage).toBeUndefined();
+  });
+
   it("marks an item not applicable with the mandatory reason", async () => {
     const itemId = await addItem();
     const response = await testApp().inject({

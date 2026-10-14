@@ -3,6 +3,7 @@ import {
   QUALITY_FINDING_CATEGORY_LABELS,
   QUALITY_SEVERITY_LABELS,
   QUALITY_STATUS_LABELS,
+  languageCodeLabel,
   reviewOutcomeLabel,
   type ClaimVerdictStatus,
   type EvidenceGap,
@@ -356,6 +357,12 @@ export function renderFactCheckReportMarkdown(
     lines.push(...researchQualityLines(report.researchQuality));
   }
 
+  // The multilingual reading summary, frozen with this version. Absent when no
+  // translation was stored; when present it is an aid inventory, never a fact.
+  if (report.multilingual) {
+    lines.push(...multilingualReportLines(report.multilingual));
+  }
+
   lines.push("## 可追溯性", "");
   lines.push(`- 材料指纹：${report.materialsFingerprint}`);
   lines.push(`- 事件序号上界：${report.provenance.lastEventSequence}`);
@@ -368,6 +375,36 @@ export function renderFactCheckReportMarkdown(
   lines.push("");
 
   return lines.join("\n");
+}
+
+/**
+ * The multilingual reading block.
+ *
+ * Rendered from the same object the JSON answers with. The one sentence that
+ * must appear every time: a translation is an auxiliary reading aid — the
+ * original excerpt remains the citation anchor, and no translation count,
+ * approval or flag verifies anything.
+ */
+function multilingualReportLines(
+  block: NonNullable<FactCheckReport["multilingual"]>
+): string[] {
+  const lines: string[] = [];
+  lines.push("## 多语言阅读辅助", "");
+  lines.push(
+    `- 涉及语言：${block.sourceLanguages.map(languageCodeLabel).join("、") || "无"}`
+  );
+  lines.push(
+    `- 译文目标语言：${block.targetLanguages.map(languageCodeLabel).join("、") || "无"}`
+  );
+  lines.push(`- 已存储译文：${block.translationCount} 条`);
+  lines.push(
+    `- 人工复核：${block.humanReviewedCount} 条；其中认可 ${block.approvedCount} 条、标记或要求重译 ${block.flaggedCount} 条`
+  );
+  lines.push(
+    "- 译文仅供辅助阅读：本报告所有引用锚定原文摘录，译文不构成、也不能替代对任何材料的核实；机器翻译未经人工复核前不得视为已确认。"
+  );
+  lines.push("");
+  return lines;
 }
 
 /**

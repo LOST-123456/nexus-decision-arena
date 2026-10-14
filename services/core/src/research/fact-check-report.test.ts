@@ -15,6 +15,7 @@ import {
   type ClaimVerdict,
   type Conflict,
   type Evidence,
+  type MultilingualReportBlock,
   type RevalidationReportWarnings,
   type RevalidationTask,
   type ResearchQualityAssessment,
@@ -272,6 +273,7 @@ function build(overrides: {
   planItems?: FactCheckPlanItemRef[];
   revalidation?: RevalidationReportWarnings;
   researchQuality?: ResearchQualityAssessment;
+  multilingual?: MultilingualReportBlock;
 } = {}) {
   const claims = overrides.claims ?? [claimFixture()];
   const evidence = overrides.evidence ?? [evidenceFixture()];
@@ -311,6 +313,9 @@ function build(overrides: {
       : {}),
     ...(overrides.researchQuality
       ? { researchQuality: overrides.researchQuality }
+      : {}),
+    ...(overrides.multilingual
+      ? { multilingual: overrides.multilingual }
       : {})
   });
 }
@@ -920,6 +925,68 @@ describe("fact-check report · the quality section never rewrites the report", (
   it("omits the quality section when no assessment rode along", () => {
     const markdown = renderFactCheckReportMarkdown(build());
     expect(markdown).not.toContain("## 研究质量评估");
+  });
+});
+
+function multilingualBlockFixture(
+  overrides: Partial<MultilingualReportBlock> = {}
+): MultilingualReportBlock {
+  return {
+    sourceLanguages: ["zh-Hans"],
+    targetLanguages: ["en"],
+    translationCount: 2,
+    humanReviewedCount: 1,
+    approvedCount: 1,
+    flaggedCount: 0,
+    ...overrides
+  };
+}
+
+describe("fact-check report · the multilingual block is an aid inventory", () => {
+  it("carries the summary when one is passed, and only then", () => {
+    const withBlock = build({ multilingual: multilingualBlockFixture() });
+    expect(withBlock.multilingual?.translationCount).toBe(2);
+
+    const without = build();
+    expect(without.multilingual).toBeUndefined();
+  });
+
+  it("changes no conclusion, verdict, ruling or traceability row", () => {
+    const plain = build();
+    const withBlock = build({ multilingual: multilingualBlockFixture() });
+    const { multilingual: _carried, ...rest } = withBlock;
+
+    // Everything except the carried block is byte-identical: a reading aid
+    // is a passenger, never an editor.
+    expect(rest).toEqual(plain);
+  });
+
+  it("renders the markdown section with the aid disclaimer every time", () => {
+    const block = multilingualBlockFixture({
+      sourceLanguages: ["zh-Hans", "en"],
+      targetLanguages: ["en", "ja"],
+      translationCount: 3,
+      humanReviewedCount: 2,
+      approvedCount: 1,
+      flaggedCount: 1
+    });
+    const markdown = renderFactCheckReportMarkdown(
+      build({ multilingual: block })
+    );
+
+    expect(markdown).toContain("## 多语言阅读辅助");
+    expect(markdown).toContain("简体中文、英语");
+    expect(markdown).toContain("英语、日语");
+    expect(markdown).toContain("- 已存储译文：3 条");
+    expect(markdown).toContain("人工复核：2 条；其中认可 1 条、标记或要求重译 1 条");
+    // The one sentence that must appear: an aid, never an anchor.
+    expect(markdown).toContain("译文仅供辅助阅读");
+    expect(markdown).toContain("本报告所有引用锚定原文摘录");
+  });
+
+  it("omits the multilingual section when nothing was translated", () => {
+    const markdown = renderFactCheckReportMarkdown(build());
+    expect(markdown).not.toContain("## 多语言阅读辅助");
   });
 });
 

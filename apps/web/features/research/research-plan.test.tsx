@@ -254,6 +254,58 @@ describe("ResearchPlanPanel", () => {
     });
   });
 
+  it("sends the declared query language with the edited terms", async () => {
+    editPlanItemQuery.mockResolvedValue({ item: {} });
+    render(<ResearchPlanPanel sessionId={SESSION_ID} canEdit />);
+    await waitFor(() =>
+      expect(screen.getByTestId(`plan-actions-${ITEM_ID}`)).toBeTruthy()
+    );
+    fireEvent.click(screen.getByText("编辑检索词"));
+    fireEvent.change(screen.getByTestId("plan-terms-input"), {
+      target: { value: "gross margin" }
+    });
+    fireEvent.change(screen.getByTestId("plan-query-language-select"), {
+      target: { value: "en" }
+    });
+    fireEvent.click(screen.getByTestId("plan-query-submit"));
+    await waitFor(() => expect(editPlanItemQuery).toHaveBeenCalledTimes(1));
+    expect(editPlanItemQuery).toHaveBeenCalledWith(SESSION_ID, ITEM_ID, {
+      terms: ["gross margin"],
+      notes: null,
+      queryLanguage: "en"
+    });
+  });
+
+  it("shows the declared query language, and 未记录 when none was declared", async () => {
+    const base = planView();
+    // Built through the overrides parameter so the declared language rides on
+    // a fresh object: the shared fixture is never mutated in place.
+    const declared = planView({
+      items: [
+        {
+          ...base.items[0]!,
+          query: { ...base.items[0]!.query, queryLanguage: "en" }
+        }
+      ]
+    });
+    getResearchPlan.mockResolvedValueOnce(declared);
+    const first = render(<ResearchPlanPanel sessionId={SESSION_ID} canEdit />);
+    await waitFor(() =>
+      expect(
+        screen.getByTestId(`plan-query-language-${ITEM_ID}`).textContent
+      ).toBe("英语")
+    );
+    first.unmount();
+
+    getResearchPlan.mockResolvedValueOnce(planView());
+    render(<ResearchPlanPanel sessionId={SESSION_ID} canEdit />);
+    await waitFor(() =>
+      expect(
+        screen.getByTestId(`plan-query-language-${ITEM_ID}`).textContent
+      ).toBe("未记录")
+    );
+  });
+
   it("offers no write controls to a viewer", async () => {
     render(<ResearchPlanPanel sessionId={SESSION_ID} canEdit={false} />);
     await waitFor(() =>

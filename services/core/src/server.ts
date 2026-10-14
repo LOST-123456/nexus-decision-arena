@@ -46,6 +46,16 @@ import { FileIngestionService } from "./research/file-ingestion-service";
 import { SourceMonitorService } from "./research/source-monitor-service";
 import { ResearchReportSnapshotService } from "./research/report-snapshot-service";
 import { ResearchQualityService } from "./research/research-quality-service";
+import { ResearchTranslationService } from "./research/research-translation-service";
+import { LanguageDetectionService } from "./research/language-detection-service";
+import {
+  OpenAiCompatibleTranslationProvider,
+  UnavailableTranslationProvider
+} from "./research/translation-provider";
+import {
+  TerminologyRepository,
+  TranslationRepository
+} from "@nexus/db";
 import { ResearchWorkspaceService } from "./research/workspace-service";
 import { DiskFileStorage } from "./research/file-storage";
 import { AuthService } from "./auth";
@@ -84,6 +94,20 @@ const researchPlan = new ResearchPlanRepository(database);
 // default; approving a task creates sources, never evidence. The quality
 // assessment reads its task rows to report what was actually executed.
 const researchSearch = new ResearchSearchRepository(database);
+const translations = new TranslationRepository(database);
+const terminology = new TerminologyRepository(database);
+// Multilingual translation is auxiliary and never fabricates a reading: with no
+// operator-configured translation endpoint it stays honestly unavailable. A real
+// provider is activated purely by environment (TRANSLATION_BASE_URL +
+// TRANSLATION_API_KEY); credentials are never hard-coded or sent to the client.
+const translationProvider =
+  process.env.TRANSLATION_BASE_URL && process.env.TRANSLATION_API_KEY
+    ? new OpenAiCompatibleTranslationProvider({
+        baseUrl: process.env.TRANSLATION_BASE_URL,
+        apiKey: process.env.TRANSLATION_API_KEY,
+        model: process.env.TRANSLATION_MODEL ?? "gpt-4o-mini"
+      })
+    : new UnavailableTranslationProvider();
 
 const auth = new AuthService({
   usersPath:
@@ -347,6 +371,9 @@ const app = createApp(
       // quality reading of its own moment, never a later one.
       sourceRelations,
       searchTasks: researchSearch,
+      // Read inside the save transaction so a frozen version's multilingual
+      // summary describes the reading aids that existed at that moment.
+      translations,
       snapshots: new ReportSnapshotRepository(database)
     }),
     // No controlled web-search integration exists in this build, so the plan
@@ -356,6 +383,9 @@ const app = createApp(
     // workspace the research UI reads, plus the analyses that are configured.
     // It writes nothing; each absent analysis makes its dimension answer
     // "insufficient data" instead of guessing.
+    translations,
+    terminology,
+    translationProvider,
     researchQuality: new ResearchQualityService({
       workspace: async (sessionId) => workspaceService.getWorkspace(sessionId),
       independence: sourceIndependence,

@@ -15,6 +15,12 @@ import {
   SourceProfileOverrideSchema,
   SourceRelationSchema,
   SourceSnapshotSchema,
+  TerminologyEntrySchema,
+  TranslationRecordSchema,
+  TranslationReviewSchema,
+  type TerminologyEntry,
+  type TranslationRecord,
+  type TranslationReview,
   type AgentRole,
   type Challenge,
   type Claim,
@@ -282,5 +288,52 @@ export function parseSourceProfileOverrides(
 ): SourceProfileOverride[] {
   return SourceProfileOverrideSchema.array().parse(
     rows.map((row) => withSourceAssertionDates(record(row)))
+  );
+}
+
+/**
+ * A persisted translation row read back as a domain record.
+ *
+ * The primary key is `id`; the domain calls it `translationId`. Nullable
+ * failure columns are normalized by the schema's own preprocess rules.
+ */
+export function parseTranslations(
+  rows: readonly unknown[]
+): TranslationRecord[] {
+  return TranslationRecordSchema.array().parse(
+    rows.map((row) => {
+      const value = record(row);
+      return {
+        ...value,
+        translationId: value.id,
+        createdAt: iso(value.createdAt)
+      };
+    })
+  );
+}
+
+export function parseTranslationReviews(
+  rows: readonly unknown[]
+): TranslationReview[] {
+  return TranslationReviewSchema.array().parse(
+    rows.map((row) => {
+      const value = record(row);
+      // The table stores the review time in `created_at`.
+      return { ...value, reviewedAt: iso(value.createdAt) };
+    })
+  );
+}
+
+export function parseTerminology(
+  rows: readonly unknown[]
+): TerminologyEntry[] {
+  return TerminologyEntrySchema.array().parse(
+    rows.map((row) => {
+      const value = record(row);
+      return {
+        ...value,
+        ...(value.reviewedAt ? { reviewedAt: iso(value.reviewedAt) } : {})
+      };
+    })
   );
 }

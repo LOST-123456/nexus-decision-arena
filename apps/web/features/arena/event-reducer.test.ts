@@ -125,7 +125,6 @@ describe("session event reducer", () => {
     expect(next.operationalStatus).toBe("PAUSED");
     expect(next.lastSequence).toBe(5);
   });
-});
 
   it("projects the human decision carried by a state-change event", () => {
     const sessionId = newId();
@@ -170,3 +169,39 @@ describe("session event reducer", () => {
     expect(next.currentConclusion).toBe("Limited pilot");
     expect(next.humanDecisions).toEqual([humanDecision]);
   });
+
+  it("advances only the cursor for a translation, its review and a glossary entry", () => {
+    const sessionId = newId();
+    const translationId = newId();
+    const initial = {
+      ...initialSession(sessionId),
+      phase: "ANALYZING" as const,
+      lastSequence: 7
+    };
+
+    for (const type of [
+      "TRANSLATION_RECORDED",
+      "TRANSLATION_REVIEWED",
+      "TERMINOLOGY_RECORDED"
+    ] as const) {
+      const next = reduceSessionEvent(initial, {
+        id: newId(),
+        sessionId,
+        sequence: 8,
+        correlationId: translationId,
+        type,
+        payload: { translationId },
+        occurredAt: new Date().toISOString()
+      });
+
+      // A reading aid is a research record: it moves neither the debate
+      // phase nor any verdict input, so only the replay cursor advances.
+      expect(next.phase).toBe("ANALYZING");
+      expect(next.operationalStatus).toBe("ACTIVE");
+      expect(next.currentConclusion).toBe(null);
+      expect(next.claims).toEqual([]);
+      expect(next.evidence).toEqual([]);
+      expect(next.lastSequence).toBe(8);
+    }
+  });
+});

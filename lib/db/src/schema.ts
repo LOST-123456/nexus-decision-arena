@@ -221,6 +221,12 @@ export const sourceSnapshots = pgTable(
     contentBytes: integer("content_bytes").notNull(),
     charCount: integer("char_count").notNull(),
     retrievedAt: timestampColumn("retrieved_at").notNull(),
+    /**
+     * Original language of the captured text. Nullable so snapshots written
+     * before this migration (and any future capture that skips detection) stay
+     * valid. Always the *original* language — never a translation target.
+     */
+    sourceLanguage: text("source_language"),
     createdAt: timestampColumn("created_at").notNull().defaultNow()
   },
   (table) => ({
@@ -1190,3 +1196,111 @@ export const idempotencyKeys = pgTable("idempotency_keys", {
   createdAt: timestampColumn("created_at").notNull().defaultNow(),
   updatedAt: timestampColumn("updated_at").notNull().defaultNow()
 });
+
+/**
+ * A translation of a source snapshot into a target language.
+ *
+ * Translations are *derived* data keyed to a specific snapshot version: when a
+ * source is re-captured, a new snapshot row is created and its translations are
+ * distinct, so an old translation can never masquerade as the current version's.
+ * A translation is an auxiliary reading aid only — it never alters the original
+ * snapshot text and never verifies an Evidence row.
+ */
+export const translations = pgTable(
+  "translations",
+  {
+    id: uuid("id").primaryKey(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => decisionSessions.id),
+    sourceSnapshotId: uuid("source_snapshot_id")
+      .notNull()
+      .references(() => sourceSnapshots.id, { onDelete: "cascade" }),
+    sourceLanguage: text("source_language").notNull(),
+    targetLanguage: text("target_language").notNull(),
+    /** Hash of the source text that was translated — part of the dedup key. */
+    textHash: text("text_hash").notNull(),
+    translatedText: text("translated_text").notNull(),
+    segmentMappings: jsonb("segment_mappings").notNull(),
+    provider: text("provider").notNull(),
+    /** Non-meaningful for the deterministic mock; defaulted to "n/a". */
+    model: text("model").notNull().default("n/a"),
+    status: text("status").notNull(),
+    failureReason: text("failure_reason"),
+    failureCode: text("failure_code"),
+    createdBy: text("created_by").notNull(),
+    createdAt: timestampColumn("created_at").notNull().defaultNow()
+  },
+  (table) => ({
+    // Cache / dedup key per the budget rules: snapshot + languages + textHash +
+    // provider + model. Re-translating identical input reuses the row.
+    dedup: uniqueIndex("translations_dedup_idx").on(
+      table.sourceSnapshotId,
+      table.sourceLanguage,
+      table.targetLanguage,
+      table.textHash,
+      table.provider,
+      table.model
+    ),
+    session: index("translations_session_idx").on(table.sessionId)
+  })
+);
+
+/**
+ * An append-only log of human review actions on a translation. A review records
+ * what a person decided; it never auto-applies to an Evidence verification
+ * state, and it never rewrites the translated text it comments on.
+ */
+export const translationReviews = pgTable(
+  "translation_reviews",
+  {
+    id: uuid("id").primaryKey(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => decisionSessions.id),
+    translationId: uuid("translation_id")
+      .notNull()
+      .references(() => translations.id, { onDelete: "cascade" }),
+    reviewedBy: text("reviewed_by").notNull(),
+    action: text("action").notNull(),
+    reviewStatus: text("review_status").notNull(),
+    correctionText: text("correction_text"),
+    note: text("note"),
+    createdAt: timestampColumn("created_at").notNull().defaultNow()
+  },
+  (table) => ({
+    translation: index("translation_reviews_translation_idx").on(
+      table.translationId
+    )
+  })
+);
+
+/**
+ * A session-scoped terminology glossary. One term maps to a suggested and/or a
+ * user-confirmed translation; different contexts may warrant different
+ * translations, so we do not silently collapse similar terms into one concept.
+ */
+export const terminology = pgTable(
+  "terminology",
+  {
+    id: uuid("id").primaryKey(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => decisionSessions.id),
+    sourceTerm: text("source_term").notNull(),
+    suggestedTranslation: text("suggested_translation"),
+    confirmedTranslation: text("confirmed_translation"),
+    language: text("language").notNull(),
+    context: text("context"),
+    reviewedAt: timestampColumn("reviewed_at"),
+    reviewedBy: text("reviewed_by"),
+    createdAt: timestampColumn("created_at").notNull().defaultNow(),
+    updatedAt: timestampColumn("updated_at").notNull().defaultNow()
+  },
+  (table) => ({
+    sessionTerm: uniqueIndex("terminology_session_term_idx").on(
+      table.sessionId,
+      table.sourceTerm
+    )
+  })
+);

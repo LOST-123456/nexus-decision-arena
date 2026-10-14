@@ -10,6 +10,7 @@ import {
   type SourceDetailRecord
 } from "./api";
 import { StatusPill } from "./components";
+import { MultilingualResearchPanel } from "./multilingual-research";
 import {
   formatDate,
   locatorStatusLabel,
@@ -312,6 +313,21 @@ export function SourceReader({
             >
               {shown?.content ?? ""}
             </pre>
+          </section>
+
+          {/* The multilingual reading aid: original stays the anchor, any
+              translation is auxiliary and labelled as such. It reads the same
+              snapshot the panel above shows and never verifies anything. */}
+          <section className="research-panel">
+            <div className="research-panel-head">
+              <span className="research-panel-title">多语言阅读辅助</span>
+              <span className="research-muted">译文仅供辅助理解</span>
+            </div>
+            <MultilingualResearchPanel
+              sessionId={sessionId}
+              sourceId={sourceId}
+              canEdit={canEdit}
+            />
           </section>
 
           <section className="research-panel">

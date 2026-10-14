@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { EvidenceGap } from "@nexus/shared";
+import type { EvidenceGap, SupportedLanguageCode } from "@nexus/shared";
+import { languageCodeLabel } from "@nexus/shared";
 import {
   addToResearchPlan,
   decidePlanItem,
@@ -57,6 +58,9 @@ export function ResearchPlanPanel({
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [editingTerms, setEditingTerms] = useState("");
   const [editingNotes, setEditingNotes] = useState("");
+  // "" means 未记录: nobody declared a language for the terms, and the server
+  // is not asked to invent one.
+  const [editingQueryLanguage, setEditingQueryLanguage] = useState("");
   const [deciding, setDeciding] = useState<{
     itemId: string;
     result: "not_applicable" | "closed";
@@ -136,12 +140,15 @@ export function ResearchPlanPanel({
       void run(async () => {
         await editPlanItemQuery(sessionId, itemId, {
           terms,
-          notes: editingNotes.trim() || null
+          notes: editingNotes.trim() || null,
+          ...(editingQueryLanguage
+            ? { queryLanguage: editingQueryLanguage as SupportedLanguageCode }
+            : {})
         });
         setEditingItemId(null);
       }, "已更新检索词。");
     },
-    [editingNotes, editingTerms, run, sessionId]
+    [editingNotes, editingQueryLanguage, editingTerms, run, sessionId]
   );
 
   const submitDecision = useCallback(() => {
@@ -341,6 +348,14 @@ export function ResearchPlanPanel({
                         </div>
                       </div>
                       <div>
+                        <div className="research-label">检索词语言</div>
+                        <div data-testid={`plan-query-language-${item.id}`}>
+                          {item.query.queryLanguage
+                            ? languageCodeLabel(item.query.queryLanguage)
+                            : "未记录"}
+                        </div>
+                      </div>
+                      <div>
                         <div className="research-label">时间范围</div>
                         <div>
                           {item.query.timeRange
@@ -377,6 +392,9 @@ export function ResearchPlanPanel({
                               setEditingItemId(item.id);
                               setEditingTerms(item.query.terms.join("、"));
                               setEditingNotes(item.query.notes ?? "");
+                              setEditingQueryLanguage(
+                                item.query.queryLanguage ?? ""
+                              );
                             }}
                           >
                             编辑检索词
@@ -474,6 +492,32 @@ export function ResearchPlanPanel({
                               setEditingTerms(event.target.value)
                             }
                           />
+                        </div>
+                        <div>
+                          <label
+                            className="research-label"
+                            htmlFor={`plan-query-language-${item.id}`}
+                          >
+                            检索词语言
+                          </label>
+                          <select
+                            id={`plan-query-language-${item.id}`}
+                            data-testid="plan-query-language-select"
+                            value={editingQueryLanguage}
+                            onChange={(event) =>
+                              setEditingQueryLanguage(event.target.value)
+                            }
+                          >
+                            <option value="">未记录</option>
+                            <option value="zh-Hans">简体中文</option>
+                            <option value="zh-Hant">繁體中文</option>
+                            <option value="en">英语</option>
+                            <option value="ja">日语</option>
+                            <option value="ko">韩语</option>
+                            <option value="fr">法语</option>
+                            <option value="de">德语</option>
+                            <option value="es">西班牙语</option>
+                          </select>
                         </div>
                         <div>
                           <label

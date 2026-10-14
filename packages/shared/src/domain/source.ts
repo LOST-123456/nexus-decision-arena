@@ -177,6 +177,18 @@ export const SourceSnapshotSchema = z.object({
   contentBytes: z.number().int().min(0),
   charCount: z.number().int().min(0),
   retrievedAt: TimestampSchema,
+  /**
+   * The language a human registered for this capture, when one did.
+   *
+   * Deliberately a free string rather than a closed code set: the column is
+   * plain text and a registered value outside the supported set must stay
+   * readable instead of failing the whole row. It is never overwritten by a
+   * heuristic detection — detection is a separate, distinguishable signal.
+   */
+  sourceLanguage: z.preprocess(
+    (value) => (value === null || value === "" ? undefined : value),
+    z.string().max(24).optional()
+  ),
   createdAt: TimestampSchema
 });
 

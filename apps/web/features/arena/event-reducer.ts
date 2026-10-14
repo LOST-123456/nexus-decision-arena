@@ -190,7 +190,15 @@ function applyContiguousEvent(
     // changes neither the phase nor any verdict input. The report surfaces
     // re-read the snapshot list from the backend, so here it only advances
     // the replay cursor.
-    case "REPORT_SNAPSHOT_CREATED": {
+    case "REPORT_SNAPSHOT_CREATED":
+    // A translation, a human review of one, and a glossary entry are
+    // append-only research records about *reading aids*. They move neither
+    // the debate phase nor any verdict input — a translation never verifies
+    // material — so here they only advance the replay cursor. The research
+    // surfaces re-read them from the backend.
+    case "TRANSLATION_RECORDED":
+    case "TRANSLATION_REVIEWED":
+    case "TERMINOLOGY_RECORDED": {
       return { ...current, lastSequence: event.sequence };
     }
     default: {

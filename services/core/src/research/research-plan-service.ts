@@ -5,6 +5,7 @@ import {
   researchPlanHeadline,
   summarizeResearchPlan,
   type EvidenceGap,
+  type LanguageCode,
   type ResearchPlanAction,
   type ResearchPlanFailureCode,
   type ResearchPlanItem,
@@ -21,6 +22,11 @@ type QueryEditInput = {
   neededEvidenceKind?: string | undefined;
   sourceTypes?: string[] | undefined;
   terms?: string[] | undefined;
+  /**
+   * The language the terms are written in. A declaration by the researcher —
+   * never guessed here. Left untouched when the edit does not carry one.
+   */
+  queryLanguage?: LanguageCode | undefined;
   timeRange?: ResearchQuery["timeRange"] | undefined;
   notes?: string | null | undefined;
 };
@@ -39,6 +45,10 @@ function mergeQuery(
     neededEvidenceKind: edit.neededEvidenceKind ?? base.neededEvidenceKind,
     sourceTypes: edit.sourceTypes ?? base.sourceTypes,
     terms: edit.terms ?? base.terms,
+    queryLanguage:
+      edit.queryLanguage !== undefined
+        ? edit.queryLanguage
+        : base.queryLanguage,
     timeRange: edit.timeRange !== undefined ? edit.timeRange : base.timeRange,
     notes: edit.notes !== undefined ? edit.notes : base.notes
   };

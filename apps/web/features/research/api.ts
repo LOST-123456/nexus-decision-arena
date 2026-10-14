@@ -58,7 +58,14 @@ import type {
   QualityFinding,
   QualityFindingCategory,
   QualitySeverity,
-  ClaimQualityFinding
+  ClaimQualityFinding,
+  LanguageDetectionResult,
+  SupportedLanguageCode,
+  TerminologyEntry,
+  TranslationFailureCode,
+  TranslationFidelityAssessment,
+  TranslationRecord,
+  TranslationReview
 } from "@nexus/shared";
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "";
 
@@ -1935,5 +1942,179 @@ export function getResearchQualityFindings(
   const suffix = query.toString() ? `?${query.toString()}` : "";
   return requestQuality<ResearchQualityFindingsResponse>(
     `/api/sessions/${encodeURIComponent(sessionId)}/research-quality/findings${suffix}`
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * Multilingual research & cross-language verification
+ * ------------------------------------------------------------------ */
+
+export class TranslationFailedError extends Error {
+  constructor(
+    message: string,
+    readonly code?: TranslationFailureCode | string
+  ) {
+    super(message);
+    this.name = "TranslationFailedError";
+  }
+}
+
+/**
+ * Same contract as the other typed failure helpers: a body-less request must
+ * not declare a JSON content-type, and a failed translation carries the
+ * server's own code so the panel can say whether to retry or wait for a
+ * provider. A 503 (provider unavailable) is a controlled state, not a crash.
+ */
+async function requestWithTranslationCode<T>(
+  path: string,
+  init: RequestInit & { idempotencyKey?: string } = {}
+): Promise<T> {
+  const { idempotencyKey: key, ...rest } = init;
+  const hasBody = rest.body !== undefined && rest.body !== null;
+  const response = await fetch(`${apiUrl}${path}`, {
+    cache: "no-store",
+    ...rest,
+    headers: {
+      ...(hasBody ? { "content-type": "application/json" } : {}),
+      ...(key ? { "idempotency-key": key } : {}),
+      ...(rest.headers ?? {})
+    }
+  });
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as {
+      error?: string;
+      code?: string;
+    } | null;
+    throw new TranslationFailedError(
+      payload?.error ?? `Request failed: ${response.status}`,
+      payload?.code
+    );
+  }
+  return response.json() as Promise<T>;
+}
+
+export type CreateTranslationResult = {
+  translation: TranslationRecord;
+  fidelity?: TranslationFidelityAssessment;
+};
+
+/**
+ * Asks the server for an auxiliary translation of a snapshot.
+ *
+ * The result is a reading aid: `translation.status` may be `unavailable`
+ * (no provider configured) or `failed`, in which case the UI says so instead of
+ * showing a fabricated translation. A completed translation never verifies any
+ * evidence — that remains a separate human act.
+ */
+export function createSnapshotTranslation(
+  sessionId: string,
+  input: {
+    sourceSnapshotId: string;
+    targetLanguage: SupportedLanguageCode;
+    segmentIds?: string[];
+  }
+): Promise<CreateTranslationResult> {
+  return requestWithTranslationCode<CreateTranslationResult>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/translations`,
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+      idempotencyKey: idempotencyKey("translation")
+    }
+  );
+}
+
+export function listTranslations(
+  sessionId: string,
+  sourceSnapshotId?: string
+): Promise<{ translations: TranslationRecord[] }> {
+  const query = sourceSnapshotId
+    ? `?sourceSnapshotId=${encodeURIComponent(sourceSnapshotId)}`
+    : "";
+  return request<{ translations: TranslationRecord[] }>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/translations${query}`
+  );
+}
+
+export function getTranslation(
+  sessionId: string,
+  translationId: string
+): Promise<{ translation: TranslationRecord; reviews: TranslationReview[] }> {
+  return request<{ translation: TranslationRecord; reviews: TranslationReview[] }>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/translations/${encodeURIComponent(translationId)}`
+  );
+}
+
+export type ReviewTranslationInput = {
+  action: "approve" | "flag" | "request-retranslation" | "add-correction";
+  reviewStatus:
+    | "pending"
+    | "approved"
+    | "flagged"
+    | "needs-retranslation"
+    | "corrected";
+  correctionText?: string;
+  note?: string;
+};
+
+/** Records a human review of a translation; it never changes evidence. */
+export function reviewTranslation(
+  sessionId: string,
+  translationId: string,
+  input: ReviewTranslationInput
+): Promise<{ review: TranslationReview }> {
+  return requestWithTranslationCode<{ review: TranslationReview }>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/translations/${encodeURIComponent(translationId)}/review`,
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+      idempotencyKey: idempotencyKey("translation-review")
+    }
+  );
+}
+
+export type SourceLanguageView = {
+  sourceId: string;
+  sourceSnapshotId: string;
+  detection: LanguageDetectionResult;
+  storedSourceLanguage: string | null;
+};
+
+/** Detects the language of a source's current capture (read-only). */
+export function getSourceLanguages(
+  sessionId: string,
+  sourceId: string
+): Promise<SourceLanguageView> {
+  return request<SourceLanguageView>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/sources/${encodeURIComponent(sourceId)}/languages`
+  );
+}
+
+export function listTerminology(
+  sessionId: string
+): Promise<{ entries: TerminologyEntry[] }> {
+  return request<{ entries: TerminologyEntry[] }>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/terminology`
+  );
+}
+
+/** Upserts a glossary entry (suggested and/or confirmed translation). */
+export function upsertTerminology(
+  sessionId: string,
+  input: {
+    sourceTerm: string;
+    suggestedTranslation?: string | undefined;
+    confirmedTranslation?: string | undefined;
+    language: SupportedLanguageCode | "unknown" | "mixed" | "undetermined";
+    context?: string | undefined;
+  }
+): Promise<{ entry: TerminologyEntry }> {
+  return requestWithTranslationCode<{ entry: TerminologyEntry }>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/terminology`,
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+      idempotencyKey: idempotencyKey("terminology")
+    }
   );
 }

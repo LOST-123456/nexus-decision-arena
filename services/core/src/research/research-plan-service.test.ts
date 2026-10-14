@@ -326,6 +326,42 @@ describe("ResearchPlanService", () => {
     expect(item.priority).toBe(added!.item.priority);
   });
 
+  it("records the declared query language and never guesses one", async () => {
+    const claimRow = claim();
+    const gapRow = gap(claimRow.id);
+    const plan = fakePlanRepo();
+    const service = buildService({ claims: [claimRow], gaps: [gapRow], plan });
+    const added = await service.addToPlan({
+      sessionId: SESSION_ID,
+      draft: { gapId: gapRow.id },
+      itemId: newId(),
+      actor: "研究员甲"
+    });
+    // The derived skeleton declares no language: a person may pursue the same
+    // question in several languages as separate items, and each records its
+    // own — nothing here invents one.
+    expect(added!.item.query.queryLanguage).toBeUndefined();
+
+    const declared = (await service.editQuery({
+      sessionId: SESSION_ID,
+      itemId: added!.item.id,
+      edit: { terms: ["gross margin"], queryLanguage: "en" },
+      actor: "研究员甲",
+      replacementId: newId()
+    }))!;
+    expect(declared.item.query.queryLanguage).toBe("en");
+
+    // A later edit that says nothing about the language keeps the recorded one.
+    const kept = (await service.editQuery({
+      sessionId: SESSION_ID,
+      itemId: declared.item.id,
+      edit: { notes: "补充说明" },
+      actor: "研究员甲",
+      replacementId: newId()
+    }))!;
+    expect(kept.item.query.queryLanguage).toBe("en");
+  });
+
   it("marks a queued item not applicable with the required reason", async () => {
     const claimRow = claim();
     const gapRow = gap(claimRow.id);

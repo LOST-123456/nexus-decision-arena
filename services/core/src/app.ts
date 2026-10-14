@@ -7,7 +7,9 @@ import type {
   InspectorRepository,
   ResearchPlanRepository,
   ResearchSearchRepository,
-  ReviewRepository
+  ReviewRepository,
+  TerminologyRepository,
+  TranslationRepository
 } from "@nexus/db";
 import Fastify, { type FastifyInstance } from "fastify";
 import {
@@ -30,6 +32,7 @@ import { registerResearchPlanRoutes } from "./api/routes/research-plan";
 import { registerResearchSearchRoutes } from "./api/routes/research-search";
 import { registerReportSnapshotRoutes } from "./api/routes/report-snapshots";
 import { registerResearchQualityRoutes } from "./api/routes/research-quality";
+import { registerMultilingualRoutes } from "./api/routes/multilingual";
 import { registerSourceIndependenceRoutes } from "./api/routes/source-independence";
 import { registerSourceIntakeRoutes } from "./api/routes/source-intake";
 import { registerSourceMonitoringRoutes } from "./api/routes/source-monitoring";
@@ -172,6 +175,17 @@ export type AppDependencies = {
   >;
   /** Override for tests; defaults to the deterministic provider in production. */
   searchProvider?: import("./research/search-provider").SearchProvider;
+  /**
+   * Multilingual research: auxiliary translations of source snapshots, their
+   * human reviews, and the session-scoped terminology glossary. A translation
+   * is an auxiliary reading aid — nothing here writes evidence, a verification
+   * status or a verdict. See
+   * services/core/src/research/research-translation-service.ts.
+   */
+  translations?: TranslationRepository;
+  terminology?: TerminologyRepository;
+  /** Override for tests; production defaults to the unavailable provider. */
+  translationProvider?: import("./research/translation-provider").TranslationProvider;
   arena?: Pick<ArenaRepository, "createResearchClaim" | "getSessionArtifacts">;
   reports?: Pick<
     FinalReportRepository,
@@ -296,6 +310,7 @@ export function createApp(
   registerResearchSearchRoutes(app, dependencies, idempotency);
   registerReportSnapshotRoutes(app, dependencies, idempotency);
   registerResearchQualityRoutes(app, dependencies);
+  registerMultilingualRoutes(app, dependencies, idempotency);
   registerAgentRunRoutes(app, dependencies, idempotency);
   registerReviewRoutes(app, dependencies, idempotency, eventBus);
   registerEventRoutes(app, {

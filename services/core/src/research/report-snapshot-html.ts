@@ -1,5 +1,6 @@
 import type { FactCheckReport } from "./fact-check-report";
 import type { ResearchReportSnapshot } from "@nexus/shared";
+import { languageCodeLabel } from "@nexus/shared";
 
 /**
  * A print-friendly, self-contained rendering of one saved version.
@@ -197,6 +198,22 @@ export function renderSnapshotHtml(
     <h4>适用范围与限制</h4>
     <ul>${report.limits.map((limit) => `<li>${escapeHtml(limit)}</li>`).join("")}</ul>
   </section>`);
+
+  // The frozen multilingual reading summary. Rendered from the payload this
+  // version was saved with — never recomputed — and absent when no
+  // translation was stored. An aid inventory, never a fact.
+  if (report.multilingual) {
+    const ml = report.multilingual;
+    const sourceLanguages = ml.sourceLanguages.map(languageCodeLabel).join("、");
+    const targetLanguages = ml.targetLanguages.map(languageCodeLabel).join("、");
+    sections.push(`
+  <section class="risk">
+    <h2>多语言阅读辅助</h2>
+    <p class="muted">涉及语言 ${escapeHtml(sourceLanguages || "无")} · 译文目标语言 ${escapeHtml(targetLanguages || "无")} · 已存储译文 ${ml.translationCount} 条</p>
+    <p>人工复核 ${ml.humanReviewedCount} 条，其中认可 ${ml.approvedCount} 条、标记或要求重译 ${ml.flaggedCount} 条。</p>
+    <p class="note">译文仅供辅助阅读：本报告所有引用锚定原文摘录，译文不构成、也不能替代对任何材料的核实；机器翻译未经人工复核前不得视为已确认。</p>
+  </section>`);
+  }
 
   sections.push(`
   <section>

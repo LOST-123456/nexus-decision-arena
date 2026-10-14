@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { IdSchema, TimestampSchema } from "../ids";
 import type { Claim } from "../domain/claim";
+import { LanguageCodeSchema } from "../research/multilingual";
 import {
   EvidenceGapKindSchema,
   EvidenceGapSeveritySchema,
@@ -99,6 +100,16 @@ export const ResearchQuerySchema = z.object({
   sourceTypes: z.array(z.string().min(1).max(160)).max(8).default([]),
   /** Search terms. A starting point a person can rewrite. */
   terms: z.array(z.string().min(1).max(200)).max(12).default([]),
+  /**
+   * The language the terms are written in, when the researcher declared one.
+   *
+   * A person may run the same question in several languages — Chinese terms,
+   * English terms, Japanese terms — as separate plan items, and each records
+   * its own language so the reading is never ambiguous. Absent means nobody
+   * declared one; it is never guessed here. Stored inside the `query` jsonb,
+   * so no migration is needed and old rows simply lack the key.
+   */
+  queryLanguage: LanguageCodeSchema.optional(),
   /** Optional window. Null means "no window has been decided". */
   timeRange: z
     .object({
@@ -175,6 +186,12 @@ export const ResearchQueryEditSchema = z.object({
   neededEvidenceKind: z.string().trim().min(1).max(400).optional(),
   sourceTypes: z.array(z.string().trim().min(1).max(160)).max(8).optional(),
   terms: z.array(z.string().trim().min(1).max(200)).max(12).optional(),
+  /**
+   * The language the (edited) terms are written in. The researcher's own
+   * declaration — the same question may be pursued in several languages as
+   * separate items. Omitted means "leave whatever was recorded".
+   */
+  queryLanguage: LanguageCodeSchema.optional(),
   timeRange: z
     .object({ from: z.string().max(40).nullable(), to: z.string().max(40).nullable() })
     .nullable()

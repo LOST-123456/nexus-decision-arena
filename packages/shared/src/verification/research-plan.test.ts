@@ -12,6 +12,8 @@ import {
   planItemFromGap,
   researchDirectionFor,
   researchPlanHeadline,
+  ResearchQueryEditSchema,
+  ResearchQuerySchema,
   summarizeResearchPlan,
   type ResearchPlanItem
 } from "./research-plan";
@@ -318,5 +320,53 @@ describe("researchPlanHeadline", () => {
     expect(researchPlanHeadline(summarizeResearchPlan({ items: [] }))).toContain(
       "还没有条目"
     );
+  });
+});
+
+describe("ResearchQuerySchema · the language a query is written in", () => {
+  it("keeps a declared query language and stays valid without one", () => {
+    // Old rows stored before this field simply lack the key; a declaration is
+    // optional and never required for a row to validate.
+    const declared = ResearchQuerySchema.parse({
+      neededEvidenceKind: "一手材料",
+      sourceTypes: [],
+      terms: ["gross margin"],
+      timeRange: null,
+      notes: null,
+      queryLanguage: "en"
+    });
+    expect(declared.queryLanguage).toBe("en");
+
+    const undeclared = ResearchQuerySchema.parse({
+      neededEvidenceKind: "一手材料",
+      sourceTypes: [],
+      terms: ["毛利率"],
+      timeRange: null,
+      notes: null
+    });
+    expect(undeclared.queryLanguage).toBeUndefined();
+  });
+
+  it("refuses a language outside the known set rather than storing nonsense", () => {
+    const result = ResearchQuerySchema.safeParse({
+      neededEvidenceKind: "一手材料",
+      sourceTypes: [],
+      terms: ["毛利率"],
+      timeRange: null,
+      notes: null,
+      queryLanguage: "latin"
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts the language as part of a query edit", () => {
+    const edit = ResearchQueryEditSchema.parse({
+      terms: ["营业利润率"],
+      queryLanguage: "zh-Hans"
+    });
+    expect(edit.queryLanguage).toBe("zh-Hans");
+
+    const silent = ResearchQueryEditSchema.parse({ terms: ["营业利润率"] });
+    expect(silent.queryLanguage).toBeUndefined();
   });
 });
