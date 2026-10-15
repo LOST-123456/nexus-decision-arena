@@ -326,12 +326,9 @@ export function EvidenceMapPanel({ sessionId }: { sessionId: string }) {
             elementsSelectable={true}
             proOptions={{ hideAttribution: true }}
           >
-            <Background
-              color="rgba(145, 163, 174, 0.16)"
-              gap={24}
-              size={1}
-              variant={BackgroundVariant.Dots}
-            />
+            {/* Colour comes from the `--xy-*` tokens bound in globals.css, so the
+                canvas follows the active theme without subscribing to it here. */}
+            <Background gap={24} size={1} variant={BackgroundVariant.Dots} />
             <Controls
               showInteractive={false}
               aria-label="证据地图缩放控制"

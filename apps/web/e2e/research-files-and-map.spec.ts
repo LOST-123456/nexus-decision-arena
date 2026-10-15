@@ -117,19 +117,17 @@ test("evidence map shows the recorded relations and keeps them distinct from pro
 
   const canvas = page.getByTestId("evidence-map-canvas");
   await expect(canvas).toBeVisible();
-  // React Flow keeps nodes `visibility: hidden` until it has measured them, so
-  // wait for a real box instead of racing the first paint.
-  await page.waitForFunction(
-    () =>
-      Array.from(document.querySelectorAll(".react-flow__node")).some(
-        (node) => node.getBoundingClientRect().height > 0
-      ),
-    undefined,
-    { timeout: 15_000 }
-  );
-  // The graph is built from what is recorded, so both ends have to be there.
-  await expect(page.getByText(claimStatement)).toBeVisible();
-  await expect(page.getByText("区域复购年报")).toBeVisible();
+  /*
+   * React Flow keeps a node `visibility: hidden` until its ResizeObserver has
+   * measured it. Waiting for "some node has a box" is not the same condition:
+   * an unmeasured node is still laid out, so its box exists from the first
+   * paint and the wait returns while the node we care about is still hidden.
+   * Wait for the two nodes this test is actually about, with a budget that
+   * survives a loaded machine (the first paint of the map competes with the
+   * rest of the suite).
+   */
+  await expect(page.getByText(claimStatement)).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText("区域复购年报")).toBeVisible({ timeout: 15_000 });
 
   // The map must not present itself as a verdict.
   await expect(

@@ -7,7 +7,6 @@ import { AgentPanel, type AgentPanelRole } from "../../components/agent-panel";
 import { DecisionMap } from "../../components/decision-map";
 import { HumanCheckpoint } from "../../components/human-checkpoint";
 import { Inspector } from "../../components/inspector";
-import { AuthUserBadge } from "../../components/auth-user-badge";
 import { RuntimeModeBadge } from "../../components/runtime-mode-badge";
 import { Timeline, type TimelineEvent } from "../../components/timeline";
 import type { ReplayableSession } from "./event-reducer";
@@ -360,24 +359,8 @@ export function DemoArena() {
     >
       <header className="demo-header" data-testid="workspace-header">
         <div className="demo-header-brand">
-          <Link className="brand-lockup brand-lockup-compact" href="/">
-            <span className="brand-mark" aria-hidden="true">
-              N
-            </span>
-            <span>
-              <strong>Nexus Decision Arena</strong>
-              <small>FIXED DEMO / OFFLINE SAFE</small>
-            </span>
-          </Link>
           <span className="demo-fixture-badge">DEMO FIXTURE</span>
           <RuntimeModeBadge fallback="OFFLINE FIXTURE" />
-          <AuthUserBadge />
-          <Link className="header-secondary-link" href="/history">
-            历史记录
-          </Link>
-          <Link className="header-secondary-link" href="/sessions/new">
-            新建评审
-          </Link>
         </div>
 
         <dl className="demo-vitals">

@@ -1,16 +1,19 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { AppSubNav } from "../../components/app-nav";
 
 /**
- * Deep-navy navigation for the research surface. Every entry points at a page
- * that really exists; contextual entries only appear once a session is open.
+ * Route-level links for the research surface.
+ *
+ * The global app bar already owns brand, product-wide destinations, the theme
+ * switch and the account badge, so this bar only carries what is specific to
+ * research: the section roots plus the contextual pages of the open session.
  */
 
 /**
  * Segments under /research that name a fixed destination rather than a session.
- * Reading "library" as a session id would make the nav claim session-scoped
+ * Reading "library" as a session id would make the bar claim session-scoped
  * links for a page that has no session, so the list is checked explicitly.
  */
 const STATIC_SEGMENTS = new Set(["new", "library"]);
@@ -26,34 +29,18 @@ export function ResearchNav() {
       : null;
 
   const links: Array<{ href: string; label: string }> = [
-    { href: "/research", label: "Research Home" },
+    { href: "/research", label: "研究首页" },
     { href: "/research/library", label: "资料库" }
   ];
   if (sessionId) {
     links.push(
-      { href: `/research/${sessionId}`, label: "Research Workspace" },
-      { href: `/research/${sessionId}/evidence`, label: "Evidence Explorer" },
-      { href: `/research/${sessionId}/report`, label: "Fact Check Report" },
-      { href: `/sessions/${sessionId}`, label: "Arena View" },
-      { href: `/sessions/${sessionId}/report`, label: "Decision Report" }
+      { href: `/research/${sessionId}`, label: "研究工作台" },
+      { href: `/research/${sessionId}/evidence`, label: "证据地图" },
+      { href: `/research/${sessionId}/report`, label: "事实核查报告" },
+      { href: `/sessions/${sessionId}`, label: "质询视图" },
+      { href: `/sessions/${sessionId}/report`, label: "决策报告" }
     );
   }
 
-  return (
-    <nav className="research-nav" aria-label="Research navigation">
-      <span className="research-nav-brand">Nexus · Research &amp; Fact Check</span>
-      <div className="research-nav-links">
-        {links.map((link) => (
-          <Link
-            key={link.href}
-            href={link.href}
-            className="research-nav-link"
-            aria-current={pathname === link.href ? "page" : undefined}
-          >
-            {link.label}
-          </Link>
-        ))}
-      </div>
-    </nav>
-  );
+  return <AppSubNav label="研究导航" links={links} />;
 }

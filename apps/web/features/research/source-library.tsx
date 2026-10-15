@@ -549,90 +549,92 @@ export function SourceLibraryPanel({
               复制会带走原文快照，但不会带走对方的核实结论
             </span>
           </div>
-          <table className="research-table" data-testid="library-results">
-            <thead>
-              <tr>
-                <th>来源</th>
-                <th>发布者 / 作者</th>
-                <th>域名</th>
-                <th>发布日期</th>
-                <th>已记录语言</th>
-                <th>版本</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {results.map((source) => (
-                <tr key={source.sourceId} data-testid="library-row">
-                  <td>
-                    <span className="research-source-title">{source.title}</span>
-                    {lineage[source.sourceId] ? (
-                      <span className="research-pill research-pill-neutral" data-testid="library-copy-pill">
-                        副本 · {originStatusLabel(lineage[source.sourceId]!.originStatus)}
-                      </span>
-                    ) : null}
-                  </td>
-                  <td>
-                    {source.publisher ?? "—"} / {source.author ?? "—"}
-                  </td>
-                  <td>{hostOf(source.canonicalUrl ?? source.url) ?? "—"}</td>
-                  <td>{shortDate(source.publishedAt)}</td>
-                  <td>{source.languages.length ? source.languages.join(", ") : "—"}</td>
-                  <td>{source.snapshotCount}</td>
-                  <td>
-                    <button
-                      className="research-button-secondary"
-                      type="button"
-                      onClick={() => void openSource(source.sourceId)}
-                    >
-                      查看原文与版本
-                    </button>
-                    <button
-                      className="research-button"
-                      type="button"
-                      data-testid="library-copy"
-                      disabled={
-                        busy ||
-                        !allowsEdit ||
-                        !targetSessionId ||
-                        !mayCopyFrom(source.sessionId)
-                      }
-                      title={
-                        mayCopyFrom(source.sessionId)
-                          ? "复制到选定的自有研究"
-                          : "来源研究只授予了浏览权限，不能复制"
-                      }
-                      onClick={() => void copy(source, "copy")}
-                    >
-                      复制到本研究
-                    </button>
-                    {source.snapshotCount === 0 ? (
+          <div className="research-table-scroll">
+            <table className="research-table" data-testid="library-results">
+              <thead>
+                <tr>
+                  <th>来源</th>
+                  <th>发布者 / 作者</th>
+                  <th>域名</th>
+                  <th>发布日期</th>
+                  <th>已记录语言</th>
+                  <th>版本</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {results.map((source) => (
+                  <tr key={source.sourceId} data-testid="library-row">
+                    <td>
+                      <span className="research-source-title">{source.title}</span>
+                      {lineage[source.sourceId] ? (
+                        <span className="research-pill research-pill-neutral" data-testid="library-copy-pill">
+                          副本 · {originStatusLabel(lineage[source.sourceId]!.originStatus)}
+                        </span>
+                      ) : null}
+                    </td>
+                    <td>
+                      {source.publisher ?? "—"} / {source.author ?? "—"}
+                    </td>
+                    <td>{hostOf(source.canonicalUrl ?? source.url) ?? "—"}</td>
+                    <td>{shortDate(source.publishedAt)}</td>
+                    <td>{source.languages.length ? source.languages.join(", ") : "—"}</td>
+                    <td>{source.snapshotCount}</td>
+                    <td>
                       <button
                         className="research-button-secondary"
                         type="button"
+                        onClick={() => void openSource(source.sourceId)}
+                      >
+                        查看原文与版本
+                      </button>
+                      <button
+                        className="research-button"
+                        type="button"
+                        data-testid="library-copy"
                         disabled={
                           busy ||
                           !allowsEdit ||
                           !targetSessionId ||
                           !mayCopyFrom(source.sessionId)
                         }
-                        onClick={() => void copy(source, "reference")}
+                        title={
+                          mayCopyFrom(source.sessionId)
+                            ? "复制到选定的自有研究"
+                            : "来源研究只授予了浏览权限，不能复制"
+                        }
+                        onClick={() => void copy(source, "copy")}
                       >
-                        仅引用
+                        复制到本研究
                       </button>
-                    ) : null}
-                  </td>
-                </tr>
-              ))}
-              {results.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="research-muted">
-                    没有符合条件的来源。资料库不会把未授权研究的资料混入结果。
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
+                      {source.snapshotCount === 0 ? (
+                        <button
+                          className="research-button-secondary"
+                          type="button"
+                          disabled={
+                            busy ||
+                            !allowsEdit ||
+                            !targetSessionId ||
+                            !mayCopyFrom(source.sessionId)
+                          }
+                          onClick={() => void copy(source, "reference")}
+                        >
+                          仅引用
+                        </button>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+                {results.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="research-muted">
+                      没有符合条件的来源。资料库不会把未授权研究的资料混入结果。
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
         </section>
 
         {detail ? (
@@ -761,53 +763,55 @@ export function SourceLibraryPanel({
                 授权
               </button>
             </form>
-            <table className="research-table">
-              <thead>
-                <tr>
-                  <th>对象</th>
-                  <th>范围</th>
-                  <th>授权人</th>
-                  <th>授权时间</th>
-                  <th>状态</th>
-                </tr>
-              </thead>
-              <tbody>
-                {grants.map((grant) => (
-                  <tr key={grant.id} data-testid="library-grant-row">
-                    <td>
-                      {grant.subjectType === "user" ? "账号" : "角色"} · {grant.subjectId}
-                    </td>
-                    <td>{grantScopeLabel(grant.scope)}</td>
-                    <td>{grant.grantedBy}</td>
-                    <td>{shortDate(grant.grantedAt)}</td>
-                    <td>
-                      {grant.revokedAt ? (
-                        <span className="research-muted">
-                          已撤销（{grant.revokedBy ?? "—"}）
-                        </span>
-                      ) : (
-                        <button
-                          className="research-button-secondary"
-                          type="button"
-                          data-testid="library-grant-revoke"
-                          disabled={busy}
-                          onClick={() => void revoke(grant.id)}
-                        >
-                          撤销
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-                {grants.length === 0 ? (
+            <div className="research-table-scroll">
+              <table className="research-table">
+                <thead>
                   <tr>
-                    <td colSpan={5} className="research-muted">
-                      这个研究还没有对外共享。
-                    </td>
+                    <th>对象</th>
+                    <th>范围</th>
+                    <th>授权人</th>
+                    <th>授权时间</th>
+                    <th>状态</th>
                   </tr>
-                ) : null}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {grants.map((grant) => (
+                    <tr key={grant.id} data-testid="library-grant-row">
+                      <td>
+                        {grant.subjectType === "user" ? "账号" : "角色"} · {grant.subjectId}
+                      </td>
+                      <td>{grantScopeLabel(grant.scope)}</td>
+                      <td>{grant.grantedBy}</td>
+                      <td>{shortDate(grant.grantedAt)}</td>
+                      <td>
+                        {grant.revokedAt ? (
+                          <span className="research-muted">
+                            已撤销（{grant.revokedBy ?? "—"}）
+                          </span>
+                        ) : (
+                          <button
+                            className="research-button-secondary"
+                            type="button"
+                            data-testid="library-grant-revoke"
+                            disabled={busy}
+                            onClick={() => void revoke(grant.id)}
+                          >
+                            撤销
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {grants.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="research-muted">
+                        这个研究还没有对外共享。
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
           </section>
         ) : null}
       </div>

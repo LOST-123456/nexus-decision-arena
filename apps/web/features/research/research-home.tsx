@@ -63,7 +63,7 @@ export function ResearchHome() {
   };
 
   return (
-    <div className="research-body" style={{ gridTemplateColumns: "minmax(0, 460px) minmax(0, 1fr)" }}>
+    <div className="research-body" data-mode="create">
       <div className="research-column">
         <section className="research-panel">
           <div className="research-panel-head">

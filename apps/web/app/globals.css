@@ -1,26 +1,240 @@
 @import "tailwindcss";
 
+/* =========================================================================
+   Nexus design system — tokens
+   -------------------------------------------------------------------------
+   Layer 1 (semantic) is the single source of truth. `:root` holds the DARK
+   values and is the default theme; `html[data-theme="light"]` overrides every
+   semantic slot. Because the legacy names below are declared once on `:root`
+   as aliases into the semantic layer, both surfaces (arena + research) follow
+   the active theme automatically without duplicating a single rule.
+   ========================================================================= */
+
 :root {
-  --canvas: #080d12;
-  --canvas-raised: #0c1218;
-  --panel: #101821;
-  --panel-strong: #16222c;
-  --panel-soft: #0d151c;
-  --text: #edf4f7;
-  --muted: #8ea2ad;
-  --muted-strong: #b7c5cc;
-  --line: #24333e;
-  --line-strong: #536774;
-  --running: #52c7e8;
-  --success: #3ad58c;
-  --warning: #efb35f;
-  --danger: #ee6d6d;
-  --supports: #69d6a5;
-  --opposes: #e28a58;
-  --failed: #b94b5d;
-  --rejected: #d8749a;
-  --focus: #8de1f4;
   color-scheme: dark;
+
+  /* -- surfaces ---------------------------------------------------------- */
+  --surface-canvas: #080d12;
+  --surface-raised: #0c1218;
+  --surface-panel: #101821;
+  --surface-panel-strong: #16222c;
+  --surface-panel-soft: #0d151c;
+  --surface-inset: #0a1015;
+  --surface-hover: #192a35;
+  --surface-nav: #0a1725;
+  --surface-nav-hover: #14293f;
+  --surface-overlay: rgba(10, 16, 21, 0.94);
+  --surface-overlay-soft: rgba(10, 16, 21, 0.72);
+  --surface-scrim: rgba(4, 8, 11, 0.66);
+
+  /* -- content ----------------------------------------------------------- */
+  --content-primary: #edf4f7;
+  --content-muted: #8ea2ad;
+  --content-subtle: #b7c5cc;
+  --content-faint: #718791;
+  --content-on-accent: #04222c;
+  --content-on-nav: #f2f6fb;
+  --content-on-nav-muted: #c3d2e4;
+
+  /* -- borders ----------------------------------------------------------- */
+  --border-subtle: var(--surface-hover);
+  --border-base: #24333e;
+  --border-strong: #536774;
+
+  /* -- brand accent ------------------------------------------------------ */
+  --accent: #52c7e8;
+  --accent-hover: #79d8f0;
+  --accent-soft: rgba(82, 199, 232, 0.14);
+  --accent-contrast: #04222c;
+
+  /* -- status ------------------------------------------------------------ */
+  --status-running: #52c7e8;
+  --status-success: #3ad58c;
+  --status-warning: #efb35f;
+  --status-danger: #ee6d6d;
+  --status-supports: #69d6a5;
+  --status-opposes: #e28a58;
+  --status-failed: #b94b5d;
+  --status-rejected: #d8749a;
+  --status-verified: #69d6a5;
+  --status-unverified: #efb35f;
+  --status-neutral: #8ea2ad;
+
+  /* -- status tints (background / border pairs) -------------------------- */
+  --tint-success-bg: rgba(58, 213, 140, 0.12);
+  --tint-success-border: rgba(58, 213, 140, 0.34);
+  --tint-warning-bg: rgba(239, 179, 95, 0.1);
+  --tint-warning-border: rgba(239, 179, 95, 0.32);
+  --tint-danger-bg: rgba(238, 109, 109, 0.1);
+  --tint-danger-border: rgba(238, 109, 109, 0.34);
+  --tint-rejected-bg: rgba(216, 116, 154, 0.12);
+  --tint-rejected-border: rgba(216, 116, 154, 0.34);
+  --tint-opposes-bg: rgba(226, 138, 88, 0.12);
+  --tint-opposes-border: rgba(226, 138, 88, 0.32);
+  --tint-context-bg: rgba(83, 103, 116, 0.16);
+  --tint-context-border: rgba(83, 103, 116, 0.42);
+  --tint-neutral-bg: rgba(142, 162, 173, 0.1);
+  --tint-neutral-border: rgba(142, 162, 173, 0.28);
+  --tint-accent-bg: rgba(82, 199, 232, 0.12);
+  --tint-accent-border: rgba(82, 199, 232, 0.34);
+
+  /* -- focus + elevation + decoration ------------------------------------ */
+  --focus-ring: #8de1f4;
+  --selection-bg: rgba(82, 199, 232, 0.26);
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.34);
+  --shadow-2: 0 10px 30px rgba(0, 0, 0, 0.28);
+  --shadow-3: 0 24px 60px rgba(0, 0, 0, 0.38);
+  --grid-line: rgba(83, 103, 116, 0.08);
+  --graph-dot: rgba(145, 163, 174, 0.16);
+
+  /* -- geometry ---------------------------------------------------------- */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+  --radius-pill: 999px;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+
+  /* -- typography -------------------------------------------------------- */
+  --font-sans: Inter, "Segoe UI Variable", "Segoe UI", "Noto Sans SC",
+    "Microsoft YaHei", sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Mono", ui-monospace, SFMono-Regular,
+    Menlo, monospace;
+  --text-2xs: 0.62rem;
+  --text-xs: 0.72rem;
+  --text-sm: 0.82rem;
+  --text-base: 0.92rem;
+  --text-lg: 1.08rem;
+  --text-xl: 1.4rem;
+  --text-2xl: 2rem;
+  --leading-tight: 1.25;
+  --leading-normal: 1.55;
+  --leading-relaxed: 1.75;
+
+  /* -- motion + layering -------------------------------------------------- */
+  --duration-fast: 120ms;
+  --duration-base: 180ms;
+  --duration-slow: 320ms;
+  --ease-standard: cubic-bezier(0.2, 0.6, 0.2, 1);
+  --z-nav: 40;
+  --z-overlay: 60;
+  --z-dialog: 70;
+  --z-toast: 80;
+
+  /*
+   * Height of the global app bar. Above 768px the bar is pinned to a single
+   * row (see the app-shell section), so full-height page shells can subtract
+   * it exactly; below that it wraps and the value is an approximation, which
+   * only ever costs a few pixels of scroll on content-height pages.
+   */
+  --app-nav-h: 3.4rem;
+
+  /* -- legacy aliases (arena surface) ------------------------------------ */
+  --canvas: var(--surface-canvas);
+  --canvas-raised: var(--surface-raised);
+  --panel: var(--surface-panel);
+  --panel-strong: var(--surface-panel-strong);
+  --panel-soft: var(--surface-panel-soft);
+  --text: var(--content-primary);
+  --muted: var(--content-muted);
+  --muted-strong: var(--content-subtle);
+  --line: var(--border-base);
+  --line-strong: var(--border-strong);
+  --running: var(--status-running);
+  --success: var(--status-success);
+  --warning: var(--status-warning);
+  --danger: var(--status-danger);
+  --supports: var(--status-supports);
+  --opposes: var(--status-opposes);
+  --failed: var(--status-failed);
+  --rejected: var(--status-rejected);
+  --focus: var(--focus-ring);
+
+  /* -- legacy aliases (import / whiteboard surface) ---------------------- */
+  --wb-accent: var(--accent);
+  --wb-border: var(--border-base);
+  --wb-surface-subtle: var(--surface-panel-soft);
+  --wb-surface-active: var(--accent-soft);
+}
+
+/* -------------------------------------------------------------------------
+   LIGHT THEME — only the semantic slots change; every alias and every rule
+   written against the semantic layer follows for free.
+   ---------------------------------------------------------------------- */
+html[data-theme="light"] {
+  color-scheme: light;
+
+  --surface-canvas: #eef2f7;
+  --surface-raised: #ffffff;
+  --surface-panel: #ffffff;
+  --surface-panel-strong: #e8eef6;
+  --surface-panel-soft: #f7f9fc;
+  --surface-inset: #f2f5f9;
+  --surface-hover: #e9eef5;
+  --surface-nav: #13253d;
+  --surface-nav-hover: #1d3557;
+  --surface-overlay: rgba(255, 255, 255, 0.94);
+  --surface-overlay-soft: rgba(255, 255, 255, 0.78);
+  --surface-scrim: rgba(15, 33, 57, 0.42);
+
+  --content-primary: #16232f;
+  --content-muted: #5b6b7d;
+  --content-subtle: #43536a;
+  --content-faint: #6b7b8c;
+  --content-on-accent: #ffffff;
+  --content-on-nav: #f2f6fb;
+  --content-on-nav-muted: #c3d2e4;
+
+  --border-subtle: #e4eaf1;
+  --border-base: #d7e0ea;
+  --border-strong: #b3c1d1;
+
+  --accent: #0d6f99;
+  --accent-hover: #0a5a7d;
+  --accent-soft: #e2f1f8;
+  --accent-contrast: #ffffff;
+
+  --status-running: #0d6f99;
+  --status-success: #1f8a5f;
+  --status-warning: #8a5c0c;
+  --status-danger: #b3261e;
+  --status-supports: #1f8a5f;
+  --status-opposes: #b4552f;
+  --status-failed: #a13544;
+  --status-rejected: #a63b46;
+  --status-verified: #1f8a5f;
+  --status-unverified: #8a5c0c;
+  --status-neutral: #5b6b7d;
+
+  --tint-success-bg: #eef8f2;
+  --tint-success-border: #b9e0cd;
+  --tint-warning-bg: #fbf5e8;
+  --tint-warning-border: #e6d3ab;
+  --tint-danger-bg: #fbf0f1;
+  --tint-danger-border: #e8c4c8;
+  --tint-rejected-bg: #fbf0f1;
+  --tint-rejected-border: #e3c1c5;
+  --tint-opposes-bg: #fdf4ef;
+  --tint-opposes-border: #e8cdbc;
+  --tint-context-bg: #f2f6fa;
+  --tint-context-border: #ccd7e2;
+  --tint-neutral-bg: #f2f6fa;
+  --tint-neutral-border: #ccd7e2;
+  --tint-accent-bg: #e2f1f8;
+  --tint-accent-border: #a9d4e6;
+
+  --focus-ring: #2f6df6;
+  --selection-bg: #cfe6f2;
+  --shadow-1: 0 1px 2px rgba(15, 33, 57, 0.08);
+  --shadow-2: 0 8px 24px rgba(15, 33, 57, 0.1);
+  --shadow-3: 0 20px 48px rgba(15, 33, 57, 0.16);
+  --grid-line: rgba(83, 103, 116, 0.1);
+  --graph-dot: rgba(83, 103, 116, 0.24);
 }
 
 * {
@@ -71,7 +285,7 @@ a {
 }
 
 ::selection {
-  background: rgba(82, 199, 232, 0.26);
+  background: var(--selection-bg);
 }
 
 ::-webkit-scrollbar {
@@ -169,7 +383,7 @@ dd {
 
 .primary-link:hover {
   border-color: var(--focus);
-  background: #192a35;
+  background: var(--surface-hover);
 }
 
 .entry-shell {
@@ -233,7 +447,8 @@ dd {
 
 .workspace-shell {
   display: grid;
-  height: 100vh;
+  height: calc(100vh - var(--app-nav-h));
+  height: calc(100dvh - var(--app-nav-h));
   min-height: 43rem;
   grid-template-rows: 3.5rem minmax(0, 1fr) 6rem;
   overflow: hidden;
@@ -283,7 +498,7 @@ dd {
 }
 
 .workspace-vitals .vital-alert {
-  background: rgba(239, 179, 95, 0.08);
+  background: var(--tint-warning-bg);
 }
 
 .workspace-vitals .vital-alert strong {
@@ -377,7 +592,7 @@ dd {
 .status-marker.status-active {
   background: var(--running);
   color: var(--running);
-  box-shadow: 0 0 0 3px rgba(82, 199, 232, 0.1);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .status-marker.status-completed {
@@ -474,7 +689,7 @@ dd {
 }
 
 .agent-lenses {
-  color: #718791;
+  color: var(--content-faint);
   font-size: 0.62rem;
 }
 
@@ -513,6 +728,25 @@ dd {
   overflow: hidden;
   border: 1px solid var(--line);
   background: var(--canvas-raised);
+}
+
+/*
+ * The checkpoint banner only exists while a session is waiting for a human, so
+ * the canvas cannot be placed by document order: with the banner absent it fell
+ * into the second (`auto`) row and collapsed to zero height, which left every
+ * live session that was not at a checkpoint with a blank map — the flexible row
+ * sat empty below it. Each part gets its own row line instead.
+ */
+.decision-map > .map-toolbar {
+  grid-row: 1;
+}
+
+.decision-map > .human-checkpoint-banner {
+  grid-row: 2;
+}
+
+.decision-map > .map-canvas {
+  grid-row: 3;
 }
 
 .decision-map-compact {
@@ -564,7 +798,7 @@ dd {
   align-items: center;
   gap: 0.65rem;
   border-bottom: 1px solid var(--warning);
-  background: rgba(239, 179, 95, 0.11);
+  background: var(--tint-warning-bg);
   padding: 0.55rem 0.8rem;
   color: var(--warning);
 }
@@ -580,7 +814,7 @@ dd {
 }
 
 .human-checkpoint-banner small {
-  color: #d8c5a9;
+  color: var(--status-warning);
   font-size: 0.62rem;
 }
 
@@ -602,38 +836,59 @@ dd {
   letter-spacing: 0.1em;
 }
 
-.map-canvas {
+/* Both graph canvases share one chrome vocabulary: grab cursor, rounded
+   controls on the panel surface, consistent inner margin. */
+.map-canvas,
+.evidence-map-canvas {
   min-height: 0;
-  background: #0a1015;
+  background: var(--surface-inset);
 }
 
-.map-canvas .react-flow__pane {
+.map-canvas .react-flow__pane,
+.evidence-map-canvas .react-flow__pane {
   cursor: grab;
 }
 
-.map-canvas .react-flow__pane:active {
+.map-canvas .react-flow__pane:active,
+.evidence-map-canvas .react-flow__pane:active {
   cursor: grabbing;
 }
 
-.map-canvas .react-flow__controls {
+.map-canvas .react-flow__controls,
+.evidence-map-canvas .react-flow__controls {
   overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: 0;
-  box-shadow: none;
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-1);
 }
 
-.map-canvas .react-flow__controls-button {
-  border-bottom-color: var(--line);
-  background: var(--panel-strong);
-  fill: var(--text);
+.map-canvas .react-flow__controls-button,
+.evidence-map-canvas .react-flow__controls-button {
+  border-bottom-color: var(--border-subtle);
+  background: var(--surface-panel);
+  fill: var(--content-primary);
 }
 
-.map-canvas .react-flow__controls-button:hover {
-  background: #1b2b36;
+.map-canvas .react-flow__controls-button:hover,
+.evidence-map-canvas .react-flow__controls-button:hover {
+  background: var(--surface-hover);
 }
 
-.map-canvas .react-flow__panel {
+.map-canvas .react-flow__panel,
+.evidence-map-canvas .react-flow__panel {
   margin: 0.7rem;
+}
+
+/* The default attribution badge is dark-on-light; keep it muted on both. */
+.map-canvas .react-flow__attribution,
+.evidence-map-canvas .react-flow__attribution {
+  background: transparent;
+  color: var(--content-faint);
+}
+
+.map-canvas .react-flow__attribution a,
+.evidence-map-canvas .react-flow__attribution a {
+  color: inherit;
 }
 
 .react-flow__node {
@@ -647,7 +902,7 @@ dd {
   border-left-width: 3px;
   background: var(--panel-strong);
   padding: 0.6rem 0.65rem;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.16);
+  box-shadow: 0 10px 30px var(--shadow-1);
 }
 
 .decision-handle {
@@ -824,8 +1079,8 @@ dd {
   border-width: 2px;
   border-left-width: 4px;
   box-shadow:
-    0 0 0 1px rgba(239, 179, 95, 0.2),
-    0 12px 36px rgba(239, 179, 95, 0.12);
+    0 0 0 1px var(--tint-warning-border),
+    0 12px 36px var(--shadow-1);
 }
 
 .react-flow__edge.animated path {
@@ -838,7 +1093,7 @@ dd {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.38rem 0.65rem;
   border: 1px solid var(--line);
-  background: rgba(10, 16, 21, 0.94);
+  background: var(--surface-overlay);
   padding: 0.55rem;
   color: var(--muted);
   font-size: 0.53rem;
@@ -894,7 +1149,7 @@ dd {
 
 .map-empty {
   border: 1px dashed var(--line-strong);
-  background: rgba(10, 16, 21, 0.92);
+  background: var(--surface-overlay);
   padding: 0.45rem 0.65rem;
   color: var(--muted);
   font-size: 0.62rem;
@@ -906,7 +1161,7 @@ dd {
 
 .inspector-checkpoint {
   border: 1px solid var(--warning);
-  background: rgba(239, 179, 95, 0.07);
+  background: var(--tint-warning-bg);
   padding: 0.75rem;
 }
 
@@ -1271,7 +1526,7 @@ dd {
 .inspector-rationale {
   margin-top: 0.75rem;
   border-left: 2px solid var(--warning);
-  background: rgba(239, 179, 95, 0.05);
+  background: var(--tint-warning-bg);
   padding: 0.65rem 0.75rem;
 }
 
@@ -1305,7 +1560,7 @@ dd {
 .human-checkpoint {
   margin-top: 0.75rem;
   border: 1px solid var(--warning);
-  background: rgba(239, 179, 95, 0.075);
+  background: var(--tint-warning-bg);
   padding: 0.8rem;
 }
 
@@ -1344,7 +1599,7 @@ dd {
 
 .checkpoint-action:hover:not(:disabled) {
   border-color: var(--focus);
-  background: #1b2b36;
+  background: var(--surface-hover);
 }
 
 .checkpoint-action:disabled {
@@ -1376,7 +1631,7 @@ dd {
   gap: 0.65rem;
   margin-top: 0.75rem;
   border: 1px solid var(--success);
-  background: rgba(58, 213, 140, 0.055);
+  background: var(--tint-success-bg);
   padding: 0.8rem;
 }
 
@@ -1424,7 +1679,7 @@ dd {
 }
 
 .timeline-event-selected {
-  background: rgba(82, 199, 232, 0.07);
+  background: var(--accent-soft);
 }
 
 .timeline-event > span {
@@ -1616,7 +1871,8 @@ dd {
 /* Task 12 deterministic fixture */
 .demo-shell {
   display: grid;
-  height: 100vh;
+  height: calc(100vh - var(--app-nav-h));
+  height: calc(100dvh - var(--app-nav-h));
   min-height: 43rem;
   grid-template-rows: 4.5rem minmax(0, 1fr) 6rem;
   overflow: hidden;
@@ -1805,8 +2061,8 @@ dd {
 .new-session-shell {
   min-height: 100vh;
   background:
-    linear-gradient(rgba(83, 103, 116, 0.08) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(83, 103, 116, 0.08) 1px, transparent 1px),
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px),
     var(--canvas);
   background-size: 3rem 3rem;
 }
@@ -1818,7 +2074,7 @@ dd {
   justify-content: space-between;
   gap: 1rem;
   border-bottom: 1px solid var(--line);
-  background: rgba(12, 18, 24, 0.94);
+  background: var(--surface-overlay);
   padding: 0 1.25rem;
 }
 
@@ -1834,7 +2090,7 @@ dd {
 .new-session-intro {
   align-self: start;
   border-top: 2px solid var(--running);
-  background: rgba(16, 24, 33, 0.84);
+  background: var(--surface-overlay-soft);
   padding: 1.3rem;
 }
 
@@ -1890,7 +2146,7 @@ dd {
 .new-session-note {
   margin-top: 1rem;
   border-left: 2px solid var(--warning);
-  background: rgba(239, 179, 95, 0.06);
+  background: var(--tint-warning-bg);
   padding: 0.8rem;
 }
 
@@ -1910,7 +2166,7 @@ dd {
   display: grid;
   gap: 0.85rem;
   border: 1px solid var(--line);
-  background: rgba(16, 24, 33, 0.94);
+  background: var(--surface-panel);
   padding: 1.3rem;
 }
 
@@ -1976,7 +2232,7 @@ dd {
 
 .new-session-form input::placeholder,
 .new-session-form textarea::placeholder {
-  color: #657985;
+  color: var(--content-faint);
 }
 
 .new-session-form input:disabled,
@@ -1988,7 +2244,7 @@ dd {
 
 .new-session-error {
   border: 1px solid var(--danger);
-  background: rgba(238, 109, 109, 0.07);
+  background: var(--tint-danger-bg);
   padding: 0.7rem;
 }
 
@@ -2026,7 +2282,7 @@ dd {
 
 .new-session-submit:hover:not(:disabled) {
   border-color: var(--focus);
-  background: #192a35;
+  background: var(--surface-hover);
 }
 
 .new-session-submit:disabled {
@@ -2058,7 +2314,7 @@ dd {
 }
 .decision-pending {
   border-color: var(--warning);
-  background: rgba(239, 179, 95, 0.06);
+  background: var(--tint-warning-bg);
 }
 
 .decision-pending .eyebrow,
@@ -2209,14 +2465,14 @@ dd {
   }
 }
 
-.review-list-shell { min-height:100vh;background:linear-gradient(rgba(83,103,116,.07) 1px,transparent 1px),linear-gradient(90deg,rgba(83,103,116,.07) 1px,transparent 1px),var(--canvas);background-size:3rem 3rem; }
-.review-list-header { display:flex;min-height:4.5rem;align-items:center;justify-content:space-between;gap:1rem;border-bottom:1px solid var(--line);background:rgba(12,18,24,.94);padding:0 1.25rem; }
+.review-list-shell { min-height:100vh;background:linear-gradient(var(--grid-line) 1px,transparent 1px),linear-gradient(90deg,var(--grid-line) 1px,transparent 1px),var(--canvas);background-size:3rem 3rem; }
+.review-list-header { display:flex;min-height:4.5rem;align-items:center;justify-content:space-between;gap:1rem;border-bottom:1px solid var(--line);background:var(--surface-overlay);padding:0 1.25rem; }
 .review-list-content { width:min(100%,82rem);margin:0 auto;padding:2.2rem 1.25rem 3rem; }
 .review-list-heading { display:flex;align-items:flex-end;justify-content:space-between;gap:1rem;border-bottom:1px solid var(--line-strong);padding-bottom:1rem; }
 .review-list-heading h1 { margin-top:.35rem;font-size:clamp(2rem,4vw,3.5rem);font-weight:720;letter-spacing:-.035em; }
 .review-list-heading>span { color:var(--running);font-size:.68rem;letter-spacing:.1em; }
 .review-grid { display:grid;grid-template-columns:repeat(auto-fit,minmax(22rem,1fr));gap:1rem;margin-top:1.2rem; }
-.review-card { display:grid;gap:.9rem;border:1px solid var(--line);border-top:2px solid var(--running);background:rgba(16,24,33,.94);padding:1rem; }
+.review-card { display:grid;gap:.9rem;border:1px solid var(--line);border-top:2px solid var(--running);background:var(--surface-panel);padding:1rem; }
 .review-card>header,.review-actions { display:flex;flex-wrap:wrap;align-items:center;gap:.5rem; }
 .review-card>header { justify-content:space-between; }
 .review-phase { color:var(--muted);font-size:.62rem;letter-spacing:.08em; }
@@ -2229,8 +2485,8 @@ dd {
 .review-actions a:hover,.review-actions button:hover:not(:disabled) { border-color:var(--running);color:var(--text); }
 .review-actions button { cursor:pointer; }
 .review-actions button:disabled { cursor:wait;opacity:.55; }
-.review-actions .review-delete { border-color:rgba(238,109,109,.55);color:var(--danger); }
-.review-empty { display:grid;justify-items:start;gap:.65rem;margin-top:1.2rem;border:1px dashed var(--line-strong);background:rgba(16,24,33,.7);padding:1.2rem;color:var(--muted); }
+.review-actions .review-delete { border-color:var(--tint-danger-border);color:var(--danger); }
+.review-empty { display:grid;justify-items:start;gap:.65rem;margin-top:1.2rem;border:1px dashed var(--line-strong);background:var(--surface-overlay-soft);padding:1.2rem;color:var(--muted); }
 .review-empty strong { color:var(--text); }
 @media (max-width:700px){.review-list-header,.review-list-heading{align-items:flex-start;flex-wrap:wrap;padding:.75rem}.review-card dl{grid-template-columns:1fr}}
 .security-shell { min-height:100vh;background:var(--canvas); }
@@ -2253,7 +2509,7 @@ dd {
 .auth-intro,.auth-form,.team-management { border:1px solid var(--line);background:var(--panel);padding:1.3rem; }
 .auth-intro h1 { margin-top:.6rem;font-size:clamp(2rem,4vw,3.6rem);letter-spacing:-.04em; }
 .auth-intro>p:not(.eyebrow) { margin-top:1rem;color:var(--muted-strong);line-height:1.75; }
-.auth-demo-accounts { display:grid;gap:.35rem;margin-top:1.2rem;border-left:2px solid var(--warning);background:rgba(239,179,95,.06);padding:.8rem;color:var(--muted-strong);font-size:.7rem; }
+.auth-demo-accounts { display:grid;gap:.35rem;margin-top:1.2rem;border-left:2px solid var(--warning);background:var(--tint-warning-bg);padding:.8rem;color:var(--muted-strong);font-size:.7rem; }
 .auth-demo-accounts code { color:var(--warning); }
 .auth-form { display:grid;gap:.8rem;align-content:start; }
 .auth-form h2,.team-management h2 { font-size:1.1rem; }
@@ -2314,7 +2570,7 @@ dd {
   border: 1px solid var(--line-strong);
   border-radius: 12px;
   overflow: hidden;
-  background: rgba(12, 20, 26, 0.35);
+  background: var(--surface-inset);
 }
 
 .evidence-map-node {
@@ -2420,7 +2676,7 @@ dd {
   grid-template-columns: 92px minmax(0, 1fr);
   gap: 8px;
   padding: 6px 0;
-  border-top: 1px solid rgba(83, 103, 116, 0.35);
+  border-top: 1px solid var(--border-base);
 }
 
 .evidence-map-detail-row dt {
@@ -2534,5 +2790,826 @@ dd {
 
   .research-table {
     font-size: 12px;
+  }
+}
+
+/* =========================================================================
+   App shell
+   -------------------------------------------------------------------------
+   One global bar (brand + product destinations + theme switch + account) and
+   one optional section bar. Both are theme aware and safe at 390px: every row
+   wraps, and nothing is wider than its container.
+   ========================================================================= */
+
+.app-nav {
+  position: relative;
+  z-index: var(--z-nav);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  padding: 0.6rem 1.25rem;
+  border-bottom: 1px solid var(--border-base);
+  background: var(--surface-nav);
+  color: var(--content-on-nav);
+}
+
+/*
+ * From tablet width up the bar keeps a single, exactly measurable row: the
+ * link strip scrolls horizontally instead of wrapping, which is what lets
+ * `.workspace-shell` / `.demo-shell` subtract `--app-nav-h` precisely.
+ */
+@media (min-width: 768px) {
+  .app-nav {
+    flex-wrap: nowrap;
+    min-height: var(--app-nav-h);
+  }
+
+  .app-nav-links {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .app-nav-actions {
+    flex-wrap: nowrap;
+  }
+}
+
+@media (max-width: 767px) {
+  :root {
+    --app-nav-h: 5.2rem;
+  }
+}
+
+.app-nav-brand {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.6rem;
+  min-width: 0;
+}
+
+.app-nav-brand .brand-mark {
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  border-radius: var(--radius-md);
+  background: linear-gradient(140deg, var(--accent), var(--accent-hover));
+  color: var(--content-on-accent);
+  font-size: 0.95rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.app-nav-brand-copy {
+  display: grid;
+  min-width: 0;
+}
+
+.app-nav-brand-copy strong {
+  font-size: 0.9rem;
+  font-weight: 680;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+.app-nav-brand-copy small {
+  margin-top: 0.1rem;
+  color: var(--content-on-nav-muted);
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+.app-nav-links {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  gap: 2px;
+  min-width: 0;
+}
+
+.app-nav-link {
+  padding: 0.4rem 0.7rem;
+  border-radius: var(--radius-md);
+  color: var(--content-on-nav-muted);
+  font-size: 0.8rem;
+  white-space: nowrap;
+  transition: background var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+}
+
+.app-nav-link:hover {
+  background: var(--surface-nav-hover);
+  color: var(--content-on-nav);
+}
+
+.app-nav-link[aria-current="page"] {
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-weight: 620;
+}
+
+.app-nav-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+/* Controls that sit on the dark navy bar need their own contrast pair. */
+.app-nav .auth-user-badge {
+  border-color: var(--content-on-nav-muted);
+  background: transparent;
+  color: var(--content-on-nav);
+}
+
+.app-nav .auth-user-badge button,
+.app-nav .auth-user-active small {
+  color: var(--content-on-nav-muted);
+}
+
+/*
+ * The bar is dark navy in BOTH themes, so its controls cannot use the panel
+ * surface: in the light theme `--surface-panel` is white, which left the
+ * switch as near-white text on a white pill (~1:1 contrast, i.e. invisible).
+ * They are drawn as outlines on the bar instead, and react to hover with the
+ * bar's own hover surface.
+ */
+.app-nav .theme-toggle {
+  border-color: var(--content-on-nav-muted);
+  background: transparent;
+  color: var(--content-on-nav);
+}
+
+.app-nav .theme-toggle:hover {
+  border-color: var(--accent);
+  background: var(--surface-nav-hover);
+  color: var(--content-on-nav);
+}
+
+.app-nav .correlation-chip,
+.app-nav .runtime-mode-badge {
+  color: var(--content-on-nav-muted);
+}
+
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.42rem 0.7rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-panel);
+  color: var(--content-subtle);
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+}
+
+.theme-toggle:hover {
+  border-color: var(--accent);
+  color: var(--content-primary);
+}
+
+.app-subnav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 0.45rem 1.25rem;
+  border-bottom: 1px solid var(--border-base);
+  background: var(--surface-raised);
+}
+
+.app-subnav-link {
+  padding: 0.35rem 0.7rem;
+  border-radius: var(--radius-md);
+  color: var(--content-muted);
+  font-size: 0.78rem;
+  white-space: nowrap;
+  transition: background var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+}
+
+.app-subnav-link:hover {
+  background: var(--surface-hover);
+  color: var(--content-primary);
+}
+
+.app-subnav-link[aria-current="page"] {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 620;
+}
+
+@media print {
+  .app-nav,
+  .app-subnav {
+    display: none !important;
+  }
+}
+
+/*
+ * The design system adds hover/focus transitions and a skeleton sweep; both
+ * must be switchable off for users who ask for less motion.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* =========================================================================
+   Component vocabulary
+   -------------------------------------------------------------------------
+   The classes below are the shared primitives new UI is written against; the
+   "application" section that follows maps the historic class names onto the
+   same tokens so old markup inherits the system without being rewritten.
+   ========================================================================= */
+
+.ui-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.85rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-panel);
+  color: var(--content-primary);
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+}
+
+.ui-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--content-primary);
+}
+
+.ui-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.ui-btn-primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.ui-btn-primary:hover:not(:disabled) {
+  border-color: var(--accent-hover);
+  background: var(--accent-hover);
+  color: var(--accent-contrast);
+}
+
+.ui-btn-ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--content-muted);
+}
+
+.ui-btn-ghost:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--content-primary);
+}
+
+.ui-btn-danger {
+  border-color: var(--tint-danger-border);
+  color: var(--status-danger);
+}
+
+.ui-btn-sm {
+  padding: 0.32rem 0.6rem;
+  font-size: 0.7rem;
+}
+
+.ui-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.ui-label {
+  color: var(--content-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.ui-hint {
+  color: var(--content-faint);
+  font-size: 0.68rem;
+}
+
+.ui-input,
+.ui-select,
+.ui-textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-md);
+  background: var(--surface-panel);
+  color: var(--content-primary);
+  font: inherit;
+  font-size: 0.8rem;
+}
+
+.ui-input::placeholder,
+.ui-textarea::placeholder {
+  color: var(--content-faint);
+}
+
+.ui-input:disabled,
+.ui-select:disabled,
+.ui-textarea:disabled {
+  background: var(--surface-inset);
+  color: var(--content-faint);
+}
+
+.ui-panel {
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-lg);
+  background: var(--surface-panel);
+  padding: 1rem 1.1rem;
+}
+
+.ui-card {
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-lg);
+  background: var(--surface-panel);
+  padding: 1rem;
+  box-shadow: var(--shadow-1);
+}
+
+.ui-panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.7rem;
+}
+
+.ui-panel-title {
+  color: var(--content-muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.ui-badge,
+.ui-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.15rem 0.55rem;
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-pill);
+  background: var(--surface-panel-soft);
+  color: var(--content-muted);
+  font-size: 0.7rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.ui-badge[data-tone="running"],
+.ui-pill[data-tone="running"] {
+  border-color: var(--tint-accent-border);
+  background: var(--tint-accent-bg);
+  color: var(--accent);
+}
+
+.ui-badge[data-tone="success"],
+.ui-pill[data-tone="success"] {
+  border-color: var(--tint-success-border);
+  background: var(--tint-success-bg);
+  color: var(--status-success);
+}
+
+.ui-badge[data-tone="warning"],
+.ui-pill[data-tone="warning"] {
+  border-color: var(--tint-warning-border);
+  background: var(--tint-warning-bg);
+  color: var(--status-warning);
+}
+
+.ui-badge[data-tone="danger"],
+.ui-pill[data-tone="danger"] {
+  border-color: var(--tint-danger-border);
+  background: var(--tint-danger-bg);
+  color: var(--status-danger);
+}
+
+.ui-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.ui-tab {
+  padding: 0.4rem 0.75rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--content-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ui-tab:hover {
+  background: var(--surface-hover);
+  color: var(--content-primary);
+}
+
+.ui-tab[aria-selected="true"],
+.ui-tab[aria-current="page"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.ui-empty {
+  display: grid;
+  justify-items: center;
+  gap: 0.4rem;
+  padding: 1.5rem 1rem;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-lg);
+  color: var(--content-muted);
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+.ui-alert {
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--border-base);
+  border-left-width: 3px;
+  border-radius: var(--radius-md);
+  background: var(--surface-panel-soft);
+  font-size: 0.78rem;
+}
+
+.ui-alert[data-tone="danger"] {
+  border-left-color: var(--status-danger);
+  background: var(--tint-danger-bg);
+}
+
+.ui-alert[data-tone="warning"] {
+  border-left-color: var(--status-warning);
+  background: var(--tint-warning-bg);
+}
+
+.ui-alert[data-tone="success"] {
+  border-left-color: var(--status-success);
+  background: var(--tint-success-bg);
+}
+
+.ui-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-lg);
+}
+
+.ui-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+
+.ui-table th,
+.ui-table td {
+  padding: 0.55rem 0.7rem;
+  border-bottom: 1px solid var(--border-base);
+  text-align: left;
+  vertical-align: top;
+}
+
+.ui-table th {
+  background: var(--surface-panel-soft);
+  color: var(--content-muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.ui-table tbody tr:hover {
+  background: var(--surface-hover);
+}
+
+.ui-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.ui-breadcrumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--content-faint);
+  font-size: 0.72rem;
+}
+
+.ui-breadcrumbs > * + *::before {
+  content: "/";
+  margin-right: 0.35rem;
+  color: var(--border-strong);
+}
+
+.ui-skeleton {
+  border-radius: var(--radius-md);
+  background: linear-gradient(
+    90deg,
+    var(--surface-panel-soft) 25%,
+    var(--surface-hover) 37%,
+    var(--surface-panel-soft) 63%
+  );
+  background-size: 400% 100%;
+  animation: ui-skeleton-sweep 1.4s ease-in-out infinite;
+}
+
+@keyframes ui-skeleton-sweep {
+  from {
+    background-position: 100% 50%;
+  }
+  to {
+    background-position: 0 50%;
+  }
+}
+
+/* =========================================================================
+   Application layer — the historic class names, aligned to the vocabulary
+   above. No markup change is required for these to take effect.
+   ========================================================================= */
+
+/* Page-level bars that remain after the global nav took over the brand. */
+.entry-header,
+.workspace-header,
+.demo-header,
+.new-session-header,
+.security-header,
+.auth-header,
+.review-list-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.85rem;
+  padding: 0.7rem 1.25rem;
+  border-bottom: 1px solid var(--border-base);
+  background: var(--surface-raised);
+}
+
+.entry-actions,
+.workspace-runtime-cluster {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+/* Hero --------------------------------------------------------------- */
+
+.entry-hero {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem 1.5rem;
+  width: min(100%, 82rem);
+  margin: 0 auto;
+  padding: 2.4rem 1.25rem 1.2rem;
+}
+
+.entry-hero-copy {
+  min-width: 0;
+}
+
+.entry-hero h1 {
+  margin-top: 0.35rem;
+  font-size: clamp(2rem, 4.5vw, 3.4rem);
+  font-weight: 720;
+  letter-spacing: -0.035em;
+  line-height: var(--leading-tight);
+}
+
+.entry-hero-lead {
+  max-width: 44rem;
+  margin-top: 0.9rem;
+  color: var(--content-subtle);
+  font-size: 0.95rem;
+  line-height: var(--leading-relaxed);
+}
+
+/* Buttons ---------------------------------------------------------------- */
+
+.primary-link,
+.header-secondary-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.45rem 0.8rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  font-size: 0.76rem;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: background var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+}
+
+.header-secondary-link {
+  border-color: transparent;
+  background: transparent;
+  color: var(--content-muted);
+}
+
+.header-secondary-link:hover {
+  background: var(--surface-hover);
+  color: var(--content-primary);
+}
+
+.primary-link {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.primary-link:hover {
+  border-color: var(--accent-hover);
+  background: var(--accent-hover);
+  color: var(--accent-contrast);
+}
+
+.new-session-submit {
+  border-radius: var(--radius-md);
+  transition: background var(--duration-base) var(--ease-standard),
+    border-color var(--duration-base) var(--ease-standard);
+}
+
+.checkpoint-action,
+.decision-actions button,
+.review-actions a,
+.review-actions button,
+.team-management button {
+  transition: background var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+}
+
+.review-actions a,
+.review-actions button,
+.review-action-disabled {
+  border-radius: var(--radius-md);
+}
+
+/* Surfaces --------------------------------------------------------------- */
+
+/*
+ * React Flow keeps its entire palette behind `--xy-*` custom properties whose
+ * `*-default` fallbacks are swapped by its `dark` colour-mode class. Binding
+ * the non-default slots to our semantic layer therefore makes the canvas —
+ * background, dot grid, node placeholder, handles, controls, selection box —
+ * follow the active theme with pure CSS. No component needs to know which
+ * theme is on, so the graph never re-renders (and never flashes) on a switch.
+ */
+.map-canvas,
+.evidence-map-canvas {
+  --xy-background-color: var(--surface-inset);
+  --xy-background-pattern-color: var(--graph-dot);
+  --xy-node-background-color: var(--surface-panel);
+  --xy-node-color: var(--content-primary);
+  --xy-node-border: 1px solid var(--border-base);
+  --xy-node-boxshadow-hover: var(--shadow-1);
+  --xy-node-boxshadow-selected: 0 0 0 1px var(--accent);
+  --xy-node-border-radius: var(--radius-lg);
+  --xy-handle-background-color: var(--accent);
+  --xy-handle-border-color: var(--surface-panel);
+  --xy-controls-button-background-color: var(--surface-panel);
+  --xy-controls-button-background-color-hover: var(--surface-hover);
+  --xy-controls-button-color: var(--content-primary);
+  --xy-controls-button-border-color: var(--border-subtle);
+  --xy-controls-box-shadow: var(--shadow-1);
+  --xy-selection-background-color: var(--accent-soft);
+  --xy-selection-border: 1px dotted var(--accent);
+  --xy-edge-label-background-color: var(--surface-panel);
+  --xy-attribution-background-color: transparent;
+}
+
+/*
+ * A data table keeps its natural column widths; the page must not pay for
+ * them. Anything that can be wider than a narrow panel goes in this scroller
+ * so the horizontal scrollbar stays inside the card.
+ */
+.research-table-scroll {
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.review-card,
+.security-grid article,
+.auth-intro,
+.auth-form,
+.team-management,
+.research-panel,
+.research-report-finding,
+.decision-node {
+  border-radius: var(--radius-lg);
+}
+
+.review-card,
+.security-grid article,
+.auth-intro,
+.auth-form,
+.team-management {
+  background: var(--surface-panel);
+  box-shadow: var(--shadow-1);
+}
+
+.review-empty,
+.map-empty,
+.research-empty,
+.empty-copy {
+  border-radius: var(--radius-lg);
+}
+
+/* Forms ------------------------------------------------------------------ */
+
+.auth-form input,
+.team-management input,
+.team-management select,
+.new-session-form select,
+.new-session-form textarea,
+.checkpoint-rationale textarea {
+  border-radius: var(--radius-md);
+  background: var(--surface-panel);
+  color: var(--content-primary);
+}
+
+.auth-form input,
+.team-management input,
+.team-management select,
+.new-session-form select,
+.new-session-form textarea {
+  border-color: var(--border-base);
+}
+
+.new-session-form textarea::placeholder {
+  color: var(--content-faint);
+}
+
+/* Selection + scrollbar follow the theme too. */
+::selection {
+  background: var(--selection-bg);
+}
+
+@media (max-width: 560px) {
+  .app-nav {
+    padding: 0.5rem 0.75rem;
+  }
+
+  .app-nav-brand-copy small {
+    display: none;
+  }
+
+  .app-subnav {
+    padding: 0.4rem 0.75rem;
+  }
+
+  .entry-header,
+  .workspace-header,
+  .demo-header,
+  .new-session-header,
+  .security-header,
+  .auth-header,
+  .review-list-header {
+    padding: 0.6rem 0.75rem;
   }
 }

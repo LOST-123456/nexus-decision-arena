@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 import {
@@ -63,13 +62,6 @@ export default function LoginPage() {
 
   return (
     <main className="auth-shell">
-      <header className="auth-header">
-        <Link className="brand-lockup brand-lockup-compact" href="/">
-          <span className="brand-mark" aria-hidden="true">N</span>
-          <span><strong>Nexus Decision Arena</strong><small>ACCOUNT & TEAM</small></span>
-        </Link>
-        <Link className="header-secondary-link" href="/">返回首页</Link>
-      </header>
       <div className="auth-layout">
         <section className="auth-intro">
           <p className="eyebrow">TEAM ACCESS</p>

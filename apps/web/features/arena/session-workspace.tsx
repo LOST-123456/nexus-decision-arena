@@ -12,7 +12,6 @@ import { AgentPanel } from "../../components/agent-panel";
 import { DecisionMap } from "../../components/decision-map";
 import { HumanCheckpoint } from "../../components/human-checkpoint";
 import { Inspector } from "../../components/inspector";
-import { AuthUserBadge } from "../../components/auth-user-badge";
 import { RuntimeModeBadge } from "../../components/runtime-mode-badge";
 import {
   Timeline,
@@ -369,20 +368,12 @@ export function SessionWorkspace({ sessionId }: { sessionId: string }) {
       data-session-source={persisted ? "live" : "preview-fixture"}
     >
       <header className="workspace-header">
-        <Link className="brand-lockup brand-lockup-compact" href="/">
-          <span className="brand-mark" aria-hidden="true">
-            N
-          </span>
-          <span>
-            <strong>Nexus Decision Arena</strong>
-            <small>SESSION / {sessionId}</small>
-          </span>
-        </Link>
-
+        <span className="correlation-chip" title={sessionId}>
+          会话 {sessionId.slice(0, 8)}
+        </span>
 
         <div className="workspace-runtime-cluster">
           <RuntimeModeBadge />
-          <AuthUserBadge />
           {rawEvents.at(-1)?.correlationId ? (
             <span
               className="correlation-chip"

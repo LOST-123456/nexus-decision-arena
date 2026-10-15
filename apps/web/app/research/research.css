@@ -1,33 +1,32 @@
 /*
  * Evidence-first Research Workspace.
  *
- * Scoped on purpose: the existing arena pages keep their own dark system and
- * this file only styles the research surface.
- *   workspace  light grey-blue   navigation  deep navy
- *   panels     white             actions     restrained blue-violet
+ * The research surface no longer owns a private palette: `--rw-*` are aliases
+ * into the shared semantic token layer (see globals.css), so this file follows
+ * the active dark/light theme exactly like the arena surface does.
  */
 
 .research-root {
-  --rw-canvas: #eef2f7;
-  --rw-panel: #ffffff;
-  --rw-panel-soft: #f7f9fc;
-  --rw-nav: #13253d;
-  --rw-nav-soft: #1d3557;
-  --rw-accent: #4f5bd5;
-  --rw-accent-soft: #e8eaff;
-  --rw-text: #16232f;
-  --rw-muted: #5b6b7d;
-  --rw-line: #d7e0ea;
-  --rw-line-strong: #b3c1d1;
-  --rw-verified: #1f8a5f;
-  --rw-unverified: #96650f;
-  --rw-rejected: #a63b46;
-  --rw-supports: #1f8a5f;
-  --rw-opposes: #b4552f;
-  --rw-context: #4c6076;
-  --rw-focus: #2f6df6;
+  --rw-canvas: var(--surface-canvas);
+  --rw-panel: var(--surface-panel);
+  --rw-panel-soft: var(--surface-panel-soft);
+  --rw-nav: var(--surface-nav);
+  --rw-nav-soft: var(--surface-nav-hover);
+  --rw-accent: var(--accent);
+  --rw-accent-soft: var(--accent-soft);
+  --rw-text: var(--content-primary);
+  --rw-muted: var(--content-muted);
+  --rw-line: var(--border-base);
+  --rw-line-strong: var(--border-strong);
+  --rw-verified: var(--status-verified);
+  --rw-unverified: var(--status-unverified);
+  --rw-rejected: var(--status-rejected);
+  --rw-supports: var(--status-supports);
+  --rw-opposes: var(--status-opposes);
+  --rw-context: var(--status-neutral);
+  --rw-focus: var(--focus-ring);
 
-  min-height: 100vh;
+  min-height: calc(100vh - var(--app-nav-h));
   background: var(--rw-canvas);
   color: var(--rw-text);
   font-size: 14px;
@@ -39,50 +38,14 @@
   outline-offset: 2px;
 }
 
-/* ---------- top navigation ---------- */
+/* ---------- navigation ---------- */
 
-.research-nav {
-  display: flex;
-  align-items: center;
-  gap: 20px;
-  padding: 0 20px;
-  height: 56px;
-  background: var(--rw-nav);
-  color: #f2f6fb;
-}
-
-.research-nav-brand {
-  font-weight: 650;
-  letter-spacing: 0.02em;
-  font-size: 14px;
-  white-space: nowrap;
-}
-
-.research-nav-links {
-  display: flex;
-  gap: 4px;
-  overflow-x: auto;
-  flex: 1;
-}
-
-.research-nav-link {
-  padding: 6px 12px;
-  border-radius: 6px;
-  color: #c3d2e4;
-  text-decoration: none;
-  white-space: nowrap;
-  font-size: 13px;
-}
-
-.research-nav-link:hover {
-  background: var(--rw-nav-soft);
-  color: #ffffff;
-}
-
-.research-nav-link[aria-current="page"] {
-  background: var(--rw-accent);
-  color: #ffffff;
-}
+/*
+ * The top navigation is no longer owned by this surface: the global app bar
+ * (components/app-nav.tsx) renders brand, product destinations, the theme
+ * switch and the account badge, and the research-specific route links live in
+ * the shared `.app-subnav` strip. Both are styled once in globals.css.
+ */
 
 /* ---------- layout ---------- */
 
@@ -101,6 +64,30 @@
  */
 .research-body[data-mode="focus"] {
   grid-template-columns: 300px minmax(0, 1fr);
+}
+
+/*
+ * The create form and the evidence explorer carry their own two-column ratio
+ * instead of the workspace's three-column default. Both are declared here
+ * rather than as inline styles: an inline `grid-template-columns` outranks
+ * every stylesheet rule, including the breakpoints below, which is how these
+ * two views used to overflow a phone-sized screen.
+ */
+.research-body[data-mode="create"] {
+  grid-template-columns: minmax(0, 460px) minmax(0, 1fr);
+}
+
+.research-body[data-mode="explore"] {
+  grid-template-columns: minmax(0, 1fr) 380px;
+}
+
+/*
+ * A tab-switched column is `display: none`d, but grid would keep its track
+ * behind as an empty gutter. Drop to a single track whenever one side is
+ * hidden, so the column that is showing gets the whole content width.
+ */
+.research-body[data-mode="explore"]:has(> [data-hidden="true"]) {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 /*
@@ -232,38 +219,38 @@
 
 .research-pill-verified {
   color: var(--rw-verified);
-  border-color: #b9e0cd;
-  background: #eef8f2;
+  border-color: var(--tint-success-border);
+  background: var(--tint-success-bg);
 }
 
 .research-pill-unverified {
   color: var(--rw-unverified);
-  border-color: #e6d3ab;
-  background: #fbf5e8;
+  border-color: var(--tint-warning-border);
+  background: var(--tint-warning-bg);
 }
 
 .research-pill-rejected {
   color: var(--rw-rejected);
-  border-color: #e3c1c5;
-  background: #fbf0f1;
+  border-color: var(--tint-rejected-border);
+  background: var(--tint-rejected-bg);
 }
 
 .research-pill-supports {
   color: var(--rw-supports);
-  border-color: #bfe0d0;
-  background: #f0f9f4;
+  border-color: var(--tint-success-border);
+  background: var(--tint-success-bg);
 }
 
 .research-pill-opposes {
   color: var(--rw-opposes);
-  border-color: #e8cdbc;
-  background: #fdf4ef;
+  border-color: var(--tint-opposes-border);
+  background: var(--tint-opposes-bg);
 }
 
 .research-pill-context {
   color: var(--rw-context);
-  border-color: #ccd7e2;
-  background: #f2f6fa;
+  border-color: var(--tint-context-border);
+  background: var(--tint-context-bg);
 }
 
 .research-pill-neutral {
@@ -412,11 +399,12 @@
   cursor: pointer;
   border: 1px solid var(--rw-accent);
   background: var(--rw-accent);
-  color: #ffffff;
+  color: var(--accent-contrast);
 }
 
 .research-button:hover {
-  background: #4350c8;
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 
 .research-button:disabled {
@@ -435,8 +423,8 @@
 
 .research-error {
   color: var(--rw-rejected);
-  background: #fbf0f1;
-  border: 1px solid #e3c1c5;
+  background: var(--tint-rejected-bg);
+  border: 1px solid var(--tint-rejected-border);
   border-radius: 6px;
   padding: 7px 10px;
   font-size: 12.5px;
@@ -760,14 +748,26 @@
 
 /* The report is meant to be printed or saved as PDF as-is. */
 @media print {
-  .research-nav,
+  .app-subnav,
   .research-tabs,
   .research-report-actions {
     display: none !important;
   }
 
   .research-root {
+    /* Printing always happens on paper: pin the light tokens regardless of
+       the on-screen theme so a dark session does not print unreadable. */
+    --surface-canvas: #ffffff;
+    --surface-panel: #ffffff;
+    --surface-panel-soft: #ffffff;
+    --surface-inset: #ffffff;
+    --content-primary: #16232f;
+    --content-muted: #444444;
+    --content-subtle: #333333;
+    --border-base: #cccccc;
+    --border-strong: #999999;
     background: #ffffff;
+    color: #16232f;
   }
 
   .research-report-shell {
@@ -827,9 +827,23 @@
   align-items: start;
 }
 
+/*
+ * Detail pair inside a claim-candidate card (quotes beside uncertainty).
+ * `auto-fit` lets it fall back to one column on its own, so it needs no
+ * breakpoint — and being a class it keeps the spacing in the design system.
+ */
+.research-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+
 @media (max-width: 1180px) {
   .research-body,
-  .research-body[data-mode="focus"] {
+  .research-body[data-mode="focus"],
+  .research-body[data-mode="create"],
+  .research-body[data-mode="explore"] {
     grid-template-columns: minmax(0, 1fr);
   }
   .research-library-grid {

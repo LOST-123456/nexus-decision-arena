@@ -121,13 +121,11 @@ export default async function ReportPage({
     return (
       <main data-demo-fixture="true" className="report-shell">
         <header className="report-header">
-          <Link className="brand-lockup brand-lockup-compact" href="/sessions/demo">
-            <span className="brand-mark" aria-hidden="true">N</span>
-            <span>
-              <strong>Nexus Decision Arena</strong>
-              <small>SESSION / {sessionId}</small>
-            </span>
-          </Link>
+          <nav className="ui-breadcrumbs" aria-label="面包屑">
+            <Link href="/">首页</Link>
+            <Link href="/sessions/demo">固定演示</Link>
+            <span>决策报告</span>
+          </nav>
           <div className="flex items-center gap-3">
             <span className="report-status">DEMO FIXTURE</span>
             <span className="report-status">REPORT READY</span>
@@ -151,13 +149,11 @@ export default async function ReportPage({
   return (
     <main data-report-source="live" className="report-shell">
       <header className="report-header">
-        <Link className="brand-lockup brand-lockup-compact" href={`/sessions/${sessionId}`}>
-          <span className="brand-mark" aria-hidden="true">N</span>
-          <span>
-            <strong>Nexus Decision Arena</strong>
-            <small>SESSION / {sessionId}</small>
-          </span>
-        </Link>
+        <nav className="ui-breadcrumbs" aria-label="面包屑">
+          <Link href="/">首页</Link>
+          <Link href={`/sessions/${sessionId}`}>会话 {sessionId.slice(0, 8)}</Link>
+          <span>决策报告</span>
+        </nav>
         <div className="flex items-center gap-3">
           <span className="report-status">LIVE SESSION</span>
           <span className="report-status">

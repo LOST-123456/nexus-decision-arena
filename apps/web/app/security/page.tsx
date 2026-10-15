@@ -1,5 +1,3 @@
-import Link from "next/link";
-
 const controls = [
   ["数据位置", "项目、审计事件和报告保存在本地 PostgreSQL；模型保存在 E 盘。"],
   ["密钥边界", "模型 API Key 仅由服务端环境变量读取，不进入浏览器代码和导出文件。"],
@@ -12,13 +10,6 @@ const controls = [
 export default function SecurityPage() {
   return (
     <main className="security-shell">
-      <header className="security-header">
-        <Link className="brand-lockup brand-lockup-compact" href="/">
-          <span className="brand-mark" aria-hidden="true">N</span>
-          <span><strong>Nexus Decision Arena</strong><small>SECURITY & GOVERNANCE</small></span>
-        </Link>
-        <Link className="header-secondary-link" href="/">返回首页</Link>
-      </header>
       <section className="security-document">
         <p className="eyebrow">SECURITY & DATA GOVERNANCE</p>
         <h1>安全与数据治理</h1>

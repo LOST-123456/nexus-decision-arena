@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { AuthUserBadge } from "../../components/auth-user-badge";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 import {
@@ -136,22 +135,6 @@ export function NewSessionForm() {
 
   return (
     <main className="new-session-shell">
-      <header className="new-session-header">
-        <Link className="brand-lockup brand-lockup-compact" href="/">
-          <span className="brand-mark" aria-hidden="true">
-            N
-          </span>
-          <span>
-            <strong>Nexus Decision Arena</strong>
-            <small>NEW DECISION REVIEW</small>
-          </span>
-        </Link>
-        <AuthUserBadge />
-        <Link className="header-secondary-link" href="/sessions/demo">
-          查看固定演示
-        </Link>
-      </header>
-
       <div className="new-session-layout">
         <section className="new-session-intro">
           <p className="eyebrow">PROJECT INTAKE</p>

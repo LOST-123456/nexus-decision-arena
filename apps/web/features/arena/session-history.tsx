@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { AuthUserBadge } from "../../components/auth-user-badge";
 import { useEffect, useState } from "react";
 import {
   getCurrentUser,
@@ -54,20 +53,6 @@ export function SessionHistory() {
 
   return (
     <main className="review-list-shell">
-      <header className="review-list-header">
-        <Link className="brand-lockup brand-lockup-compact" href="/">
-          <span className="brand-mark" aria-hidden="true">N</span>
-          <span>
-            <strong>Nexus Decision Arena</strong>
-            <small>DECISION HISTORY</small>
-          </span>
-        </Link>
-        <div className="entry-actions">
-          <AuthUserBadge />
-          <Link className="header-secondary-link" href="/sessions/demo">固定演示</Link>
-          <Link className="primary-link" href="/sessions/new">新建评审 <span aria-hidden="true">→</span></Link>
-        </div>
-      </header>
       <section className="review-list-content">
         <div className="review-list-heading">
           <div><p className="eyebrow">DECISION HISTORY</p><h1>历史记录</h1></div>

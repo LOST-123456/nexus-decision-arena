@@ -205,7 +205,7 @@ export function EvidenceExplorer({ sessionId }: { sessionId: string }) {
     <>
       {tabs}
 
-      <div className="research-body" style={{ gridTemplateColumns: "minmax(0,1fr) 380px" }}>
+      <div className="research-body" data-mode="explore">
         <div
           className="research-column"
           data-hidden={activeColumn !== "list"}

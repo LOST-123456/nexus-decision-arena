@@ -685,14 +685,7 @@ export function ClaimCandidatesPanel({
                     <p className="research-muted">提取理由：{candidate.rationale}</p>
 
                     {items.length > 0 ? (
-                      <div
-                        style={{
-                          display: "grid",
-                          gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-                          gap: 8,
-                          marginTop: 8
-                        }}
-                      >
+                      <div className="research-grid-2">
                         <div>
                           <p className="research-label">候选摘录（{items.length}）</p>
                           <ul className="research-plain-list">
