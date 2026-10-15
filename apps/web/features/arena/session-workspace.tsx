@@ -35,6 +35,7 @@ import {
   previewTimeline,
   type PreviewSession
 } from "./preview-session";
+import { toLoadFailure, type LoadFailure } from "../../lib/load-failure";
 
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -168,7 +169,7 @@ export function SessionWorkspace({ sessionId }: { sessionId: string }) {
    * has nothing true to show — rendering the empty shell instead would make a
    * dead core look like a brand-new, empty session.
    */
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadFailure, setLoadFailure] = useState<LoadFailure | null>(null);
   const [streamStatus, setStreamStatus] = useState<EventStreamStatus | null>(
     null
   );
@@ -193,7 +194,7 @@ export function SessionWorkspace({ sessionId }: { sessionId: string }) {
   const loadSession = useCallback(
     async (isActive: () => boolean) => {
       setLoading(true);
-      setLoadError(null);
+      setLoadFailure(null);
       try {
         const [loaded, persistedEvents] = await Promise.all([
           getSession(sessionId),
@@ -220,8 +221,8 @@ export function SessionWorkspace({ sessionId }: { sessionId: string }) {
         setLiveInspector(inspector);
       } catch (error) {
         if (isActive()) {
-          setLoadError(
-            error instanceof Error ? error.message : "会话加载失败"
+          setLoadFailure(
+            toLoadFailure(error, "找不到这个评审（HTTP 404）。", "会话加载失败")
           );
         }
       } finally {
@@ -391,23 +392,48 @@ export function SessionWorkspace({ sessionId }: { sessionId: string }) {
     }));
   }
 
-  if (persisted && loadError) {
+  if (persisted && loadFailure) {
+    // A missing session is a dead link, not a broken service: it gets its own
+    // panel and a way out instead of a retry button that can only fail again.
+    const notFound = loadFailure.status === 404;
     return (
-      <main className="workspace-fallback" data-testid="session-load-error">
+      <main
+        className="workspace-fallback"
+        data-testid={notFound ? "session-not-found" : "session-load-error"}
+      >
         <section className="workspace-notice" role="alert">
-          <p className="eyebrow">SESSION UNAVAILABLE</p>
-          <h2>无法加载会话</h2>
-          <p className="workspace-notice-reason">{loadError}</p>
-          <p className="workspace-notice-hint">
-            请确认核心 API 正在运行（默认 4100 端口），然后重新加载。
+          <p className="eyebrow">
+            {notFound ? "SESSION NOT FOUND" : "SESSION UNAVAILABLE"}
           </p>
-          <button
-            type="button"
-            className="workspace-retry"
-            onClick={() => void loadSession(() => true)}
-          >
-            重新加载
-          </button>
+          <h2>{notFound ? "会话不存在" : "无法加载会话"}</h2>
+          <p className="workspace-notice-reason">{loadFailure.message}</p>
+          {notFound ? (
+            <p className="workspace-notice-hint">
+              它可能已被删除，或者这个链接有误。
+            </p>
+          ) : (
+            <p className="workspace-notice-hint">
+              请确认核心 API 正在运行（默认 4100 端口），然后重新加载。
+            </p>
+          )}
+          {notFound ? (
+            <div className="workspace-notice-actions">
+              <Link className="workspace-retry" href="/history">
+                返回最近会话
+              </Link>
+              <Link className="workspace-retry" href="/sessions/new">
+                新建评审
+              </Link>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="workspace-retry"
+              onClick={() => void loadSession(() => true)}
+            >
+              重新加载
+            </button>
+          )}
         </section>
       </main>
     );

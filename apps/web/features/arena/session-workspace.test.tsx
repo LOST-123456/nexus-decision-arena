@@ -7,6 +7,7 @@ import {
 } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiTransportError } from "../../lib/api-transport";
 import { SessionWorkspace } from "./session-workspace";
 
 const sessionId = "3f6b1c2e-9a44-4d1e-8a7f-2b5c9d0e1f23";
@@ -114,5 +115,29 @@ describe("SessionWorkspace when the core API cannot be reached", () => {
     await waitFor(() => {
       expect(screen.queryByTestId("session-loading")).toBeNull();
     });
+  });
+});
+
+describe("SessionWorkspace when the session does not exist", () => {
+  it("says the session is gone and offers a way out instead of a retry", async () => {
+    apiMocks.getSession.mockRejectedValue(
+      new ApiTransportError("http", "Session not found", {
+        status: 404,
+        payload: { error: "Session not found" }
+      })
+    );
+
+    render(<SessionWorkspace sessionId={sessionId} />);
+
+    expect(await screen.findByTestId("session-not-found")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "会话不存在" })).toBeTruthy();
+    // A dead link must not offer a retry whose only outcome is failing again.
+    expect(screen.queryByRole("button", { name: "重新加载" })).toBeNull();
+    expect(screen.getByRole("link", { name: "返回最近会话" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "新建评审" })).toBeTruthy();
+    // The service-outage wording belongs to the other branch; the server's
+    // developer-facing English must not be what the operator reads either.
+    expect(screen.queryByRole("heading", { name: "无法加载会话" })).toBeNull();
+    expect(screen.queryByText(/Session not found/)).toBeNull();
   });
 });

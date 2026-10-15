@@ -1,11 +1,29 @@
 import "./globals.css";
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import { AppNav } from "../components/app-nav";
 
 export const metadata: Metadata = {
   title: "Nexus Decision Arena",
-  description: "AI 决策质询与事实核查工作台"
+  description: "AI 决策质询与事实核查工作台",
+  applicationName: "Nexus Decision Arena"
+};
+
+/**
+ * `themeColor` paints the browser's own chrome (mobile address bar, task
+ * switcher) with the navigation surface rather than white, so the frame does
+ * not flash bright above a dark canvas. It follows the operating system's
+ * preference because the browser reads this before any page script runs; the
+ * in-app toggle cannot reach it. Both values are the `--surface-nav` token of
+ * their theme, kept in sync with `globals.css` by hand.
+ */
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  themeColor: [
+    { media: "(prefers-color-scheme: dark)", color: "#0a1725" },
+    { media: "(prefers-color-scheme: light)", color: "#13253d" }
+  ]
 };
 
 /**

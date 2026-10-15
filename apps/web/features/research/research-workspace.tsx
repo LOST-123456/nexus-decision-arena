@@ -30,6 +30,7 @@ import {
   type ResearchWorkspace
 } from "./api";
 import { getCurrentUser, type AuthUser } from "../arena/api-client";
+import { toLoadFailure, type LoadFailure } from "../../lib/load-failure";
 import {
   CrossReviewPanel,
   EvidenceTable,
@@ -206,7 +207,16 @@ export function ResearchWorkspace({
   const [importError, setImportError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  /**
+   * Why the research never arrived, with its status kept.
+   *
+   * A 404 means the research is gone and the reader should go back to the
+   * list; anything else means the service did not answer and is worth
+   * retrying. Collapsing both into a message string made a deleted research
+   * look like a server outage, and a server outage look like a deleted
+   * research — the same failure this product already fixed on the arena side.
+   */
+  const [loadFailure, setLoadFailure] = useState<LoadFailure | null>(null);
   const [history, setHistory] = useState<string[]>([]);
   /**
    * Which sources in this research are copies, keyed by the local source id.
@@ -264,8 +274,12 @@ export function ResearchWorkspace({
         await refreshHistory();
       } catch (cause) {
         if (!cancelled) {
-          setLoadError(
-            cause instanceof Error ? cause.message : "Research workspace unavailable"
+          setLoadFailure(
+            toLoadFailure(
+              cause,
+              "找不到这项研究（HTTP 404）。",
+              "Research workspace unavailable"
+            )
           );
         }
       }
@@ -543,16 +557,30 @@ export function ResearchWorkspace({
     });
   }
 
-  if (loadError) {
+  if (loadFailure) {
+    const notFound = loadFailure.status === 404;
     return (
       <div className="research-body">
         <div className="research-column">
-          <section className="research-panel">
+          <section
+            className="research-panel"
+            data-testid={notFound ? "research-not-found" : "research-load-error"}
+          >
             <p className="research-error" role="alert">
-              {loadError}
+              {loadFailure.message}
             </p>
             <p className="research-muted" style={{ marginTop: 8 }}>
-              无法读取研究工作台。请确认后端已启动并完成 0005 迁移。
+              {notFound
+                ? "它可能已被删除，或者这个链接有误。"
+                : "无法读取研究工作台。请确认后端已启动并完成 0005 迁移。"}
+            </p>
+            <p style={{ marginTop: 12 }}>
+              <Link
+                className="research-button research-button-secondary"
+                href="/research"
+              >
+                返回研究列表
+              </Link>
             </p>
           </section>
         </div>
