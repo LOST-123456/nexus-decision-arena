@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
+import { AppNavHeightObserver } from "./app-nav-height";
 import { AuthUserBadge } from "./auth-user-badge";
 import { ThemeToggle } from "./theme-toggle";
 
@@ -48,6 +49,8 @@ export function AppNav({ context }: { context?: ReactNode }) {
 
   return (
     <header className="app-nav" data-testid="app-nav">
+      <AppNavHeightObserver />
+
       <Link className="app-nav-brand" href="/">
         <span className="brand-mark" aria-hidden="true">
           N

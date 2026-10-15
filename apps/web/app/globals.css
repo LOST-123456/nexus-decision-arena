@@ -1401,6 +1401,8 @@ dd {
   .workspace-shell {
     height: auto;
     min-height: 100vh;
+    min-height: calc(100vh - var(--app-nav-h));
+    min-height: calc(100dvh - var(--app-nav-h));
     grid-template-rows: auto auto auto;
     overflow: visible;
   }
@@ -1968,6 +1970,8 @@ dd {
   .demo-shell {
     height: auto;
     min-height: 100vh;
+    min-height: calc(100vh - var(--app-nav-h));
+    min-height: calc(100dvh - var(--app-nav-h));
     grid-template-rows: auto auto auto;
     overflow: visible;
   }
@@ -2816,8 +2820,10 @@ dd {
 
 /*
  * From tablet width up the bar keeps a single, exactly measurable row: the
- * link strip scrolls horizontally instead of wrapping, which is what lets
- * `.workspace-shell` / `.demo-shell` subtract `--app-nav-h` precisely.
+ * link strip scrolls horizontally instead of wrapping. Below that it wraps,
+ * which is why `--app-nav-h` is not a constant: the values declared here are
+ * only the pre-hydration fallback, and `AppNavHeightObserver` overwrites the
+ * token on `<html>` with the measured height the moment the client boots.
  */
 @media (min-width: 768px) {
   .app-nav {
@@ -2836,6 +2842,11 @@ dd {
   }
 }
 
+/*
+ * Fallback only — see `AppNavHeightObserver`, which replaces this with the
+ * measured bar height as soon as the client hydrates. Keeping a sane value
+ * here means the first (server-rendered) frame is still close to correct.
+ */
 @media (max-width: 767px) {
   :root {
     --app-nav-h: 5.2rem;
