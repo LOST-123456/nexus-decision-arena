@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   createSession,
   deleteSession,
@@ -19,22 +19,46 @@ const emptyProject = {
   expectedData: ""
 };
 
+/**
+ * The recent-research list has three genuinely different states, and merging
+ * them is a lie: "we could not reach the server" must never render as "you
+ * have no research yet". A dead core used to fall through to the empty state
+ * because the loader swallowed every failure into `[]`.
+ */
+type SessionsState =
+  | { status: "loading" }
+  | { status: "ready"; sessions: SessionSummary[] }
+  | { status: "error"; message: string };
+
 export function ResearchHome() {
   const [project, setProject] = useState(emptyProject);
   const [researchQuestion, setResearchQuestion] = useState("");
-  const [sessions, setSessions] = useState<SessionSummary[] | null>(null);
+  const [sessions, setSessions] = useState<SessionsState>({ status: "loading" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [createdId, setCreatedId] = useState<string | null>(null);
+  /** Row awaiting a second click before the destructive call goes out. */
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  /** Failure of the last delete attempt, shown instead of being swallowed. */
+  const [listError, setListError] = useState<string | null>(null);
 
-  const reload = () =>
-    listSessions()
-      .then(setSessions)
-      .catch(() => setSessions([]));
+  const reload = useCallback(async () => {
+    setSessions({ status: "loading" });
+    try {
+      const loaded = await listSessions();
+      setSessions({ status: "ready", sessions: loaded });
+    } catch (cause) {
+      setSessions({
+        status: "error",
+        message: cause instanceof Error ? cause.message : "无法读取研究列表"
+      });
+    }
+  }, []);
 
   useEffect(() => {
-    reload();
-  }, []);
+    void reload();
+  }, [reload]);
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -59,6 +83,25 @@ export function ResearchHome() {
       setError(cause instanceof Error ? cause.message : "创建研究失败");
     } finally {
       setBusy(false);
+    }
+  };
+
+  /**
+   * Deletes only after the operator has confirmed, and reports a failure
+   * instead of swallowing it — a delete that silently did nothing is worse
+   * than a visible error, because the row would look gone while still there.
+   */
+  const confirmDelete = async (sessionId: string) => {
+    setDeletingId(sessionId);
+    setListError(null);
+    try {
+      await deleteSession(sessionId);
+      setPendingDeleteId(null);
+      await reload();
+    } catch (cause) {
+      setListError(cause instanceof Error ? cause.message : "删除失败，请重试。");
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -159,59 +202,129 @@ export function ResearchHome() {
         <section className="research-panel">
           <div className="research-panel-head">
             <span className="research-panel-title">最近研究</span>
-            <span className="research-muted">
-              {sessions ? `${sessions.length} 项` : "载入中"}
+            <span className="research-muted" data-testid="research-list-count">
+              {sessions.status === "ready"
+                ? `${sessions.sessions.length} 项`
+                : sessions.status === "loading"
+                  ? "载入中"
+                  : "读取失败"}
             </span>
           </div>
-          {sessions === null ? (
-            <div className="research-empty">正在载入…</div>
-          ) : sessions.length === 0 ? (
-            <div className="research-empty">还没有研究任务。</div>
+
+          {listError ? (
+            <p
+              className="research-error"
+              role="alert"
+              data-testid="research-list-action-error"
+            >
+              {listError}
+            </p>
+          ) : null}
+
+          {sessions.status === "loading" ? (
+            <div className="research-empty" data-testid="research-list-loading">
+              正在读取研究列表…
+            </div>
+          ) : sessions.status === "error" ? (
+            <div
+              className="research-empty research-empty-error"
+              role="alert"
+              data-testid="research-list-error"
+            >
+              <p className="research-empty-title">无法读取研究列表</p>
+              <p>{sessions.message}</p>
+              <p className="research-muted">
+                请确认核心 API 正在运行（默认 4100 端口），然后重试。
+              </p>
+              <button
+                type="button"
+                className="research-button"
+                onClick={() => void reload()}
+              >
+                重新加载
+              </button>
+            </div>
+          ) : sessions.sessions.length === 0 ? (
+            <div className="research-empty" data-testid="research-list-empty">
+              还没有研究任务。
+            </div>
           ) : (
-            <table className="research-table">
-              <thead>
-                <tr>
-                  <th scope="col">研究</th>
-                  <th scope="col">流程状态</th>
-                  <th scope="col">分歧</th>
-                  <th scope="col">操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sessions.map((session) => (
-                  <tr key={session.id}>
-                    <td>
-                      <Link href={`/research/${session.id}`}>
-                        {session.projectName}
-                      </Link>
-                      <div className="research-muted">{session.id}</div>
-                    </td>
-                    <td>{workflowLabel(session.phase)}</td>
-                    <td>{session.conflictCount}</td>
-                    <td>
-                      <div className="research-actions">
-                        <Link
-                          className="research-button research-button-secondary"
-                          href={`/research/${session.id}/evidence`}
-                        >
-                          证据
-                        </Link>
-                        <button
-                          type="button"
-                          className="research-button research-button-secondary"
-                          onClick={async () => {
-                            await deleteSession(session.id).catch(() => undefined);
-                            await reload();
-                          }}
-                        >
-                          删除
-                        </button>
-                      </div>
-                    </td>
+            <div className="research-table-scroll">
+              <table className="research-table">
+                <thead>
+                  <tr>
+                    <th scope="col">研究</th>
+                    <th scope="col">流程状态</th>
+                    <th scope="col">分歧</th>
+                    <th scope="col">操作</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {sessions.sessions.map((session) => {
+                    const confirming = pendingDeleteId === session.id;
+                    const deleting = deletingId === session.id;
+                    return (
+                      <tr key={session.id}>
+                        <td>
+                          <Link href={`/research/${session.id}`}>
+                            {session.projectName}
+                          </Link>
+                          <div className="research-muted">{session.id}</div>
+                        </td>
+                        <td>{workflowLabel(session.phase)}</td>
+                        <td>{session.conflictCount}</td>
+                        <td>
+                          <div className="research-actions">
+                            <Link
+                              className="research-button research-button-secondary"
+                              href={`/research/${session.id}/evidence`}
+                            >
+                              证据
+                            </Link>
+                            {confirming ? (
+                              <>
+                                <button
+                                  type="button"
+                                  className="research-button research-button-danger"
+                                  data-testid="research-delete-confirm"
+                                  disabled={deleting}
+                                  aria-label={`确认删除研究 ${session.projectName}`}
+                                  onClick={() => void confirmDelete(session.id)}
+                                >
+                                  {deleting ? "删除中…" : "确认删除"}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="research-button research-button-secondary"
+                                  data-testid="research-delete-cancel"
+                                  disabled={deleting}
+                                  onClick={() => setPendingDeleteId(null)}
+                                >
+                                  取消
+                                </button>
+                              </>
+                            ) : (
+                              <button
+                                type="button"
+                                className="research-button research-button-secondary"
+                                data-testid="research-delete"
+                                aria-label={`删除研究 ${session.projectName}`}
+                                onClick={() => {
+                                  setListError(null);
+                                  setPendingDeleteId(session.id);
+                                }}
+                              >
+                                删除
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
         </section>
       </div>

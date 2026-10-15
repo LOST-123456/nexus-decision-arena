@@ -59,6 +59,12 @@ function timeoutMessage(timeoutMs: number): string {
 }
 
 function httpFallbackMessage(status: number): string {
+  // 501 is not a crash: the route exists but the service behind it was never
+  // wired on this deployment. The core says so in a developer-facing English
+  // string, so this status gets operator-facing Chinese copy instead.
+  if (status === 501) {
+    return "该功能在当前服务器上尚未启用。请联系管理员启用后再试。";
+  }
   if (status >= 500) {
     return `核心 API 返回 ${status} 错误。请确认服务正常运行后重试。`;
   }
@@ -119,11 +125,15 @@ export async function fetchJson<T>(
       unknown
     > | null;
     const serverMessage =
-      typeof payload?.message === "string"
-        ? payload.message
-        : typeof payload?.error === "string"
-          ? payload.error
-          : null;
+      // A 501 body is a developer string ("X is not configured"). For that one
+      // status the operator-facing copy must win over the server's words.
+      response.status === 501
+        ? null
+        : typeof payload?.message === "string"
+          ? payload.message
+          : typeof payload?.error === "string"
+            ? payload.error
+            : null;
     throw new ApiTransportError(
       "http",
       serverMessage ?? httpFallbackMessage(response.status),

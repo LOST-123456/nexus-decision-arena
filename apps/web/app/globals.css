@@ -542,6 +542,13 @@ dd {
   background: var(--tint-neutral-bg);
 }
 
+/* A missing page is not a failure of the service, so it keeps a neutral tone
+   instead of borrowing the danger styling. */
+.workspace-notice[data-tone="neutral"] {
+  border-color: var(--tint-neutral-border);
+  background: var(--tint-neutral-bg);
+}
+
 .workspace-notice h2 {
   font-size: var(--text-lg);
   font-weight: 650;
@@ -560,6 +567,8 @@ dd {
 }
 
 .workspace-retry {
+  display: inline-flex;
+  align-items: center;
   justify-self: start;
   border: 1px solid var(--accent);
   border-radius: var(--radius-md);
@@ -567,12 +576,21 @@ dd {
   padding: 0.45rem 0.9rem;
   color: var(--content-primary);
   font-size: var(--text-xs);
+  text-decoration: none;
   cursor: pointer;
   transition: background var(--duration-fast) var(--ease-standard);
 }
 
 .workspace-retry:hover {
   background: var(--surface-hover);
+}
+
+/* Recovery actions of the whole-app boundaries (404 / error / loading). */
+.workspace-notice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  justify-self: start;
 }
 
 /* Live stream dropped (core restarting, laptop woke up): the browser is

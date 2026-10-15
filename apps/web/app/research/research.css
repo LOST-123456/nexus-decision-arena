@@ -421,6 +421,18 @@
   background: var(--rw-accent-soft);
 }
 
+/* Destructive actions read as destructive, and are only used after a confirm
+   step so a single stray click can never delete a research task. */
+.research-button-danger {
+  border-color: var(--tint-danger-border);
+  background: var(--tint-danger-bg);
+  color: var(--rw-rejected);
+}
+
+.research-button-danger:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
 .research-error {
   color: var(--rw-rejected);
   background: var(--tint-rejected-bg);
@@ -437,6 +449,27 @@
   text-align: center;
   border: 1px dashed var(--rw-line-strong);
   border-radius: 8px;
+}
+
+/*
+ * "We could not read the server" is not an empty list. It borrows the empty
+ * card's footprint but states the failure, names the likely cause and offers
+ * the one action that can help.
+ */
+.research-empty-error {
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+  border-style: solid;
+  border-color: var(--tint-danger-border);
+  background: var(--tint-danger-bg);
+  color: var(--content-primary);
+}
+
+.research-empty-title {
+  color: var(--rw-rejected);
+  font-size: 13px;
+  font-weight: 650;
 }
 
 /* ---------- verdict ---------- */

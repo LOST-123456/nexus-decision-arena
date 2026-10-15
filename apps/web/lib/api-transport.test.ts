@@ -131,4 +131,21 @@ describe("fetchJson", () => {
     expect((error as ApiTransportError).message).toContain("核心 API 返回 500");
     expect((error as ApiTransportError).message).not.toContain("Internal Server Error");
   });
+
+  it("turns a 501 into 尚未启用 copy instead of echoing the developer string", async () => {
+    stubFetch(() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({ error: "Claim extraction is not configured" }),
+          { status: 501 }
+        )
+      )
+    );
+
+    const error = await fetchJson("/api/claims").catch((caught: unknown) => caught);
+    expect((error as ApiTransportError).kind).toBe("http");
+    expect((error as ApiTransportError).status).toBe(501);
+    expect((error as ApiTransportError).message).toContain("尚未启用");
+    expect((error as ApiTransportError).message).not.toContain("is not configured");
+  });
 });
