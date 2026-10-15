@@ -76,7 +76,7 @@ test("retry actually re-reads the session", async ({ page }) => {
   await expect.poll(() => apiCalls).toBeGreaterThan(callsAfterLoad);
 });
 
-test("a healthy core after retry replaces the error with the workspace", async ({
+test("a healthy core after retry replaces the error with the honest not-found panel", async ({
   page
 }) => {
   let healthy = false;
@@ -95,11 +95,14 @@ test("a healthy core after retry replaces the error with the workspace", async (
   healthy = true;
   await panel.getByRole("button", { name: "重新加载" }).click();
 
-  // The session id does not exist, so the honest answer is a readable refusal
-  // — the core's own "Session not found" message, passed through verbatim by
-  // the transport — not a spinner and not an empty shell.
-  await expect(page.getByTestId("session-load-error")).toContainText(
-    /Session not found|未找到|404/,
-    { timeout: 15_000 }
-  );
+  // The session id really is absent, so once the core answers the page must
+  // stop blaming the service: the outage panel becomes a "not found" panel
+  // with a way out, not a retry button whose only outcome is failing again.
+  const notFound = page.getByTestId("session-not-found");
+  await expect(notFound).toBeVisible({ timeout: 15_000 });
+  await expect(notFound).toContainText("会话不存在");
+  await expect(notFound.getByRole("button", { name: "重新加载" })).toHaveCount(0);
+  await expect(notFound.getByRole("link", { name: "返回最近会话" })).toBeVisible();
+  // The server's developer-facing English must never reach the operator.
+  await expect(notFound).not.toContainText("Session not found");
 });
