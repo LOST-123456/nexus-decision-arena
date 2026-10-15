@@ -7,6 +7,7 @@ import {
   type SessionPhase,
   type SessionView
 } from "@nexus/shared";
+import { ApiTransportError, fetchJson } from "../../lib/api-transport";
 import type { ReplayableSession } from "./event-reducer";
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "";
@@ -77,6 +78,9 @@ export type HumanDecisionResponse = {
   event: ExecutionEvent;
 };
 
+/** Live connection state of the execution-event stream. */
+export type EventStreamStatus = "connecting" | "open" | "error";
+
 function isSessionPhase(value: unknown): value is SessionPhase {
   return (
     typeof value === "string" &&
@@ -117,34 +121,15 @@ function normalizeSession(
   };
 }
 
-async function responseError(
-  response: Response,
-  fallback: string
-): Promise<Error> {
-  const payload = (await response.json().catch(() => null)) as
-    | { error?: string }
-    | null;
-  return new Error(payload?.error ?? `${fallback}: ${response.status}`);
-}
-
 export async function createSession(
   command: CreateSessionCommand,
   idempotencyKey: string
 ): Promise<CreatedSession> {
-  const response = await fetch(`${apiUrl}/api/sessions`, {
+  const payload = await fetchJson<CreatedSession>(`${apiUrl}/api/sessions`, {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "idempotency-key": idempotencyKey
-    },
-    body: JSON.stringify(command)
+    body: JSON.stringify(command),
+    idempotencyKey
   });
-
-  if (!response.ok) {
-    throw await responseError(response, "Create session request failed");
-  }
-
-  const payload = (await response.json()) as CreatedSession;
   if (!payload.id) {
     throw new Error("Create session response did not contain an id");
   }
@@ -155,90 +140,76 @@ export async function startSession(
   sessionId: string,
   idempotencyKey: string
 ): Promise<{ id: string; status: string }> {
-  const response = await fetch(
+  return fetchJson<{ id: string; status: string }>(
     `${apiUrl}/api/sessions/${encodeURIComponent(sessionId)}/start`,
     {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "idempotency-key": idempotencyKey
-      },
-      body: "{}"
+      body: "{}",
+      idempotencyKey
     }
   );
-
-  if (!response.ok) {
-    throw await responseError(response, "Start session request failed");
-  }
-
-  return response.json() as Promise<{ id: string; status: string }>;
 }
 
 export async function getRuntimeInfo(): Promise<RuntimeInfo> {
-  const response = await fetch(`${apiUrl}/api/runtime`, {
-    cache: "no-store"
-  });
-  if (!response.ok) {
-    throw new Error(`Runtime request failed: ${response.status}`);
-  }
-  return response.json() as Promise<RuntimeInfo>;
+  return fetchJson<RuntimeInfo>(`${apiUrl}/api/runtime`, { cache: "no-store" });
 }
 
 export async function getCurrentUser(): Promise<AuthUser | null> {
-  const response = await fetch(`${apiUrl}/api/auth/me`, { cache: "no-store" });
-  if (response.status === 401) return null;
-  if (!response.ok) throw await responseError(response, "Auth request failed");
-  return response.json() as Promise<AuthUser>;
+  try {
+    return await fetchJson<AuthUser>(`${apiUrl}/api/auth/me`, {
+      cache: "no-store"
+    });
+  } catch (error) {
+    // Anonymous is the normal answer here, not a failure.
+    if (error instanceof ApiTransportError && error.status === 401) {
+      return null;
+    }
+    throw error;
+  }
 }
 
 export async function login(username: string, password: string): Promise<AuthUser> {
-  const response = await fetch(`${apiUrl}/api/auth/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ username, password }) });
-  if (!response.ok) throw await responseError(response, "Login failed");
-  return response.json() as Promise<AuthUser>;
+  return fetchJson<AuthUser>(`${apiUrl}/api/auth/login`, {
+    method: "POST",
+    body: JSON.stringify({ username, password })
+  });
 }
 
 export async function logout(): Promise<void> {
-  const response = await fetch(`${apiUrl}/api/auth/logout`, { method: "POST" });
-  if (!response.ok) throw await responseError(response, "Logout failed");
+  await fetchJson<null>(`${apiUrl}/api/auth/logout`, { method: "POST" });
 }
 
 export async function listUsers(): Promise<AuthUser[]> {
-  const response = await fetch(`${apiUrl}/api/auth/users`, { cache: "no-store" });
-  if (!response.ok) throw await responseError(response, "User list failed");
-  return response.json() as Promise<AuthUser[]>;
+  return fetchJson<AuthUser[]>(`${apiUrl}/api/auth/users`, { cache: "no-store" });
 }
 
 export async function createUser(command: { username: string; displayName: string; role: AuthUser["role"]; password: string; }): Promise<AuthUser> {
-  const response = await fetch(`${apiUrl}/api/auth/users`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(command) });
-  if (!response.ok) throw await responseError(response, "Create user failed");
-  return response.json() as Promise<AuthUser>;
+  return fetchJson<AuthUser>(`${apiUrl}/api/auth/users`, {
+    method: "POST",
+    body: JSON.stringify(command)
+  });
 }
 
 export async function listSessions(): Promise<SessionSummary[]> {
-  const response = await fetch(`${apiUrl}/api/sessions?limit=50`, { cache: "no-store" });
-  if (!response.ok) throw await responseError(response, "List sessions request failed");
-  return response.json() as Promise<SessionSummary[]>;
+  return fetchJson<SessionSummary[]>(`${apiUrl}/api/sessions?limit=50`, {
+    cache: "no-store"
+  });
 }
 
 export async function deleteSession(sessionId: string): Promise<void> {
-  const response = await fetch(`${apiUrl}/api/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
-  if (!response.ok) throw await responseError(response, "Delete session request failed");
+  await fetchJson<null>(
+    `${apiUrl}/api/sessions/${encodeURIComponent(sessionId)}`,
+    { method: "DELETE" }
+  );
 }
 
 export async function getSession(
   sessionId: string
 ): Promise<ReplayableSession> {
-  const response = await fetch(
+  const payload = await fetchJson<SessionPayload>(
     `${apiUrl}/api/sessions/${encodeURIComponent(sessionId)}`,
-    {
-      cache: "no-store"
-    }
+    { cache: "no-store" }
   );
-  if (!response.ok) {
-    throw new Error(`Session request failed: ${response.status}`);
-  }
-
-  const payload = (await response.json()) as SessionPayload;
   return normalizeSession(payload, sessionId);
 }
 
@@ -246,27 +217,19 @@ export async function getInspector(
   sessionId: string,
   claimId: string
 ): Promise<ClaimInspectorDTO> {
-  const response = await fetch(
+  return fetchJson<ClaimInspectorDTO>(
     `${apiUrl}/api/sessions/${encodeURIComponent(sessionId)}/claims/${encodeURIComponent(claimId)}/inspector`,
     { cache: "no-store" }
   );
-  if (!response.ok) {
-    throw new Error(`Inspector request failed: ${response.status}`);
-  }
-  return response.json() as Promise<ClaimInspectorDTO>;
 }
 
 export async function getEvents(
   sessionId: string
 ): Promise<ExecutionEvent[]> {
-  const response = await fetch(
+  return fetchJson<ExecutionEvent[]>(
     `${apiUrl}/api/sessions/${encodeURIComponent(sessionId)}/events`,
     { cache: "no-store" }
   );
-  if (!response.ok) {
-    throw new Error(`Event request failed: ${response.status}`);
-  }
-  return response.json() as Promise<ExecutionEvent[]>;
 }
 
 export async function submitHumanDecision(
@@ -274,34 +237,29 @@ export async function submitHumanDecision(
   command: HumanDecisionCommand,
   idempotencyKey: string
 ): Promise<HumanDecisionResponse> {
-  const response = await fetch(
+  return fetchJson<HumanDecisionResponse>(
     `${apiUrl}/api/sessions/${encodeURIComponent(sessionId)}/human-decisions`,
     {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "idempotency-key": idempotencyKey
-      },
-      body: JSON.stringify(command)
+      body: JSON.stringify(command),
+      idempotencyKey
     }
   );
-
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as
-      | { error?: string }
-      | null;
-    throw new Error(
-      payload?.error ?? `Human decision request failed: ${response.status}`
-    );
-  }
-
-  return response.json() as Promise<HumanDecisionResponse>;
 }
 
+/**
+ * Opens the execution-event stream.
+ *
+ * `onStatus` reports the browser's own view of the connection. The browser
+ * reconnects by itself, so "error" is a status to show ("live updates paused,
+ * reconnecting"), never a reason to tear the subscription down — silently
+ * stopping the timeline is how a dead stream looks like a quiet session.
+ */
 export function subscribeToEvents(
   sessionId: string,
   lastEventId: number,
-  onEvent: (event: ExecutionEvent) => void
+  onEvent: (event: ExecutionEvent) => void,
+  onStatus?: (status: EventStreamStatus) => void
 ): () => void {
   const url = new URL(
     `${apiUrl}/api/sessions/${encodeURIComponent(sessionId)}/events/stream`,
@@ -318,10 +276,19 @@ export function subscribeToEvents(
   for (const eventType of ExecutionEventTypeSchema.options) {
     source.addEventListener(eventType, listener as EventListener);
   }
+  source.onopen = (): void => {
+    onStatus?.("open");
+  };
+  source.onerror = (): void => {
+    onStatus?.("error");
+  };
+
   return () => {
     for (const eventType of ExecutionEventTypeSchema.options) {
       source.removeEventListener(eventType, listener as EventListener);
     }
+    source.onopen = null;
+    source.onerror = null;
     source.close();
   };
 }

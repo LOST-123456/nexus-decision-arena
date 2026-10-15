@@ -9,6 +9,7 @@ import {
   Panel,
   Position,
   ReactFlow,
+  useNodesInitialized,
   type NodeProps
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -42,6 +43,30 @@ import {
 const nodeTypes = {
   "evidence-map": EvidenceMapGraphNode
 };
+
+/**
+ * Publishes "every node has been measured" upward.
+ *
+ * React Flow keeps a node `visibility: hidden` until its ResizeObserver has
+ * reported real dimensions, and it reports nothing at all if the observer never
+ * fires for a node — so a node can stay hidden indefinitely rather than merely
+ * briefly. Exposing the library's own readiness signal lets the page state it
+ * plainly ("the graph is readable") instead of leaving callers to guess from
+ * whether some label happens to be visible yet.
+ */
+function NodeReadinessReporter({
+  onReady
+}: {
+  onReady: () => void;
+}) {
+  const initialized = useNodesInitialized();
+  useEffect(() => {
+    if (initialized) {
+      onReady();
+    }
+  }, [initialized, onReady]);
+  return null;
+}
 
 function EvidenceMapGraphNode({
   data
@@ -216,6 +241,18 @@ export function EvidenceMapPanel({ sessionId }: { sessionId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<EvidenceMapFilter>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  /**
+   * Reset whenever the node set changes: React Flow measures per node, so a
+   * filtered view (or a reloaded graph) has to be measured again before its
+   * nodes stop being hidden.
+   */
+  const [nodesReady, setNodesReady] = useState(false);
+
+  const markNodesReady = useCallback(() => setNodesReady(true), []);
+
+  useEffect(() => {
+    setNodesReady(false);
+  }, [graph, filter]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -308,24 +345,26 @@ export function EvidenceMapPanel({ sessionId }: { sessionId: string }) {
       </div>
 
       <div className="evidence-map-layout">
-        <div
-          className="evidence-map-canvas"
-          data-testid="evidence-map-canvas"
+      <div
+        className="evidence-map-canvas"
+        data-testid="evidence-map-canvas"
+        data-nodes-ready={nodesReady ? "true" : "false"}
+      >
+        <ReactFlow
+          nodes={flow.nodes}
+          edges={flow.edges}
+          nodeTypes={nodeTypes}
+          onNodeClick={(_, node) => setSelectedId(node.id)}
+          onPaneClick={() => setSelectedId(null)}
+          fitView
+          minZoom={0.2}
+          maxZoom={1.5}
+          nodesDraggable={true}
+          nodesConnectable={false}
+          elementsSelectable={true}
+          proOptions={{ hideAttribution: true }}
         >
-          <ReactFlow
-            nodes={flow.nodes}
-            edges={flow.edges}
-            nodeTypes={nodeTypes}
-            onNodeClick={(_, node) => setSelectedId(node.id)}
-            onPaneClick={() => setSelectedId(null)}
-            fitView
-            minZoom={0.2}
-            maxZoom={1.5}
-            nodesDraggable={true}
-            nodesConnectable={false}
-            elementsSelectable={true}
-            proOptions={{ hideAttribution: true }}
-          >
+          <NodeReadinessReporter onReady={markNodesReady} />
             {/* Colour comes from the `--xy-*` tokens bound in globals.css, so the
                 canvas follows the active theme without subscribing to it here. */}
             <Background gap={24} size={1} variant={BackgroundVariant.Dots} />

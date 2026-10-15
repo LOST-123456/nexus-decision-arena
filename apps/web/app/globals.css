@@ -512,6 +512,81 @@ dd {
   grid-template-columns: 18rem minmax(0, 1fr) 20rem;
 }
 
+/*
+ * Shown instead of the workspace when the session itself could not be read.
+ * A dead core must not look like an empty session: the empty shell would tell
+ * the operator "this session has no agents, no claims, no events", which is a
+ * lie. This panel says what failed and offers the one action that can help.
+ */
+.workspace-fallback {
+  display: grid;
+  min-height: calc(100vh - var(--app-nav-h));
+  min-height: calc(100dvh - var(--app-nav-h));
+  place-content: center;
+  padding: var(--space-5);
+  background: var(--canvas);
+}
+
+.workspace-notice {
+  display: grid;
+  gap: var(--space-3);
+  width: min(30rem, 100%);
+  border: 1px solid var(--tint-danger-border);
+  border-radius: var(--radius-lg);
+  background: var(--tint-danger-bg);
+  padding: var(--space-5);
+}
+
+.workspace-notice[data-tone="loading"] {
+  border-color: var(--tint-neutral-border);
+  background: var(--tint-neutral-bg);
+}
+
+.workspace-notice h2 {
+  font-size: var(--text-lg);
+  font-weight: 650;
+}
+
+.workspace-notice-reason {
+  color: var(--content-primary);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+
+.workspace-notice-hint {
+  color: var(--muted);
+  font-size: var(--text-xs);
+  line-height: var(--leading-normal);
+}
+
+.workspace-retry {
+  justify-self: start;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-md);
+  background: var(--accent-soft);
+  padding: 0.45rem 0.9rem;
+  color: var(--content-primary);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-standard);
+}
+
+.workspace-retry:hover {
+  background: var(--surface-hover);
+}
+
+/* Live stream dropped (core restarting, laptop woke up): the browser is
+   already reconnecting, so this is a status, not a dead end. */
+.stream-offline-chip {
+  border: 1px solid var(--tint-warning-border);
+  border-radius: var(--radius-pill);
+  background: var(--tint-warning-bg);
+  padding: 0.2rem 0.55rem;
+  color: var(--content-primary);
+  font-size: var(--text-2xs);
+  white-space: nowrap;
+}
+
 .agent-panel,
 .inspector-column {
   min-height: 0;

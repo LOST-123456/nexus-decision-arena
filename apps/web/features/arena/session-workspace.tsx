@@ -7,7 +7,7 @@ import type {
 } from "@nexus/shared";
 import { DecisionReplay, isConflictAwaitingHumanDecision } from "@nexus/shared";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AgentPanel } from "../../components/agent-panel";
 import { DecisionMap } from "../../components/decision-map";
 import { HumanCheckpoint } from "../../components/human-checkpoint";
@@ -23,6 +23,7 @@ import {
   getSession,
   subscribeToEvents,
   submitHumanDecision,
+  type EventStreamStatus,
   type HumanDecisionCommand
 } from "./api-client";
 import type { ReplayableSession } from "./event-reducer";
@@ -160,6 +161,17 @@ export function SessionWorkspace({ sessionId }: { sessionId: string }) {
   const [loading, setLoading] = useState(persisted);
   const [pending, setPending] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  /**
+   * Why this is separate from `errorMessage`: `errorMessage` is an action
+   * refusal ("this decision was rejected"), which leaves the workspace on
+   * screen. This one means the session itself never loaded, so the workspace
+   * has nothing true to show — rendering the empty shell instead would make a
+   * dead core look like a brand-new, empty session.
+   */
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [streamStatus, setStreamStatus] = useState<EventStreamStatus | null>(
+    null
+  );
 
   const primaryConflict = session.conflicts.find(
     isConflictAwaitingHumanDecision
@@ -172,18 +184,22 @@ export function SessionWorkspace({ sessionId }: { sessionId: string }) {
   const checkpointActive =
     session.phase === "HUMAN_REVIEW" && primaryConflict !== undefined;
 
-  useEffect(() => {
-    if (!persisted) {
-      return;
-    }
-
-    let cancelled = false;
-    setLoading(true);
-    Promise.all([getSession(sessionId), getEvents(sessionId)])
-      .then(async ([loaded, persistedEvents]) => {
-        if (cancelled) {
-          return;
-        }
+  /**
+   * Loads the session, its event log and the inspector for its first claim.
+   *
+   * `isActive` is how a superseded attempt (fast navigation, unmount) is told
+   * to drop its results instead of writing them over a newer load.
+   */
+  const loadSession = useCallback(
+    async (isActive: () => boolean) => {
+      setLoading(true);
+      setLoadError(null);
+      try {
+        const [loaded, persistedEvents] = await Promise.all([
+          getSession(sessionId),
+          getEvents(sessionId)
+        ]);
+        if (!isActive()) return;
         setSession(loaded);
         setRawEvents(persistedEvents);
         setEvents(
@@ -200,56 +216,69 @@ export function SessionWorkspace({ sessionId }: { sessionId: string }) {
           return;
         }
         const inspector = await getInspector(sessionId, claim.id);
-        if (!cancelled) {
-          setLiveInspector(inspector);
-        }
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) {
-          setErrorMessage(
-            error instanceof Error ? error.message : "Session load failed"
+        if (!isActive()) return;
+        setLiveInspector(inspector);
+      } catch (error) {
+        if (isActive()) {
+          setLoadError(
+            error instanceof Error ? error.message : "会话加载失败"
           );
         }
-      })
-      .finally(() => {
-        if (!cancelled) {
+      } finally {
+        if (isActive()) {
           setLoading(false);
         }
-      });
+      }
+    },
+    [sessionId]
+  );
+
+  useEffect(() => {
+    if (!persisted) {
+      return;
+    }
+
+    let cancelled = false;
+    void loadSession(() => !cancelled);
 
     return () => {
       cancelled = true;
     };
-  }, [persisted, sessionId]);
+  }, [persisted, loadSession]);
 
   useEffect(() => {
     if (!persisted || loading) {
       return;
     }
 
-    return subscribeToEvents(sessionId, session.lastSequence, (event) => {
-      setRawEvents((current) =>
-        current.some((item) => item.id === event.id)
-          ? current
-          : [...current, event].sort(
-              (left, right) => left.sequence - right.sequence
-            )
-      );
-      setEvents((current) =>
-        current.some((item) => item.id === event.id)
-          ? current
-          : [
-              ...current,
-              {
-                id: event.id,
-                sequence: event.sequence,
-                type: event.type
-              }
-            ].sort((left, right) => left.sequence - right.sequence)
-      );
-      setSession((current) => reduceSessionEvent(current, event));
-      setSelectedSequence(event.sequence);
-    });
+    return subscribeToEvents(
+      sessionId,
+      session.lastSequence,
+      (event) => {
+        setRawEvents((current) =>
+          current.some((item) => item.id === event.id)
+            ? current
+            : [...current, event].sort(
+                (left, right) => left.sequence - right.sequence
+              )
+        );
+        setEvents((current) =>
+          current.some((item) => item.id === event.id)
+            ? current
+            : [
+                ...current,
+                {
+                  id: event.id,
+                  sequence: event.sequence,
+                  type: event.type
+                }
+              ].sort((left, right) => left.sequence - right.sequence)
+        );
+        setSession((current) => reduceSessionEvent(current, event));
+        setSelectedSequence(event.sequence);
+      },
+      setStreamStatus
+    );
   }, [loading, persisted, session.lastSequence, sessionId]);
 
   async function handleDecision(
@@ -362,6 +391,42 @@ export function SessionWorkspace({ sessionId }: { sessionId: string }) {
     }));
   }
 
+  if (persisted && loadError) {
+    return (
+      <main className="workspace-fallback" data-testid="session-load-error">
+        <section className="workspace-notice" role="alert">
+          <p className="eyebrow">SESSION UNAVAILABLE</p>
+          <h2>无法加载会话</h2>
+          <p className="workspace-notice-reason">{loadError}</p>
+          <p className="workspace-notice-hint">
+            请确认核心 API 正在运行（默认 4100 端口），然后重新加载。
+          </p>
+          <button
+            type="button"
+            className="workspace-retry"
+            onClick={() => void loadSession(() => true)}
+          >
+            重新加载
+          </button>
+        </section>
+      </main>
+    );
+  }
+
+  if (persisted && loading) {
+    return (
+      <main className="workspace-fallback" data-testid="session-loading">
+        <section className="workspace-notice" data-tone="loading">
+          <p className="eyebrow">LOADING</p>
+          <h2>正在载入会话</h2>
+          <p className="workspace-notice-hint">
+            正在读取会话状态、执行事件与 Claim 详情。
+          </p>
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main
       className="workspace-shell"
@@ -374,6 +439,15 @@ export function SessionWorkspace({ sessionId }: { sessionId: string }) {
 
         <div className="workspace-runtime-cluster">
           <RuntimeModeBadge />
+          {streamStatus === "error" ? (
+            <span
+              className="stream-offline-chip"
+              role="status"
+              data-testid="stream-offline"
+            >
+              实时连接中断 · 自动重连中
+            </span>
+          ) : null}
           {rawEvents.at(-1)?.correlationId ? (
             <span
               className="correlation-chip"
@@ -417,8 +491,8 @@ export function SessionWorkspace({ sessionId }: { sessionId: string }) {
               <p className="eyebrow">INSPECTOR</p>
               <p className="empty-copy">
                 {loading
-                  ? "Loading Inspector data"
-                  : "No Claim inspector data is available."}
+                  ? "\u6b63\u5728\u52a0\u8f7d Claim \u8be6\u60c5"
+                  : "\u5f53\u524d\u6ca1\u6709\u53ef\u67e5\u770b\u7684 Claim \u8be6\u60c5"}
               </p>
             </section>
           )}

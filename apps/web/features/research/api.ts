@@ -1,4 +1,5 @@
 import { candidateClaimTypeToClaimType } from "@nexus/shared";
+import { ApiTransportError, fetchJson } from "../../lib/api-transport";
 import type {
   CandidateClaimType,
   CandidateDecision,
@@ -413,32 +414,37 @@ export class AnalysisFailedError extends Error {
   }
 }
 
+/**
+ * The one place a request leaves the browser.
+ *
+ * A body-less POST must not carry a JSON content-type: the API rejects an
+ * empty JSON payload, which would turn a valid action into a 400. Timeout,
+ * refused connection and non-2xx are separated in `api-transport`, so a page
+ * can tell "the service is down" from "this action was refused" instead of
+ * watching one indistinguishable spinner.
+ */
 async function request<T>(
   path: string,
   init?: RequestInit & { idempotencyKey?: string }
 ): Promise<T> {
-  const { idempotencyKey, ...rest } = init ?? {};
-  // A body-less POST must not carry a JSON content-type: the API rejects an
-  // empty JSON payload, which would turn a valid action into a 400.
-  const hasBody = rest.body !== undefined && rest.body !== null;
-  const response = await fetch(`${apiUrl}${path}`, {
-    cache: "no-store",
-    ...rest,
-    headers: {
-      ...(hasBody ? { "content-type": "application/json" } : {}),
-      ...(idempotencyKey ? { "idempotency-key": idempotencyKey } : {}),
-      ...(rest.headers ?? {})
-    }
-  });
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as
-      | { error?: string; message?: string }
-      | null;
-    throw new Error(
-      payload?.message ?? payload?.error ?? `Request failed: ${response.status}`
-    );
+  return fetchJson<T>(`${apiUrl}${path}`, { cache: "no-store", ...init });
+}
+
+/**
+ * Re-labels a transport failure with the route's own error class, keeping the
+ * server's machine-readable `code` so the UI can tell a retryable failure
+ * ("the model timed out") from one that can never work ("no provider").
+ */
+function withCode<E extends Error>(
+  error: unknown,
+  build: (message: string, code: string | undefined) => E
+): Error {
+  if (error instanceof ApiTransportError && error.kind === "http") {
+    const code =
+      typeof error.payload?.code === "string" ? error.payload.code : undefined;
+    return build(error.message, code);
   }
-  return response.json() as Promise<T>;
+  return error instanceof Error ? error : new Error(String(error));
 }
 
 export function idempotencyKey(prefix: string): string {
@@ -699,30 +705,13 @@ async function requestWithFailureCode<T>(
   path: string,
   init: RequestInit & { idempotencyKey?: string }
 ): Promise<T> {
-  const { idempotencyKey, ...rest } = init;
-  // Same rule as `request()`: a POST with no body must not claim a JSON
-  // content-type, or the API answers 400 before the route is ever reached.
-  const hasBody = rest.body !== undefined && rest.body !== null;
-  const response = await fetch(`${apiUrl}${path}`, {
-    cache: "no-store",
-    ...rest,
-    headers: {
-      ...(hasBody ? { "content-type": "application/json" } : {}),
-      ...(idempotencyKey ? { "idempotency-key": idempotencyKey } : {}),
-      ...(rest.headers ?? {})
-    }
-  });
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as {
-      error?: string;
-      code?: ExtractionFailureCode;
-    } | null;
-    throw new AnalysisFailedError(
-      payload?.error ?? `Request failed: ${response.status}`,
-      payload?.code
+  try {
+    return await request<T>(path, init);
+  } catch (error) {
+    throw withCode(error, (message, code) =>
+      new AnalysisFailedError(message, code as ExtractionFailureCode | undefined)
     );
   }
-  return response.json() as Promise<T>;
 }
 
 /**
@@ -936,28 +925,16 @@ async function requestWithCitationCode<T>(
   path: string,
   init: RequestInit & { idempotencyKey?: string }
 ): Promise<T> {
-  const { idempotencyKey: key, ...rest } = init;
-  const hasBody = rest.body !== undefined && rest.body !== null;
-  const response = await fetch(`${apiUrl}${path}`, {
-    cache: "no-store",
-    ...rest,
-    headers: {
-      ...(hasBody ? { "content-type": "application/json" } : {}),
-      ...(key ? { "idempotency-key": key } : {}),
-      ...(rest.headers ?? {})
-    }
-  });
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as {
-      error?: string;
-      code?: CitationReviewFailureCode;
-    } | null;
-    throw new CitationReviewFailedError(
-      payload?.error ?? `Request failed: ${response.status}`,
-      payload?.code
+  try {
+    return await request<T>(path, init);
+  } catch (error) {
+    throw withCode(error, (message, code) =>
+      new CitationReviewFailedError(
+        message,
+        code as CitationReviewFailureCode | undefined
+      )
     );
   }
-  return response.json() as Promise<T>;
 }
 
 /**
@@ -1100,28 +1077,16 @@ async function requestWithSourceCode<T>(
   path: string,
   init: RequestInit & { idempotencyKey?: string }
 ): Promise<T> {
-  const { idempotencyKey: key, ...rest } = init;
-  const hasBody = rest.body !== undefined && rest.body !== null;
-  const response = await fetch(`${apiUrl}${path}`, {
-    cache: "no-store",
-    ...rest,
-    headers: {
-      ...(hasBody ? { "content-type": "application/json" } : {}),
-      ...(key ? { "idempotency-key": key } : {}),
-      ...(rest.headers ?? {})
-    }
-  });
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as {
-      error?: string;
-      code?: SourceAnalysisFailureCode;
-    } | null;
-    throw new SourceIndependenceFailedError(
-      payload?.error ?? `Request failed: ${response.status}`,
-      payload?.code
+  try {
+    return await request<T>(path, init);
+  } catch (error) {
+    throw withCode(error, (message, code) =>
+      new SourceIndependenceFailedError(
+        message,
+        code as SourceAnalysisFailureCode | undefined
+      )
     );
   }
-  return response.json() as Promise<T>;
 }
 
 /**
@@ -1242,28 +1207,16 @@ async function requestWithPlanCode<T>(
   path: string,
   init: RequestInit & { idempotencyKey?: string }
 ): Promise<T> {
-  const { idempotencyKey: key, ...rest } = init;
-  const hasBody = rest.body !== undefined && rest.body !== null;
-  const response = await fetch(`${apiUrl}${path}`, {
-    cache: "no-store",
-    ...rest,
-    headers: {
-      ...(hasBody ? { "content-type": "application/json" } : {}),
-      ...(key ? { "idempotency-key": key } : {}),
-      ...(rest.headers ?? {})
-    }
-  });
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as {
-      error?: string;
-      code?: ResearchPlanFailureCode;
-    } | null;
-    throw new ResearchPlanFailedError(
-      payload?.error ?? `Request failed: ${response.status}`,
-      payload?.code
+  try {
+    return await request<T>(path, init);
+  } catch (error) {
+    throw withCode(error, (message, code) =>
+      new ResearchPlanFailedError(
+        message,
+        code as ResearchPlanFailureCode | undefined
+      )
     );
   }
-  return response.json() as Promise<T>;
 }
 
 export function getResearchPlan(sessionId: string): Promise<ResearchPlanView> {
@@ -1374,28 +1327,16 @@ async function requestWithSearchCode<T>(
   path: string,
   init: RequestInit & { idempotencyKey?: string }
 ): Promise<T> {
-  const { idempotencyKey: key, ...rest } = init;
-  const hasBody = rest.body !== undefined && rest.body !== null;
-  const response = await fetch(`${apiUrl}${path}`, {
-    cache: "no-store",
-    ...rest,
-    headers: {
-      ...(hasBody ? { "content-type": "application/json" } : {}),
-      ...(key ? { "idempotency-key": key } : {}),
-      ...(rest.headers ?? {})
-    }
-  });
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as {
-      error?: string;
-      code?: ResearchSearchFailureCode;
-    } | null;
-    throw new ResearchSearchFailedError(
-      payload?.error ?? `Request failed: ${response.status}`,
-      payload?.code
+  try {
+    return await request<T>(path, init);
+  } catch (error) {
+    throw withCode(error, (message, code) =>
+      new ResearchSearchFailedError(
+        message,
+        code as ResearchSearchFailureCode | undefined
+      )
     );
   }
-  return response.json() as Promise<T>;
 }
 
 /**
@@ -1577,21 +1518,21 @@ async function requestWithFileCode<T>(
   path: string,
   init: RequestInit & { idempotencyKey?: string } = {}
 ): Promise<T> {
-  const { idempotencyKey: key, ...rest } = init;
-  const hasBody = rest.body !== undefined && rest.body !== null;
-  const response = await fetch(`${apiUrl}${path}`, {
-    cache: "no-store",
-    ...rest,
-    headers: {
-      ...(hasBody ? { "content-type": "application/json" } : {}),
-      ...(key ? { "idempotency-key": key } : {}),
-      ...(rest.headers ?? {})
+  try {
+    return await request<T>(path, init);
+  } catch (error) {
+    if (error instanceof ApiTransportError && error.kind === "http") {
+      const payload = error.payload ?? {};
+      throw toFileIngestionError(error.status ?? 0, {
+        ...(typeof payload.error === "string" ? { error: payload.error } : {}),
+        ...(typeof payload.code === "string"
+          ? { code: payload.code as FileIngestionFailureCode }
+          : {}),
+        ...(payload.file ? { file: payload.file as SourceFileRecord } : {})
+      });
     }
-  });
-  if (!response.ok) {
-    throw toFileIngestionError(response.status, await readPayload(response));
+    throw error;
   }
-  return response.json() as Promise<T>;
 }
 
 function parseBody(text: string): UploadSourceFileResult | {
@@ -1604,18 +1545,6 @@ function parseBody(text: string): UploadSourceFileResult | {
   } catch {
     return { error: "上传失败：服务器返回的内容无法解析。" };
   }
-}
-
-async function readPayload(response: Response): Promise<{
-  error?: string;
-  code?: FileIngestionFailureCode;
-  file?: SourceFileRecord;
-}> {
-  return (await response.json().catch(() => null)) as {
-    error?: string;
-    code?: FileIngestionFailureCode;
-    file?: SourceFileRecord;
-  } | null ?? {};
 }
 
 function toFileIngestionError(
@@ -1900,18 +1829,14 @@ export class ResearchQualityFailedError extends Error {
 }
 
 async function requestQuality<T>(path: string): Promise<T> {
-  const response = await fetch(`${apiUrl}${path}`, { cache: "no-store" });
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as {
-      error?: string;
-      message?: string;
-    } | null;
-    throw new ResearchQualityFailedError(
-      payload?.message ?? payload?.error ?? `Request failed: ${response.status}`,
-      response.status
-    );
+  try {
+    return await request<T>(path);
+  } catch (error) {
+    if (error instanceof ApiTransportError && error.kind === "http") {
+      throw new ResearchQualityFailedError(error.message, error.status ?? 0);
+    }
+    throw error;
   }
-  return response.json() as Promise<T>;
 }
 
 /** The full assessment: overall, six dimensions, findings and recommendations. */
@@ -1977,28 +1902,13 @@ async function requestWithTranslationCode<T>(
   path: string,
   init: RequestInit & { idempotencyKey?: string } = {}
 ): Promise<T> {
-  const { idempotencyKey: key, ...rest } = init;
-  const hasBody = rest.body !== undefined && rest.body !== null;
-  const response = await fetch(`${apiUrl}${path}`, {
-    cache: "no-store",
-    ...rest,
-    headers: {
-      ...(hasBody ? { "content-type": "application/json" } : {}),
-      ...(key ? { "idempotency-key": key } : {}),
-      ...(rest.headers ?? {})
-    }
-  });
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as {
-      error?: string;
-      code?: string;
-    } | null;
-    throw new TranslationFailedError(
-      payload?.error ?? `Request failed: ${response.status}`,
-      payload?.code
+  try {
+    return await request<T>(path, init);
+  } catch (error) {
+    throw withCode(error, (message, code) =>
+      new TranslationFailedError(message, code)
     );
   }
-  return response.json() as Promise<T>;
 }
 
 export type CreateTranslationResult = {
@@ -2165,30 +2075,21 @@ async function requestWithLibraryCode<T>(
   path: string,
   init: RequestInit & { idempotencyKey?: string }
 ): Promise<T> {
-  const { idempotencyKey: key, ...rest } = init;
-  const hasBody = rest.body !== undefined && rest.body !== null;
-  const response = await fetch(`${apiUrl}${path}`, {
-    cache: "no-store",
-    ...rest,
-    headers: {
-      ...(hasBody ? { "content-type": "application/json" } : {}),
-      ...(key ? { "idempotency-key": key } : {}),
-      ...(rest.headers ?? {})
+  try {
+    return await request<T>(path, init);
+  } catch (error) {
+    if (error instanceof ApiTransportError && error.kind === "http") {
+      const payload = error.payload;
+      throw new LibraryFailedError(
+        error.message,
+        typeof payload?.code === "string" ? payload.code : undefined,
+        ...(payload?.duplicate
+          ? [payload.duplicate as LibraryDuplicateDetail]
+          : [])
+      );
     }
-  });
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as {
-      error?: string;
-      code?: string;
-      duplicate?: LibraryDuplicateDetail;
-    } | null;
-    throw new LibraryFailedError(
-      payload?.error ?? `Request failed: ${response.status}`,
-      payload?.code,
-      payload?.duplicate
-    );
+    throw error;
   }
-  return response.json() as Promise<T>;
 }
 
 export type LibrarySearchQuery = {
@@ -2464,28 +2365,14 @@ async function requestCollaboration<T>(
   path: string,
   init: RequestInit & { idempotencyKey?: string } = {}
 ): Promise<T> {
-  const { idempotencyKey: key, ...rest } = init;
-  const hasBody = rest.body !== undefined && rest.body !== null;
-  const response = await fetch(`${apiUrl}${path}`, {
-    cache: "no-store",
-    ...rest,
-    headers: {
-      ...(hasBody ? { "content-type": "application/json" } : {}),
-      ...(key ? { "idempotency-key": key } : {}),
-      ...(rest.headers ?? {})
+  try {
+    return await request<T>(path, init);
+  } catch (error) {
+    if (error instanceof ApiTransportError && error.kind === "http") {
+      throw new CollaborationFailedError(error.message, error.status ?? 0);
     }
-  });
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as {
-      error?: string;
-      message?: string;
-    } | null;
-    throw new CollaborationFailedError(
-      payload?.message ?? payload?.error ?? `Request failed: ${response.status}`,
-      response.status
-    );
+    throw error;
   }
-  return response.json() as Promise<T>;
 }
 
 /** Every member (any status) of the research, newest invite first. */
