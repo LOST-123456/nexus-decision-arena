@@ -48,6 +48,7 @@ import { EvidenceMapPanel } from "./evidence-map";
 import { FileImportPanel } from "./file-import";
 import { SourceLibraryPanel } from "./source-library";
 import { AgentOpsPanel } from "./agent-ops";
+import { CollaborationPanel } from "./collaboration";
 import { FileReader } from "./file-reader";
 import { SourceReader } from "./source-reader";
 import {
@@ -80,7 +81,8 @@ type Panel =
   | "files"
   | "filereader"
   | "agentops"
-  | "library";
+  | "library"
+  | "collaboration";
 
 /**
  * `claims` and `detail` are their own tabs only where the layout collapses: on
@@ -106,7 +108,8 @@ const PANELS: Array<{ id: Panel; label: string; narrowOnly?: boolean }> = [
   { id: "map", label: "证据地图" },
   { id: "files", label: "文件导入" },
   { id: "agentops", label: "运行中心" },
-  { id: "library", label: "资料库" }
+  { id: "library", label: "资料库" },
+  { id: "collaboration", label: "团队协作" }
 ];
 
 /**
@@ -978,6 +981,31 @@ export function ResearchWorkspace({
         >
           <SourceLibraryPanel
             currentSessionId={sessionId}
+            canEdit={canEdit}
+            onChanged={async () => {
+              await reload();
+              await refreshHistory();
+            }}
+          />
+        </div>
+      </>
+    );
+  }
+
+  // The team collaboration surface gets the full width: it carries its own
+  // member/work/comment/review/activity tabs, so it cannot sit in the claim
+  // rail's column.
+  if (panel === "collaboration") {
+    return (
+      <>
+        {tabs}
+        <div
+          className="research-body"
+          data-testid="research-body"
+          data-mode="analyze"
+        >
+          <CollaborationPanel
+            sessionId={sessionId}
             canEdit={canEdit}
             onChanged={async () => {
               await reload();

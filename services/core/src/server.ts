@@ -16,7 +16,8 @@ import {
   SourceCheckRepository,
   SourceFileRepository,
   SourceIndependenceRepository,
-  SourceLibraryRepository
+  SourceLibraryRepository,
+  TeamCollaborationRepository
 } from "@nexus/db";
 import { OpenAiCompatibleProvider, type LlmProvider } from "@nexus/llm";
 import { createApp } from "./app";
@@ -296,6 +297,13 @@ const fileIngestion = new FileIngestionService({
  */
 const sourceLibrary = new SourceLibraryRepository(database);
 
+/**
+ * Team collaboration & human review. The repository is shared with the route,
+ * which builds the service per request so the authorization context is derived
+ * from the live caller rather than cached.
+ */
+const teamCollaboration = new TeamCollaborationRepository(database);
+
 const app = createApp(
   {
     sessions,
@@ -304,6 +312,7 @@ const app = createApp(
     inspector: new InspectorRepository(database),
     evidence: researchEvidence,
     sourceLibrary,
+    teamCollaboration,
     reviews: researchReviews,
     crossReview,
     /** Agent Operations Center: surfaces `agent_runs`, reusing the same table. */

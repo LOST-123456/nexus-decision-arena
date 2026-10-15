@@ -32,6 +32,7 @@ export * from "./research/evidence-map";
 export * from "./research/source-file";
 export * from "./research/source-monitoring";
 export * from "./research/report-snapshot";
+export * from "./domain/collaboration";
 export * from "./research/research-quality";
 export * from "./research/multilingual";
 export * from "./replay/decision-replay";

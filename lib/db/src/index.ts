@@ -5,6 +5,7 @@ export * from "./repositories/arena-repository";
 export * from "./repositories/append-event";
 export * from "./repositories/evidence-repository";
 export * from "./repositories/source-library-repository";
+export * from "./repositories/team-collaboration-repository";
 export * from "./repositories/claim-extraction-repository";
 export * from "./repositories/citation-review-repository";
 export * from "./repositories/source-independence-repository";

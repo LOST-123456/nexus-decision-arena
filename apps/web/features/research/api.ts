@@ -2322,3 +2322,447 @@ export function getCopyLineage(
     {}
   );
 }
+
+/* ------------------------------------------------------------------ *
+ * Team collaboration & human review workflow
+ * ------------------------------------------------------------------ */
+
+export type TeamMemberRole = "owner" | "editor" | "reviewer" | "viewer";
+export type MembershipStatus =
+  | "pending"
+  | "active"
+  | "declined"
+  | "removed";
+export type WorkItemStatus =
+  | "open"
+  | "in_progress"
+  | "in_review"
+  | "completed"
+  | "cancelled";
+export type CommentTargetType =
+  | "claim"
+  | "evidence"
+  | "source"
+  | "conflict"
+  | "challenge"
+  | "plan_item"
+  | "revalidation_task"
+  | "report_snapshot"
+  | "work_item";
+export type ReviewRequestType =
+  | "claim_review"
+  | "source_review"
+  | "report_review"
+  | "conflict_review";
+export type ReviewRequestTargetType =
+  | "claim"
+  | "evidence"
+  | "source"
+  | "conflict"
+  | "report_snapshot";
+export type ReviewRequestStatus =
+  | "open"
+  | "in_review"
+  | "completed"
+  | "cancelled";
+export type ReviewDecision = "approved" | "rejected";
+
+export type TeamMember = {
+  id: string;
+  sessionId: string;
+  userId: string;
+  role: TeamMemberRole;
+  status: MembershipStatus;
+  invitedBy: string;
+  invitedAt: string;
+  joinedAt?: string;
+  statusChangedAt: string;
+  removedBy?: string;
+  removeReason?: string;
+  version: number;
+  createdAt: string;
+};
+
+export type WorkItem = {
+  id: string;
+  sessionId: string;
+  title: string;
+  description?: string;
+  status: WorkItemStatus;
+  assigneeUserId?: string;
+  targetType?: string;
+  targetId?: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+  dueAt?: string;
+  version: number;
+};
+
+export type Comment = {
+  id: string;
+  sessionId: string;
+  authorUserId: string;
+  body: string;
+  targetType: CommentTargetType;
+  targetId: string;
+  parentCommentId?: string;
+  deletedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+};
+
+export type ReviewRequest = {
+  id: string;
+  sessionId: string;
+  requestType: ReviewRequestType;
+  targetType: ReviewRequestTargetType;
+  targetId: string;
+  requestedBy: string;
+  requestedReviewerUserId?: string;
+  status: ReviewRequestStatus;
+  assignedReviewerUserId?: string;
+  decision?: ReviewDecision;
+  decidedBy?: string;
+  decidedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+};
+
+export type CollaborationActivity = {
+  id: string;
+  sessionId: string;
+  sequence: number;
+  correlationId: string;
+  type: string;
+  payload: Record<string, unknown>;
+  occurredAt: string;
+};
+
+/**
+ * Carries the HTTP status so the panel can tell "this session does not exist or
+ * you are not a collaborator" (404) from "you may not do this" (403) from a
+ * concurrent edit (409) — three different things to say to the reader, and a
+ * plain `Error` would collapse them into one unhelpful message.
+ */
+export class CollaborationFailedError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "CollaborationFailedError";
+  }
+}
+
+/**
+ * Same contract as the other typed failure helpers: a body-less request must
+ * not declare a JSON content-type, and a refused action carries the server's
+ * own status so the panel can explain why instead of showing a bare failure.
+ */
+async function requestCollaboration<T>(
+  path: string,
+  init: RequestInit & { idempotencyKey?: string } = {}
+): Promise<T> {
+  const { idempotencyKey: key, ...rest } = init;
+  const hasBody = rest.body !== undefined && rest.body !== null;
+  const response = await fetch(`${apiUrl}${path}`, {
+    cache: "no-store",
+    ...rest,
+    headers: {
+      ...(hasBody ? { "content-type": "application/json" } : {}),
+      ...(key ? { "idempotency-key": key } : {}),
+      ...(rest.headers ?? {})
+    }
+  });
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as {
+      error?: string;
+      message?: string;
+    } | null;
+    throw new CollaborationFailedError(
+      payload?.message ?? payload?.error ?? `Request failed: ${response.status}`,
+      response.status
+    );
+  }
+  return response.json() as Promise<T>;
+}
+
+/** Every member (any status) of the research, newest invite first. */
+export function listCollaborationMembers(
+  sessionId: string
+): Promise<{ members: TeamMember[] }> {
+  return requestCollaboration<{ members: TeamMember[] }>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/collaboration/members`
+  );
+}
+
+/**
+ * Invites a user. Ownership is never granted through this surface, so the
+ * highest role offered is `editor`; asking for `owner` is refused by the
+ * server. The invitation carries the inviter's identity (never the body), so a
+ * member cannot be forged as someone else.
+ */
+export function inviteCollaborationMember(
+  sessionId: string,
+  input: { userId: string; role: Exclude<TeamMemberRole, "owner"> }
+): Promise<TeamMember> {
+  return requestCollaboration<TeamMember>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/collaboration/members/invite`,
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+      idempotencyKey: idempotencyKey("collab-invite")
+    }
+  );
+}
+
+/** The invitee accepts their own pending invitation. */
+export function acceptCollaborationInvitation(
+  sessionId: string,
+  userId: string
+): Promise<TeamMember> {
+  return requestCollaboration<TeamMember>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/collaboration/members/${encodeURIComponent(userId)}/accept`,
+    { method: "POST", idempotencyKey: idempotencyKey("collab-accept") }
+  );
+}
+
+/** The invitee declines their own pending invitation. */
+export function declineCollaborationInvitation(
+  sessionId: string,
+  userId: string
+): Promise<TeamMember> {
+  return requestCollaboration<TeamMember>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/collaboration/members/${encodeURIComponent(userId)}/decline`,
+    { method: "POST", idempotencyKey: idempotencyKey("collab-decline") }
+  );
+}
+
+/** Owner only: changes a live member's role (never to owner). */
+export function changeCollaborationRole(
+  sessionId: string,
+  userId: string,
+  role: Exclude<TeamMemberRole, "owner">
+): Promise<TeamMember> {
+  return requestCollaboration<TeamMember>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/collaboration/members/${encodeURIComponent(userId)}/role`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ role }),
+      idempotencyKey: idempotencyKey("collab-role")
+    }
+  );
+}
+
+/** Owner only: removes a member, recording who and why. */
+export function removeCollaborationMember(
+  sessionId: string,
+  userId: string,
+  reason: string
+): Promise<TeamMember> {
+  return requestCollaboration<TeamMember>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/collaboration/members/${encodeURIComponent(userId)}/remove`,
+    {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+      idempotencyKey: idempotencyKey("collab-remove")
+    }
+  );
+}
+
+/** Every work item for the research, newest update first. */
+export function listCollaborationWorkItems(
+  sessionId: string
+): Promise<{ workItems: WorkItem[] }> {
+  return requestCollaboration<{ workItems: WorkItem[] }>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/collaboration/work-items`
+  );
+}
+
+/**
+ * Creates a work item. The assignee, if named, must be an active member — the
+ * server refuses to assign work to someone who cannot see the research.
+ */
+export function createCollaborationWorkItem(
+  sessionId: string,
+  input: {
+    title: string;
+    description?: string;
+    assigneeUserId?: string;
+    targetType?: string;
+    targetId?: string;
+    dueAt?: string;
+  }
+): Promise<WorkItem> {
+  return requestCollaboration<WorkItem>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/collaboration/work-items`,
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+      idempotencyKey: idempotencyKey("collab-work-item")
+    }
+  );
+}
+
+/**
+ * Updates a work item. Optimistic-locked on `expectedVersion`; a stale edit is a
+ * 409, never a silent overwrite.
+ */
+export function updateCollaborationWorkItem(
+  sessionId: string,
+  workItemId: string,
+  input: {
+    title?: string;
+    description?: string;
+    status?: WorkItemStatus;
+    assigneeUserId?: string;
+    dueAt?: string;
+    expectedVersion: number;
+  }
+): Promise<WorkItem> {
+  return requestCollaboration<WorkItem>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/collaboration/work-items/${encodeURIComponent(workItemId)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(input),
+      idempotencyKey: idempotencyKey("collab-work-item-update")
+    }
+  );
+}
+
+/** Every (non-deleted) comment on a target, newest first. */
+export function listCollaborationComments(
+  sessionId: string,
+  targetType: string,
+  targetId: string
+): Promise<{ comments: Comment[] }> {
+  const query = new URLSearchParams({ targetType, targetId });
+  return requestCollaboration<{ comments: Comment[] }>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/collaboration/comments?${query.toString()}`
+  );
+}
+
+/**
+ * Creates a comment. The author is the server identity (never the body), so a
+ * comment cannot be forged as another person.
+ */
+export function createCollaborationComment(
+  sessionId: string,
+  input: {
+    body: string;
+    targetType: string;
+    targetId: string;
+    parentCommentId?: string;
+  }
+): Promise<Comment> {
+  return requestCollaboration<Comment>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/collaboration/comments`,
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+      idempotencyKey: idempotencyKey("collab-comment")
+    }
+  );
+}
+
+/** Soft-deletes a comment. Only the author may delete their own. */
+export function deleteCollaborationComment(
+  sessionId: string,
+  commentId: string,
+  expectedVersion: number
+): Promise<Comment> {
+  return requestCollaboration<Comment>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/collaboration/comments/${encodeURIComponent(commentId)}?expectedVersion=${expectedVersion}`,
+    { method: "DELETE" }
+  );
+}
+
+/** Every review request for the research, newest first. */
+export function listCollaborationReviewRequests(
+  sessionId: string
+): Promise<{ reviewRequests: ReviewRequest[] }> {
+  return requestCollaboration<{ reviewRequests: ReviewRequest[] }>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/collaboration/review-requests`
+  );
+}
+
+/**
+ * Creates a review request. A request directed at a specific reviewer cannot
+ * name the requester (no self-review), and the named reviewer must be a
+ * collaborator.
+ */
+export function createCollaborationReviewRequest(
+  sessionId: string,
+  input: {
+    requestType: ReviewRequestType;
+    targetType: ReviewRequestTargetType;
+    targetId: string;
+    requestedReviewerUserId?: string;
+  }
+): Promise<ReviewRequest> {
+  return requestCollaboration<ReviewRequest>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/collaboration/review-requests`,
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+      idempotencyKey: idempotencyKey("collab-review-request")
+    }
+  );
+}
+
+/** Claims an open review request. The requester may not claim their own. */
+export function claimCollaborationReviewRequest(
+  sessionId: string,
+  reviewRequestId: string
+): Promise<ReviewRequest> {
+  return requestCollaboration<ReviewRequest>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/collaboration/review-requests/${encodeURIComponent(reviewRequestId)}/claim`,
+    { method: "POST", idempotencyKey: idempotencyKey("collab-claim") }
+  );
+}
+
+/**
+ * Decides a review request. Only the assigned reviewer may decide. The decision
+ * is a human sign-off on the artifact — it does not write a claim verdict or a
+ * verification status; formal verification still goes through the existing
+ * evidence-verification API.
+ */
+export function decideCollaborationReviewRequest(
+  sessionId: string,
+  reviewRequestId: string,
+  input: { decision: ReviewDecision; expectedVersion: number }
+): Promise<ReviewRequest> {
+  return requestCollaboration<ReviewRequest>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/collaboration/review-requests/${encodeURIComponent(reviewRequestId)}/decide`,
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+      idempotencyKey: idempotencyKey("collab-decide")
+    }
+  );
+}
+
+/** Cancels an open review request. The requester or an owner may cancel. */
+export function cancelCollaborationReviewRequest(
+  sessionId: string,
+  reviewRequestId: string
+): Promise<ReviewRequest> {
+  return requestCollaboration<ReviewRequest>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/collaboration/review-requests/${encodeURIComponent(reviewRequestId)}/cancel`,
+    { method: "POST", idempotencyKey: idempotencyKey("collab-cancel") }
+  );
+}
+
+/**
+ * The activity feed, projected from the shared `executionEvents` table. One
+ * audit trail for the whole research, so a collaboration action and a material
+ * change are never two different histories.
+ */
+export function listCollaborationActivity(
+  sessionId: string
+): Promise<{ activity: CollaborationActivity[] }> {
+  return requestCollaboration<{ activity: CollaborationActivity[] }>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/collaboration/activity`
+  );
+}

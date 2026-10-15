@@ -1399,3 +1399,173 @@ export const sourceCopies = pgTable(
     )
   })
 );
+
+/**
+ * Who collaborates on a research session, and in what capacity.
+ *
+ * A session-scoped collaboration axis, distinct from the platform-wide
+ * `owner`/`reviewer`/`viewer` roles: this is about *working together on one
+ * research*, not about platform administration. Exactly one live membership
+ * (status `pending` or `active`) exists per (session, user) — the partial
+ * unique index below, mirroring migration 0019. Inviting is creating a
+ * `pending` membership; accepting promotes it to `active`; the row survives
+ * any status change as the audit trail of the relationship.
+ *
+ * The closed sets on `role` and `status` are enforced by CHECK constraints in
+ * migration 0019; drizzle does not re-declare them so the two never drift.
+ */
+export const researchMemberships = pgTable(
+  "research_memberships",
+  {
+    id: uuid("id").primaryKey(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => decisionSessions.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    role: text("role").notNull(),
+    status: text("status").notNull().default("pending"),
+    invitedBy: text("invited_by").notNull(),
+    invitedAt: timestampColumn("invited_at").notNull().defaultNow(),
+    joinedAt: timestampColumn("joined_at"),
+    statusChangedAt: timestampColumn("status_changed_at").notNull().defaultNow(),
+    removedBy: text("removed_by"),
+    removeReason: text("remove_reason"),
+    version: integer("version").notNull().default(1),
+    createdAt: timestampColumn("created_at").notNull().defaultNow()
+  },
+  (table) => ({
+    live: uniqueIndex("research_memberships_live_idx")
+      .on(table.sessionId, table.userId)
+      .where(sql`${table.status} IN ('pending', 'active')`),
+    sessionRole: index("research_memberships_session_role_idx")
+      .on(table.sessionId, table.role)
+      .where(sql`${table.status} = 'active'`),
+    user: index("research_memberships_user_idx")
+      .on(table.userId)
+      .where(sql`${table.status} = 'active'`)
+  })
+);
+
+/**
+ * A piece of assigned work inside a research.
+ *
+ * The collaboration layer assigns and tracks work; it does not re-model the
+ * work itself. A work item is either free-form (`title`/`description`) or a
+ * pointer at an existing artifact via `targetType`/`targetId` (a plan item, a
+ * revalidation task, an evidence gap, a source monitoring task, or an agent
+ * run). The status is a single lifecycle owned by this table, advanced with
+ * optimistic locking through `version`.
+ */
+export const researchWorkItems = pgTable(
+  "research_work_items",
+  {
+    id: uuid("id").primaryKey(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => decisionSessions.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    description: text("description"),
+    status: text("status").notNull().default("open"),
+    assigneeUserId: text("assignee_user_id"),
+    targetType: text("target_type"),
+    targetId: text("target_id"),
+    createdBy: text("created_by").notNull(),
+    createdAt: timestampColumn("created_at").notNull().defaultNow(),
+    updatedAt: timestampColumn("updated_at").notNull().defaultNow(),
+    completedAt: timestampColumn("completed_at"),
+    dueAt: timestampColumn("due_at"),
+    version: integer("version").notNull().default(1)
+  },
+  (table) => ({
+    sessionStatus: index("research_work_items_session_status_idx").on(
+      table.sessionId,
+      table.status
+    ),
+    assignee: index("research_work_items_assignee_idx")
+      .on(table.assigneeUserId)
+      .where(sql`${table.assigneeUserId} IS NOT NULL`)
+  })
+);
+
+/**
+ * A threaded comment on a research artifact.
+ *
+ * `authorUserId` is written by the service from the caller identity and never
+ * from the request body, so a comment cannot be forged as another author. The
+ * body length and the `targetType` closed set are enforced by CHECKs in
+ * migration 0019; the rendering layer (React) escapes the body, so a comment
+ * is never executed as markup. Deletion is soft: `deletedAt` keeps the
+ * conversation intact and the audit trail honest.
+ */
+export const researchComments = pgTable(
+  "research_comments",
+  {
+    id: uuid("id").primaryKey(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => decisionSessions.id, { onDelete: "cascade" }),
+    authorUserId: text("author_user_id").notNull(),
+    body: text("body").notNull(),
+    targetType: text("target_type").notNull(),
+    targetId: text("target_id").notNull(),
+    parentCommentId: text("parent_comment_id"),
+    deletedAt: timestampColumn("deleted_at"),
+    createdAt: timestampColumn("created_at").notNull().defaultNow(),
+    updatedAt: timestampColumn("updated_at").notNull().defaultNow(),
+    version: integer("version").notNull().default(1)
+  },
+  (table) => ({
+    target: index("research_comments_target_idx")
+      .on(table.sessionId, table.targetType, table.targetId)
+      .where(sql`${table.deletedAt} IS NULL`),
+    parent: index("research_comments_parent_idx")
+      .on(table.parentCommentId)
+      .where(sql`${table.parentCommentId} IS NOT NULL`)
+  })
+);
+
+/**
+ * A request that a person review an artifact, and its outcome.
+ *
+ * This is the human-review coordination surface: it records *who asked*,
+ * *what* is to be reviewed, and *what the reviewer decided*. It deliberately
+ * does not write a claim verdict or a verification status — an `approved`
+ * here is a human sign-off on the artifact, not a verdict, and any formal
+ * verification still has to go through the existing evidence-verification
+ * API. The `assignedReviewerUserId`/`status`/`decision` invariants are
+ * enforced by CHECKs in migration 0019 so the three can never disagree.
+ */
+export const researchReviewRequests = pgTable(
+  "research_review_requests",
+  {
+    id: uuid("id").primaryKey(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => decisionSessions.id, { onDelete: "cascade" }),
+    requestType: text("request_type").notNull(),
+    targetType: text("target_type").notNull(),
+    targetId: text("target_id").notNull(),
+    requestedBy: text("requested_by").notNull(),
+    requestedReviewerUserId: text("requested_reviewer_user_id"),
+    status: text("status").notNull().default("open"),
+    assignedReviewerUserId: text("assigned_reviewer_user_id"),
+    decision: text("decision"),
+    decidedBy: text("decided_by"),
+    decidedAt: timestampColumn("decided_at"),
+    createdAt: timestampColumn("created_at").notNull().defaultNow(),
+    updatedAt: timestampColumn("updated_at").notNull().defaultNow(),
+    version: integer("version").notNull().default(1)
+  },
+  (table) => ({
+    sessionStatus: index("research_review_requests_session_status_idx").on(
+      table.sessionId,
+      table.status
+    ),
+    requestedReviewer: index("research_review_requests_requested_reviewer_idx")
+      .on(table.requestedReviewerUserId)
+      .where(sql`${table.requestedReviewerUserId} IS NOT NULL`),
+    assigned: index("research_review_requests_assigned_idx")
+      .on(table.assignedReviewerUserId)
+      .where(sql`${table.assignedReviewerUserId} IS NOT NULL`)
+  })
+);

@@ -38,6 +38,7 @@ import { registerSourceIndependenceRoutes } from "./api/routes/source-independen
 import { registerSourceIntakeRoutes } from "./api/routes/source-intake";
 import { registerSourceMonitoringRoutes } from "./api/routes/source-monitoring";
 import { registerResearchLibraryRoutes } from "./api/routes/research-library";
+import { registerTeamCollaborationRoutes } from "./api/routes/research-collaboration";
 import { registerAgentRunRoutes } from "./api/routes/agent-runs";
 import { EventBus } from "./execution/event-bus";
 import type { CrossReviewService } from "./research/cross-review-service";
@@ -48,6 +49,7 @@ import type { SourceImportService } from "./research/source-import-service";
 import type { FileIngestionService } from "./research/file-ingestion-service";
 import type { SourceIndependenceService } from "./research/source-independence-service";
 import type { SourceMonitorService } from "./research/source-monitor-service";
+import type { TeamCollaborationRepository } from "@nexus/db";
 import type { ResearchReportSnapshotService } from "./research/report-snapshot-service";
 import type { ResearchQualityService } from "./research/research-quality-service";
 
@@ -106,6 +108,15 @@ export type AppDependencies = {
    * services/core/src/research/source-library-service.ts.
    */
   sourceLibrary?: SourceLibraryRepository;
+  /**
+   * Team collaboration & human review: members, work items, threaded comments
+   * and review requests, all keyed by `session_id` so nothing crosses the
+   * session boundary. Every write is gated on the caller's collaboration role
+   * (owner/editor/reviewer/viewer), derived from session ownership or their
+   * membership; unknown or unauthorized sessions answer 404. See
+   * services/core/src/research/team-collaboration-service.ts.
+   */
+  teamCollaboration?: TeamCollaborationRepository;
   /** Cross-examination run records and human fact-check rulings. */
   reviews?: ReviewRepository;
   /** Runs cross-examination against a single claim, reusing the arena. */
@@ -322,6 +333,7 @@ export function createApp(
   registerSourceIntakeRoutes(app, dependencies, idempotency);
   registerSourceMonitoringRoutes(app, dependencies, idempotency);
   registerResearchLibraryRoutes(app, dependencies, idempotency);
+  registerTeamCollaborationRoutes(app, dependencies, idempotency);
   registerFileRoutes(app, dependencies, idempotency);
   registerResearchPlanRoutes(app, dependencies, idempotency);
   registerResearchSearchRoutes(app, dependencies, idempotency);

@@ -210,6 +210,27 @@ function applyContiguousEvent(
     case "SOURCE_COPIED_TO_RESEARCH": {
       return { ...current, lastSequence: event.sequence };
     }
+    // Team collaboration events — inviting, joining, role changes, removals,
+    // work items, comments and review requests — are records about *who did
+    // what together*, not about the debate itself. They change neither the
+    // phase nor any verdict input, so here they only advance the replay cursor;
+    // the collaboration surfaces re-read the live state from the backend.
+    case "MEMBER_INVITED":
+    case "MEMBER_JOINED":
+    case "MEMBER_DECLINED":
+    case "MEMBER_ROLE_CHANGED":
+    case "MEMBER_REMOVED":
+    case "WORK_ITEM_CREATED":
+    case "WORK_ITEM_UPDATED":
+    case "WORK_ITEM_COMPLETED":
+    case "COMMENT_CREATED":
+    case "COMMENT_DELETED":
+    case "REVIEW_REQUEST_CREATED":
+    case "REVIEW_REQUEST_ASSIGNED":
+    case "REVIEW_REQUEST_DECIDED":
+    case "REVIEW_REQUEST_CANCELLED": {
+      return { ...current, lastSequence: event.sequence };
+    }
     default: {
       const exhaustiveEvent: never = event.type;
       void exhaustiveEvent;
