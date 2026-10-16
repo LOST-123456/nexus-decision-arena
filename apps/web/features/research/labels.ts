@@ -185,9 +185,20 @@ export function runStatusLabel(status: AgentRun["status"]): string {
   return "已失败";
 }
 
+/*
+ * System-operation tones.
+ *
+ * These four functions used to hand out `research-pill-verified` (the
+ * evidence-verified green) for "the machinery succeeded": a finished run, a
+ * fetched page, a parsed file and an anchored quote all came back in the same
+ * hue a human confirmation wears. The `-run-*` slots are the machinery's own
+ * and never carry a research claim; the research states (verification,
+ * verdict, review outcome) keep the verified/unverified/rejected scale.
+ */
 export function runStatusTone(status: AgentRun["status"]): string {
-  if (status === "completed") return "research-pill-verified";
-  if (status === "failed") return "research-pill-rejected";
+  if (status === "completed") return "research-pill-run";
+  if (status === "failed" || status === "timed_out") return "research-pill-run-fail";
+  if (status === "cancelled") return "research-pill-run-cancel";
   return "research-pill-neutral";
 }
 
@@ -373,9 +384,9 @@ export function sourceRetrievalLabel(
 export function sourceRetrievalTone(
   status: "not_requested" | "pending" | "fetched" | "failed" | undefined
 ): string {
-  if (status === "fetched") return "research-pill-verified";
-  if (status === "pending") return "research-pill-unverified";
-  if (status === "failed") return "research-pill-rejected";
+  if (status === "fetched") return "research-pill-run";
+  if (status === "pending") return "research-pill-neutral";
+  if (status === "failed") return "research-pill-run-fail";
   return "research-pill-neutral";
 }
 
@@ -395,8 +406,13 @@ export function locatorStatusLabel(
 export function locatorStatusTone(
   status: "unanchored" | "anchored" | "missing" | undefined
 ): string {
-  if (status === "anchored") return "research-pill-verified";
-  if (status === "missing") return "research-pill-rejected";
+  /*
+   * Anchoring is a machine check, not a human one: the quote was found where
+   * the record says it is. It gets the machinery's tone so it can never be
+   * mistaken for `verificationTone`'s "someone stood behind this excerpt".
+   */
+  if (status === "anchored") return "research-pill-run";
+  if (status === "missing") return "research-pill-run-fail";
   return "research-pill-neutral";
 }
 
@@ -456,8 +472,8 @@ export function fileParseStatusLabel(
 export function fileParseStatusTone(
   status: "parsed" | "needs_ocr" | "failed" | undefined
 ): string {
-  if (status === "parsed") return "research-pill-verified";
-  if (status === "failed") return "research-pill-rejected";
+  if (status === "parsed") return "research-pill-run";
+  if (status === "failed") return "research-pill-run-fail";
   if (status === "needs_ocr") return "research-pill-unverified";
   return "research-pill-neutral";
 }
@@ -818,11 +834,17 @@ export function researchSearchStatusLabel(
 export function researchSearchStatusTone(
   status: ResearchSearchTaskStatus
 ): string {
-  if (status === "completed") return "research-pill-unverified";
-  if (status === "failed") return "research-pill-opposes";
+  /*
+   * A search task is machinery: completing it means candidates were produced
+   * (still unverified material, which the label says), cancelling it is a
+   * neutral fact, and failing it is a machinery failure — none of the three
+   * is a statement about any piece of evidence.
+   */
+  if (status === "completed") return "research-pill-run";
+  if (status === "failed") return "research-pill-run-fail";
+  if (status === "cancelled") return "research-pill-run-cancel";
   if (status === "searching") return "research-pill-context";
-  if (status === "queued") return "research-pill-neutral";
-  return "research-pill-rejected";
+  return "research-pill-neutral";
 }
 
 export function researchSearchFailureLabel(

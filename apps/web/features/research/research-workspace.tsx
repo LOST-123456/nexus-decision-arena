@@ -60,8 +60,6 @@ import {
   sourceImportStateTone,
   sourceRetrievalLabel,
   sourceRetrievalTone,
-  verificationLabel,
-  verificationTone,
   verdictLabel,
   workflowLabel
 } from "./labels";
@@ -1558,14 +1556,10 @@ export function ResearchWorkspace({
   );
 }
 
-export function verificationSummary(status: string): string {
-  return verificationLabel(
-    status === "verified" || status === "rejected" ? status : "unverified"
-  );
-}
-
-export function verificationPillTone(status: string): string {
-  return verificationTone(
-    status === "verified" || status === "rejected" ? status : "unverified"
-  );
-}
+/*
+ * `verificationSummary` / `verificationPillTone` used to be exported here as
+ * stringly-typed echoes of `verificationLabel` / `verificationTone` in
+ * labels.ts. Nothing imported them, and a second copy of a state-to-label map
+ * is how two screens end up describing the same status differently. Deleted;
+ * labels.ts is the single source.
+ */

@@ -27,6 +27,7 @@
   --rw-focus: var(--focus-ring);
 
   min-height: calc(100vh - var(--app-nav-h));
+  min-height: calc(100dvh - var(--app-nav-h));
   background: var(--rw-canvas);
   color: var(--rw-text);
   font-size: 14px;
@@ -132,6 +133,21 @@
   margin-bottom: 10px;
 }
 
+/*
+ * Five panels (plan, quality ×3, evidence map, source independence) already
+ * wrote `research-panel-header`; the class had no rule, so their "title left,
+ * action right" headers silently degraded into stacked blocks. It is the same
+ * layout as `-head`, declared under the name the markup actually uses.
+ */
+.research-panel-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
 .research-panel-title {
   font-size: 13px;
   font-weight: 650;
@@ -214,7 +230,15 @@
   font-size: 11.5px;
   font-weight: 600;
   border: 1px solid transparent;
-  white-space: nowrap;
+  /*
+   * Was `white-space: nowrap`. A label like "与当前资料已不同（指纹不同）" then
+   * pushed its own container wider than the column and the page-level
+   * `overflow-x: hidden` silently clipped it. Wrapping is the honest failure
+   * mode: short labels are unaffected, long ones stay readable.
+   */
+  white-space: normal;
+  overflow-wrap: anywhere;
+  max-width: 100%;
 }
 
 .research-pill-verified {
@@ -259,12 +283,71 @@
   background: var(--rw-panel-soft);
 }
 
+/*
+ * System-operation states. A finished agent run, a fetched page and a parsed
+ * file describe the machinery, not the evidence; they used to borrow
+ * `-verified`'s green, so one screen could show "已核实" and "运行完成" in
+ * the same hue. These three slots are the machinery's own.
+ */
+.research-pill-run {
+  color: var(--status-run);
+  border-color: var(--tint-run-border);
+  background: var(--tint-run-bg);
+}
+
+.research-pill-run-fail {
+  color: var(--status-run-fail);
+  border-color: var(--tint-danger-border);
+  background: var(--tint-danger-bg);
+}
+
+.research-pill-run-cancel {
+  color: var(--status-run-cancel);
+  border-color: var(--tint-neutral-border);
+  background: var(--tint-neutral-bg);
+}
+
+/*
+ * A human ruling was requested and has not been given — neither "verified"
+ * (nobody checked) nor "unverified" (nothing pending on the material), so it
+ * gets its own slot rather than borrowing either.
+ */
+.research-pill-review {
+  color: var(--status-needs-review);
+  border-color: var(--tint-review-border);
+  background: var(--tint-review-bg);
+}
+
 /* ---------- evidence table ---------- */
+
+/*
+ * One definition, finally. This class used to be declared here AND in
+ * globals.css with different padding, no sticky header on one side and no
+ * hover/selected rows on the other; the winner depended on bundle order. The
+ * merged rule keeps this file's roomier cells and interaction states, takes
+ * the sticky header and zebra striping from the globals copy, and adds the
+ * wrap the ten unwrapped tables were missing.
+ */
+.research-table-scroll {
+  max-height: 420px;
+  margin-top: 8px;
+  overflow: auto;
+  border: 1px solid var(--rw-line);
+  border-radius: 10px;
+}
+
+.research-table-wrap {
+  max-height: 420px;
+  margin-top: 8px;
+  overflow: auto;
+  border: 1px solid var(--rw-line);
+  border-radius: 10px;
+}
 
 .research-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: 12.5px;
 }
 
 .research-table th {
@@ -276,20 +359,45 @@
   font-weight: 650;
   padding: 6px 8px;
   border-bottom: 1px solid var(--rw-line-strong);
+  /* Sticky inside the scroll wrapper so a long table keeps its headers. */
+  position: sticky;
+  top: 0;
+  background: var(--rw-panel);
+  z-index: 1;
 }
 
 .research-table td {
   padding: 9px 8px;
   border-bottom: 1px solid var(--rw-line);
   vertical-align: top;
+  /* A bare URL or a long id in a cell used to widen the table past its
+     column; `body { overflow-x: hidden }` then clipped it out of reach. */
+  overflow-wrap: anywhere;
 }
 
-.research-table tbody tr:hover {
+.research-table tbody tr:nth-child(even) {
   background: var(--rw-panel-soft);
+}
+
+/* Hover must read as "pointing at this row", selected as "this row is open" —
+   giving both the accent tint made the two states indistinguishable. */
+.research-table tbody tr:hover {
+  background: var(--surface-hover);
 }
 
 .research-table tbody tr[aria-selected="true"] {
   background: var(--rw-accent-soft);
+}
+
+@media (max-width: 700px) {
+  .research-table {
+    font-size: 12px;
+  }
+
+  .research-table th,
+  .research-table td {
+    padding: 6px;
+  }
 }
 
 .research-row-button {
@@ -300,10 +408,104 @@
   color: var(--rw-accent);
   cursor: pointer;
   text-align: left;
+  /* The row trigger must itself be a 24px target, not just the text. */
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
 }
 
 .research-row-button:hover {
   text-decoration: underline;
+}
+
+.research-row-button:active {
+  text-decoration: underline;
+  filter: brightness(1.1);
+}
+
+/*
+ * Filter chips (evidence map). `research-chip` had no rule at all, so the
+ * kind filters rendered as raw browser buttons next to the styled map
+ * controls.
+ */
+.research-chip {
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 12px;
+  min-height: 24px;
+  border: 1px solid var(--rw-line-strong);
+  border-radius: 999px;
+  background: var(--rw-panel);
+  color: var(--rw-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.research-chip:hover {
+  border-color: var(--rw-accent);
+  color: var(--rw-text);
+}
+
+.research-chip-active {
+  border-color: var(--rw-accent);
+  background: var(--rw-accent-soft);
+  color: var(--rw-accent);
+}
+
+/* ---------- notices (inline success / info / error) ---------- */
+
+/*
+ * Panels that report the outcome of an action used to render non-error
+ * notices as plain muted text, so "已加入研究计划" looked like any other
+ * sentence. `kind` now has a visible shape; only error is loud, because only
+ * error interrupts.
+ */
+.research-notice {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  border: 1px solid var(--rw-line);
+  border-radius: 6px;
+  padding: 7px 10px;
+  font-size: 12.5px;
+  background: var(--rw-panel-soft);
+  color: var(--rw-text);
+}
+
+.research-notice-info {
+  border-color: var(--tint-accent-border);
+  background: var(--tint-accent-bg);
+  color: var(--accent);
+}
+
+.research-notice-success {
+  border-color: var(--tint-success-border);
+  background: var(--tint-success-bg);
+  color: var(--status-verified);
+}
+
+.research-notice-error {
+  border-color: var(--tint-rejected-border);
+  background: var(--tint-rejected-bg);
+  color: var(--rw-rejected);
+}
+
+/*
+ * A non-error panel notice ("已记录…"). It had no rule, so a confirmation
+ * after a write rendered as an ordinary paragraph — indistinguishable from
+ * the explanatory text around it. Same shape as the notice family, in the
+ * success tint, and safe on a `<p>`.
+ */
+.research-panel-notice {
+  border: 1px solid var(--tint-success-border);
+  border-radius: 6px;
+  background: var(--tint-success-bg);
+  color: var(--status-verified);
+  padding: 7px 10px;
+  font-size: 12.5px;
 }
 
 .research-excerpt {
@@ -329,6 +531,9 @@
 
 .research-facts dt {
   color: var(--rw-muted);
+  /* "可计算权重覆盖" and friends wrapped to three lines against the 96px
+     column and knocked the value column out of alignment. */
+  overflow-wrap: anywhere;
 }
 
 .research-facts dd {
@@ -400,6 +605,9 @@
   border: 1px solid var(--rw-accent);
   background: var(--rw-accent);
   color: var(--accent-contrast);
+  /* WCAG 2.5.8 target floor; the padding above usually exceeds it already,
+     this guarantees it for the compact variants. */
+  min-height: 24px;
 }
 
 .research-button:hover {
@@ -412,13 +620,79 @@
   cursor: not-allowed;
 }
 
-.research-button-secondary {
+/*
+ * The secondary variant is used bare (`className="research-button-secondary"`
+ * without the base class) in a dozen places across the library, collaboration
+ * and search panels, which used to render an unstyled text button: the base
+ * class owns border, padding, radius and weight, and none of it applied. The
+ * base geometry is repeated here so the variant stands on its own.
+ */
+.research-button-secondary,
+.research-button-secondary.research-button {
   background: var(--rw-panel);
   color: var(--rw-accent);
+  border: 1px solid var(--rw-line-strong);
+  border-radius: 6px;
+  padding: 7px 14px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  min-height: 24px;
 }
 
 .research-button-secondary:hover {
   background: var(--rw-accent-soft);
+  border-color: var(--rw-accent);
+}
+
+/*
+ * The primary name some panels already use (`research-button-primary`) is the
+ * same control as the base class; declaring it keeps those call sites from
+ * falling back to the browser's default grey button.
+ */
+.research-button-primary {
+  border: 1px solid var(--rw-accent);
+  background: var(--rw-accent);
+  color: var(--accent-contrast);
+  border-radius: 6px;
+  padding: 7px 14px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  min-height: 24px;
+}
+
+.research-button-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.research-button-primary:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/*
+ * A button that must read as a link ("查看候选来源"). It keeps button
+ * semantics for keyboard and AT, so it still needs a hit area of its own.
+ */
+.research-button-link {
+  background: none;
+  border: 0;
+  padding: 4px 2px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--rw-accent);
+  cursor: pointer;
+  min-height: 24px;
+  text-align: left;
+}
+
+.research-button-link:hover {
+  text-decoration: underline;
 }
 
 /* Destructive actions read as destructive, and are only used after a confirm
@@ -787,22 +1061,12 @@
     display: none !important;
   }
 
-  .research-root {
-    /* Printing always happens on paper: pin the light tokens regardless of
-       the on-screen theme so a dark session does not print unreadable. */
-    --surface-canvas: #ffffff;
-    --surface-panel: #ffffff;
-    --surface-panel-soft: #ffffff;
-    --surface-inset: #ffffff;
-    --content-primary: #16232f;
-    --content-muted: #444444;
-    --content-subtle: #333333;
-    --border-base: #cccccc;
-    --border-strong: #999999;
-    background: #ffffff;
-    color: #16232f;
-  }
-
+  /*
+   * Token pinning for paper now lives once, globally, in globals.css: this
+   * surface used to pin the semantic slots itself and the arena report —
+   * the same print action, the other document — was left printing dark-theme
+   * text onto white. The document-specific rules stay here.
+   */
   .research-report-shell {
     max-width: none;
     padding: 0;
@@ -812,6 +1076,143 @@
     break-inside: avoid;
     page-break-inside: avoid;
   }
+}
+
+/* ---------- controlled search (research-search-tasks) ---------- */
+
+/*
+ * This panel wrote a dozen class names that had no rules anywhere: the task
+ * cards, the candidate cards, the keyword rows, the create form and — worst —
+ * `research-notice-error`, which left the task's failure reason styled
+ * identically to body text. Everything below is the missing half.
+ */
+.research-search-tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.research-search-tasks-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.research-search-task-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.research-search-task-card {
+  border: 1px solid var(--rw-line);
+  border-radius: 8px;
+  background: var(--rw-panel-soft);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* One label/value pair. A grid (not flex) keeps the values aligned down the
+   card even when a label wraps, which flex could not do. */
+.research-search-task-row {
+  display: grid;
+  grid-template-columns: minmax(4.5rem, max-content) minmax(0, 1fr);
+  gap: 4px 10px;
+  font-size: 12.5px;
+  align-items: baseline;
+}
+
+.research-search-task-label {
+  color: var(--rw-muted);
+  font-weight: 600;
+}
+
+.research-search-task-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
+
+.research-search-candidates {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+  border-top: 1px dashed var(--rw-line-strong);
+  padding-top: 8px;
+}
+
+.research-candidate-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.research-candidate-item {
+  border: 1px solid var(--rw-line);
+  border-left: 3px solid var(--rw-line-strong);
+  border-radius: 8px;
+  background: var(--rw-panel);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-wrap: anywhere;
+}
+
+.research-candidate-note {
+  font-size: 12.5px;
+  color: var(--rw-muted);
+  overflow-wrap: anywhere;
+}
+
+.research-search-create-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--rw-line);
+  border-radius: 8px;
+  background: var(--rw-panel-soft);
+  padding: 12px;
+  margin-top: 4px;
+}
+
+.research-search-create-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.research-form-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.research-form-row > .research-field {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+.research-keyword-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
 }
 
 /* ---------- narrow screens: tabs instead of squeezed columns ---------- */

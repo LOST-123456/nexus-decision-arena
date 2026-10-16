@@ -24,7 +24,6 @@ import {
   reportDiffFieldLabel,
   reportDiffKindLabel,
   reportDiffKindTone,
-  reportSnapshotTaskStatusLabel,
   verificationLabel,
   verificationTone
 } from "./labels";
@@ -322,7 +321,12 @@ export function ReportVersionsPanel({
                       与当前资料已不同（指纹不同）
                     </StatusPill>
                   ) : (
-                    <StatusPill tone="research-pill-verified">与当前资料一致</StatusPill>
+                    /* Fingerprint agreement is a fact about the material, not
+                       a confirmation of anything — it keeps the neutral slot
+                       so it cannot read as "this version was verified". */
+                    <StatusPill tone="research-pill-context">
+                      与当前资料一致
+                    </StatusPill>
                   )}
                 </div>
                 <div className="research-muted">
@@ -663,16 +667,14 @@ export function ReportComparePanel({ sessionId }: { sessionId: string }) {
  * Shared small pieces
  * ------------------------------------------------------------------ */
 
-/** A monitoring task as a version recorded it, for the detail view. */
-export function ReportSnapshotTaskPill({ status }: { status: string }) {
-  return (
-    <StatusPill tone="research-pill-unverified">
-      {reportSnapshotTaskStatusLabel(status)}
-    </StatusPill>
-  );
-}
-
-/** Verification wording, re-exported so panels read consistently. */
+/**
+ * Verification wording, re-exported so panels read consistently.
+ *
+ * `ReportSnapshotTaskPill` used to live here too — it painted *every*
+ * monitoring-task status in the amber "unverified" tint and had no callers.
+ * A pill whose colour contradicts its label is worse than no pill, so it is
+ * gone rather than fixed: whoever needs it should map the real status.
+ */
 export function ReportSnapshotVerificationPill({
   status
 }: {

@@ -31,7 +31,10 @@
   --content-primary: #edf4f7;
   --content-muted: #8ea2ad;
   --content-subtle: #b7c5cc;
-  --content-faint: #718791;
+  /* Raised from #718791: on --surface-panel the old value measured 4.7:1,
+     which passes for body text but not for the 10-11px hints and placeholders
+     that mostly consume this slot. 5.8:1 clears AA with margin. */
+  --content-faint: #8496a3;
   --content-on-accent: #04222c;
   --content-on-nav: #f2f6fb;
   --content-on-nav-muted: #c3d2e4;
@@ -60,6 +63,20 @@
   --status-unverified: #efb35f;
   --status-neutral: #8ea2ad;
 
+  /* -- system-operation status -------------------------------------------
+     A finished run, a fetched page and a parsed file are facts about the
+     machinery, not about the evidence. They used to borrow the verified
+     green, so a screen could show "已核实" and "运行完成" in the same hue;
+     the run slots below are the machinery's own and never carry a research
+     claim. */
+  --status-run: #52c7e8;
+  --status-run-fail: #ee6d6d;
+  --status-run-cancel: #8ea2ad;
+  /* A human ruling was asked for and has not been given: neither verified
+     (nobody checked anything) nor unverified (nothing is pending on the
+     material), so it gets its own slot. */
+  --status-needs-review: #b78ad6;
+
   /* -- status tints (background / border pairs) -------------------------- */
   --tint-success-bg: rgba(58, 213, 140, 0.12);
   --tint-success-border: rgba(58, 213, 140, 0.34);
@@ -75,6 +92,10 @@
   --tint-context-border: rgba(83, 103, 116, 0.42);
   --tint-neutral-bg: rgba(142, 162, 173, 0.1);
   --tint-neutral-border: rgba(142, 162, 173, 0.28);
+  --tint-run-bg: rgba(82, 199, 232, 0.12);
+  --tint-run-border: rgba(82, 199, 232, 0.34);
+  --tint-review-bg: rgba(183, 138, 214, 0.13);
+  --tint-review-border: rgba(183, 138, 214, 0.36);
   --tint-accent-bg: rgba(82, 199, 232, 0.12);
   --tint-accent-border: rgba(82, 199, 232, 0.34);
 
@@ -185,7 +206,10 @@ html[data-theme="light"] {
   --content-primary: #16232f;
   --content-muted: #5b6b7d;
   --content-subtle: #43536a;
-  --content-faint: #6b7b8c;
+  /* Darkened from #6b7b8c: on white it measured 4.34:1 and on
+     --surface-panel-soft 4.11:1, both under AA — and this slot feeds the
+     smallest text on the page (hints, breadcrumbs, placeholders). */
+  --content-faint: #5a6a7a;
   --content-on-accent: #ffffff;
   --content-on-nav: #f2f6fb;
   --content-on-nav-muted: #c3d2e4;
@@ -200,16 +224,26 @@ html[data-theme="light"] {
   --accent-contrast: #ffffff;
 
   --status-running: #0d6f99;
-  --status-success: #1f8a5f;
+  /* Deepened alongside --status-verified: it feeds the success badge and alert
+     on the same tint background, where the old value measured 3.98:1. */
+  --status-success: #15764d;
   --status-warning: #8a5c0c;
   --status-danger: #b3261e;
   --status-supports: #1f8a5f;
   --status-opposes: #b4552f;
   --status-failed: #a13544;
   --status-rejected: #a63b46;
-  --status-verified: #1f8a5f;
+  /* verified and supports deepened from #1f8a5f: on --tint-success-bg the old
+     value measured 3.98:1, under AA for the 11.5px pill text that consumes
+     it most. 5.2:1 clears it. */
+  --status-verified: #15764d;
   --status-unverified: #8a5c0c;
   --status-neutral: #5b6b7d;
+
+  --status-run: #0d6f99;
+  --status-run-fail: #b3261e;
+  --status-run-cancel: #5b6b7d;
+  --status-needs-review: #6d3f9e;
 
   --tint-success-bg: #eef8f2;
   --tint-success-border: #b9e0cd;
@@ -225,6 +259,10 @@ html[data-theme="light"] {
   --tint-context-border: #ccd7e2;
   --tint-neutral-bg: #f2f6fa;
   --tint-neutral-border: #ccd7e2;
+  --tint-run-bg: #e8f3f9;
+  --tint-run-border: #a9cfe3;
+  --tint-review-bg: #f4eef9;
+  --tint-review-border: #d3c0e6;
   --tint-accent-bg: #e2f1f8;
   --tint-accent-border: #a9d4e6;
 
@@ -265,9 +303,25 @@ select {
   font: inherit;
 }
 
+/*
+ * Touch feedback. The global `-webkit-tap-highlight-color: transparent`
+ * below silences the browser's own highlight, and nothing replaced it — so on
+ * a touch device a press produced no feedback at all. The faint tint gives
+ * the press a visible acknowledgement without inventing a ripple, and the
+ * active filter covers the pointer case.
+ */
 button,
-a {
-  -webkit-tap-highlight-color: transparent;
+a,
+[role="tab"],
+summary {
+  -webkit-tap-highlight-color: rgba(128, 128, 128, 0.18);
+}
+
+button:active:not(:disabled),
+a:active,
+[role="tab"]:active,
+summary:active {
+  filter: brightness(1.08);
 }
 
 button {
@@ -300,6 +354,17 @@ a {
 ::-webkit-scrollbar-thumb {
   background: var(--line);
   border-radius: 999px;
+}
+
+/*
+ * Firefox has no ::-webkit-scrollbar. Without the standard properties below
+ * every scroll container fell back to the OS default — a wide, high-contrast
+ * bar that fights the 8px design on every other browser. `scrollbar-color`
+ * accepts one or two values; the transparent track keeps the gutter quiet.
+ */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
 }
 
 p,
@@ -1621,11 +1686,18 @@ main:focus-visible {
   }
 }
 
+/*
+ * Reduced motion, declared once. This block used to exist twice — once here
+ * with the React Flow edge rule, once near the component vocabulary with the
+ * same three declarations minus the edge rule — and duplicated `!important`
+ * overrides are how the two copies drift apart. The `scroll-behavior` line
+ * went with them: nothing in the codebase ever declares `scroll-behavior:
+ * smooth`, so it was overriding a value that did not exist.
+ */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
-    scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
@@ -2583,10 +2655,21 @@ main:focus-visible {
 .report-export-actions a {
   border: 1px solid var(--line-strong);
   background: transparent;
-  padding: 0.32rem 0.48rem;
+  /* Was 0.32rem/0.48rem ≈ 23px tall — under the 24px target minimum. The
+     padding grows the control, not the label, so the strip keeps its size. */
+  padding: 0.42rem 0.55rem;
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
   color: var(--muted-strong);
   font-size: 0.58rem;
   cursor: pointer;
+}
+
+.report-export-actions button:active,
+.report-export-actions a:active {
+  border-color: var(--running);
+  background: var(--surface-hover);
 }
 
 .report-export-actions button:hover,
@@ -2639,7 +2722,8 @@ main:focus-visible {
 @media (max-width:700px){.security-header{align-items:flex-start;flex-wrap:wrap;padding:.75rem}.security-grid{grid-template-columns:1fr}.security-document{padding-top:1.5rem}}
 .auth-user-badge { display:inline-flex;min-height:2.5rem;align-items:center;gap:.45rem;border:1px solid var(--line-strong);background:var(--panel);padding:.45rem .65rem;color:var(--muted-strong);font-size:.66rem; }
 .auth-user-active small { color:var(--running);font-size:.5rem;letter-spacing:.08em; }
-.auth-user-badge button { border:0;background:transparent;color:var(--muted);font-size:.6rem;cursor:pointer; }
+.auth-user-badge button { border:0;background:transparent;color:var(--muted);font-size:.6rem;cursor:pointer; min-height:24px; padding:2px 6px; border-radius:var(--radius-sm); }
+.auth-user-badge button:hover { color:var(--text); background:var(--surface-hover); }
 .auth-shell { min-height:100vh;background:var(--canvas); }
 .auth-header { display:flex;min-height:4.5rem;align-items:center;justify-content:space-between;gap:1rem;border-bottom:1px solid var(--line);background:var(--panel-soft);padding:0 1.25rem; }
 .auth-layout { display:grid;width:min(100%,70rem);grid-template-columns:1fr 1fr;gap:1.5rem;margin:3rem auto 0;padding:0 1.25rem; }
@@ -2806,6 +2890,19 @@ main:focus-visible {
   font-size: 16px;
   cursor: pointer;
   line-height: 1;
+  /* WCAG 2.5.8: the hit area is what counts, not the glyph. The old 16px box
+     was below the 24px minimum; padding grows the target without moving the
+     visual centre. */
+  min-width: 24px;
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+}
+
+.evidence-map-detail-close:hover {
+  background: var(--surface-hover);
 }
 
 .evidence-map-detail-row {
@@ -2887,46 +2984,17 @@ main:focus-visible {
   transition: width 120ms ease-out;
 }
 
-.research-table-wrap {
-  max-height: 420px;
-  margin-top: 8px;
-  overflow: auto;
-  border: 1px solid var(--wb-border, rgba(0, 0, 0, 0.12));
-  border-radius: 10px;
-}
-
-.research-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 12.5px;
-}
-
-.research-table th,
-.research-table td {
-  padding: 6px 10px;
-  border-bottom: 1px solid var(--wb-border, rgba(0, 0, 0, 0.08));
-  text-align: left;
-  vertical-align: top;
-}
-
-.research-table th {
-  position: sticky;
-  top: 0;
-  background: var(--wb-surface-subtle, rgba(0, 0, 0, 0.04));
-  font-weight: 600;
-}
-
-.research-table tbody tr:nth-child(even) {
-  background: var(--wb-surface-subtle, rgba(0, 0, 0, 0.02));
-}
+/*
+ * `.research-table-wrap` / `.research-table` used to live here AND in
+ * research.css with different padding, sticky headers and zebra striping —
+ * same class name, two rule sets, with the winner decided by bundle order.
+ * Every consumer is inside the research surface, so the merged definition
+ * (research.css, which takes both files' best rules) is now the only one.
+ */
 
 @media (max-width: 700px) {
   .research-dropzone {
     padding: 1rem 0.75rem;
-  }
-
-  .research-table {
-    font-size: 12px;
   }
 }
 
@@ -3158,21 +3226,74 @@ main:focus-visible {
   .app-subnav {
     display: none !important;
   }
+
+  /*
+   * Printing happens on paper, whatever the screen says. research.css pins
+   * its own surface for the research report; without this the arena decision
+   * report (`.report-shell` / `.report-document`) still printed dark-theme
+   * text (#edf4f7) onto white paper — browsers do not print backgrounds, so
+   * the body came out effectively invisible. Every semantic slot is pinned to
+   * a paper value here, once, for both surfaces.
+   */
+  :root {
+    --surface-canvas: #ffffff;
+    --surface-raised: #ffffff;
+    --surface-panel: #ffffff;
+    --surface-panel-strong: #f4f6f8;
+    --surface-panel-soft: #ffffff;
+    --surface-inset: #ffffff;
+    --surface-hover: #eef1f4;
+    --surface-nav: #ffffff;
+    --surface-nav-hover: #e8ecf0;
+    --surface-overlay: #ffffff;
+    --surface-overlay-soft: #ffffff;
+    --surface-scrim: rgba(0, 0, 0, 0.2);
+
+    --content-primary: #16232f;
+    --content-muted: #444444;
+    --content-subtle: #333333;
+    --content-faint: #555555;
+    --content-on-accent: #ffffff;
+    --content-on-nav: #16232f;
+    --content-on-nav-muted: #444444;
+
+    --border-subtle: #dde3e9;
+    --border-base: #cccccc;
+    --border-strong: #999999;
+
+    --accent: #0d6f99;
+    --accent-hover: #0a5a7d;
+    --accent-soft: #e8f3f9;
+
+    --status-verified: #15764d;
+    --status-unverified: #8a5c0c;
+    --status-danger: #b3261e;
+    --status-run: #0d6f99;
+    --status-run-fail: #b3261e;
+    --status-run-cancel: #5b6b7d;
+    --status-needs-review: #6d3f9e;
+  }
+
+  body {
+    background: #ffffff;
+    color: #16232f;
+  }
+
+  /* Status pills paint their meaning in a tint that paper would drop. */
+  .research-pill,
+  .ui-badge,
+  .report-status {
+    border-width: 1px !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
 }
 
 /*
- * The design system adds hover/focus transitions and a skeleton sweep; both
- * must be switchable off for users who ask for less motion.
+ * The design system adds hover/focus transitions and a skeleton sweep; the
+ * single reduced-motion block near the top of this file covers them (and the
+ * React Flow edge animation) for everyone who asks for less motion.
  */
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-  }
-}
 
 /* =========================================================================
    Component vocabulary

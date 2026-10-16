@@ -7,7 +7,6 @@ import {
   canCancelRun,
   isRetryableRun,
   type AgentRunDetail,
-  type AgentRunStatus,
   type AgentRunView
 } from "@nexus/shared";
 import {
@@ -16,20 +15,8 @@ import {
   listAgentRuns,
   retryAgentRun
 } from "./api";
-import { formatDate } from "./labels";
+import { formatDate, runStatusTone } from "./labels";
 import { StatusPill } from "./components";
-
-function runTone(status: AgentRunStatus): string {
-  switch (status) {
-    case "completed":
-      return "research-pill-verified";
-    case "failed":
-    case "timed_out":
-      return "research-pill-rejected";
-    default:
-      return "research-pill-neutral";
-  }
-}
 
 function purposeLabel(purpose: AgentRunView["purpose"]): string {
   return purpose === "cross_review" ? "交叉审查" : "分析";
@@ -225,7 +212,7 @@ export function AgentOpsPanel({
                   data-testid="agent-run-row"
                 >
                   <td>
-                    <StatusPill tone={runTone(run.status)}>
+                    <StatusPill tone={runStatusTone(run.status)}>
                       {agentRunStatusLabel(run.status)}
                     </StatusPill>
                   </td>
@@ -331,7 +318,7 @@ function AgentRunDetailView({
         <div>
           <dt>状态</dt>
           <dd>
-            <StatusPill tone={runTone(run.status)}>
+            <StatusPill tone={runStatusTone(run.status)}>
               {agentRunStatusLabel(run.status)}
             </StatusPill>
           </dd>

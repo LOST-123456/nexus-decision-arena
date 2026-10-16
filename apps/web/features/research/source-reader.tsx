@@ -266,7 +266,9 @@ export function SourceReader({
                         : "历史版本"}
                     </button>
                     {item.contentHash === currentHash ? (
-                      <StatusPill tone="research-pill-verified">最新</StatusPill>
+                      /* "This is the newest snapshot" describes the material's
+                         history, not a verification — neutral, not verified. */
+                      <StatusPill tone="research-pill-context">最新</StatusPill>
                     ) : (
                       <StatusPill tone="research-pill-neutral">
                         已被新版本取代
