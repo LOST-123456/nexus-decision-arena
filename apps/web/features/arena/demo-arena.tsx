@@ -350,6 +350,8 @@ export function DemoArena() {
 
   return (
     <main
+      id="main"
+      tabIndex={-1}
       className="demo-shell"
       data-demo-fixture="true"
       data-testid="demo-fixture"

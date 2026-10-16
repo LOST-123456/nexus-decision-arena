@@ -134,7 +134,7 @@ export function NewSessionForm() {
   }
 
   return (
-    <main className="new-session-shell">
+    <main id="main" tabIndex={-1} className="new-session-shell">
       <div className="new-session-layout">
         <section className="new-session-intro">
           <p className="eyebrow">PROJECT INTAKE</p>

@@ -21,8 +21,14 @@ export default async function ResearchLibraryPage({
       : undefined;
 
   return (
-    <div className="research-body" data-testid="research-body" data-mode="analyze">
+    <main
+      id="main"
+      tabIndex={-1}
+      className="research-body"
+      data-testid="research-body"
+      data-mode="analyze"
+    >
       <SourceLibraryPanel {...(sessionId ? { currentSessionId: sessionId } : {})} />
-    </div>
+    </main>
   );
 }

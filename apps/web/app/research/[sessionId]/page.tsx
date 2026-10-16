@@ -42,6 +42,8 @@ export default async function ResearchWorkspacePage({
       : null;
 
   return (
-    <ResearchWorkspace sessionId={sessionId} initialIntent={initialIntent} />
+    <main id="main" tabIndex={-1}>
+      <ResearchWorkspace sessionId={sessionId} initialIntent={initialIntent} />
+    </main>
   );
 }

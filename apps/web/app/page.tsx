@@ -4,7 +4,7 @@ import { previewSession } from "../features/arena/preview-session";
 
 export default function HomePage() {
   return (
-    <main className="entry-shell">
+    <main id="main" tabIndex={-1} className="entry-shell">
       <section className="entry-hero" aria-label="产品说明">
         <div className="entry-hero-copy">
           <p className="eyebrow">NEXUS / DECISION OPERATIONS</p>

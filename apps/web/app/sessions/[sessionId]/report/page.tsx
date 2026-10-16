@@ -119,7 +119,7 @@ export default async function ReportPage({
 
   if (fixture) {
     return (
-      <main data-demo-fixture="true" className="report-shell">
+      <main id="main" tabIndex={-1} data-demo-fixture="true" className="report-shell">
         <header className="report-header">
           <nav className="ui-breadcrumbs" aria-label="面包屑">
             <Link href="/">首页</Link>
@@ -147,7 +147,7 @@ export default async function ReportPage({
   }
 
   return (
-    <main data-report-source="live" className="report-shell">
+    <main id="main" tabIndex={-1} data-report-source="live" className="report-shell">
       <header className="report-header">
         <nav className="ui-breadcrumbs" aria-label="面包屑">
           <Link href="/">首页</Link>

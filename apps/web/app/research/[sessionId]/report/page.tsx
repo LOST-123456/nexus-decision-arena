@@ -6,5 +6,9 @@ export default async function FactCheckReportPage({
   params: Promise<{ sessionId: string }>;
 }) {
   const { sessionId } = await params;
-  return <FactCheckReportView sessionId={sessionId} />;
+  return (
+    <main id="main" tabIndex={-1}>
+      <FactCheckReportView sessionId={sessionId} />
+    </main>
+  );
 }

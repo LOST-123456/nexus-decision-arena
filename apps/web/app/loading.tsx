@@ -5,7 +5,7 @@
  */
 export default function Loading() {
   return (
-    <main className="workspace-fallback" data-testid="route-loading">
+    <main id="main" tabIndex={-1} className="workspace-fallback" data-testid="route-loading">
       <section
         className="workspace-notice"
         data-tone="loading"

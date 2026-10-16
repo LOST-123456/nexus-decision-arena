@@ -6,5 +6,9 @@ export default async function EvidenceExplorerPage({
   params: Promise<{ sessionId: string }>;
 }) {
   const { sessionId } = await params;
-  return <EvidenceExplorer sessionId={sessionId} />;
+  return (
+    <main id="main" tabIndex={-1}>
+      <EvidenceExplorer sessionId={sessionId} />
+    </main>
+  );
 }

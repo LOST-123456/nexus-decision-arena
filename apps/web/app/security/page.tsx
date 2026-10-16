@@ -9,7 +9,7 @@ const controls = [
 
 export default function SecurityPage() {
   return (
-    <main className="security-shell">
+    <main id="main" tabIndex={-1} className="security-shell">
       <section className="security-document">
         <p className="eyebrow">SECURITY & DATA GOVERNANCE</p>
         <h1>安全与数据治理</h1>

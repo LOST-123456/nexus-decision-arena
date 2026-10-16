@@ -52,7 +52,7 @@ export function SessionHistory() {
   }
 
   return (
-    <main className="review-list-shell">
+    <main id="main" tabIndex={-1} className="review-list-shell">
       <section className="review-list-content">
         <div className="review-list-heading">
           <div><p className="eyebrow">DECISION HISTORY</p><h1>历史记录</h1></div>

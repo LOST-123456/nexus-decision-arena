@@ -398,6 +398,8 @@ export function SessionWorkspace({ sessionId }: { sessionId: string }) {
     const notFound = loadFailure.status === 404;
     return (
       <main
+        id="main"
+        tabIndex={-1}
         className="workspace-fallback"
         data-testid={notFound ? "session-not-found" : "session-load-error"}
       >
@@ -441,7 +443,12 @@ export function SessionWorkspace({ sessionId }: { sessionId: string }) {
 
   if (persisted && loading) {
     return (
-      <main className="workspace-fallback" data-testid="session-loading">
+      <main
+        id="main"
+        tabIndex={-1}
+        className="workspace-fallback"
+        data-testid="session-loading"
+      >
         <section className="workspace-notice" data-tone="loading">
           <p className="eyebrow">LOADING</p>
           <h2>正在载入会话</h2>
@@ -455,6 +462,8 @@ export function SessionWorkspace({ sessionId }: { sessionId: string }) {
 
   return (
     <main
+      id="main"
+      tabIndex={-1}
       className="workspace-shell"
       data-session-source={persisted ? "live" : "preview-fixture"}
     >

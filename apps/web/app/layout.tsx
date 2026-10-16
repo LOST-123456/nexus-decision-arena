@@ -41,6 +41,14 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP }} />
       </head>
       <body>
+        {/*
+          First focusable element on every route. A keyboard user should be able
+          to step past the app bar in one keystroke instead of tabbing through
+          its links on every navigation; it stays off-canvas until focused.
+        */}
+        <a className="skip-link" href="#main">
+          跳到主要内容
+        </a>
         <AppNav />
         {children}
       </body>

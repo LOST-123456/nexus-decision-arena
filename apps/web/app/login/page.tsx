@@ -61,7 +61,7 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="auth-shell">
+    <main id="main" tabIndex={-1} className="auth-shell">
       <div className="auth-layout">
         <section className="auth-intro">
           <p className="eyebrow">TEAM ACCESS</p>

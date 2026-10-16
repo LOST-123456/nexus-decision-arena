@@ -21,7 +21,7 @@ export default function RouteError({
   }, [error]);
 
   return (
-    <main className="workspace-fallback" data-testid="route-error">
+    <main id="main" tabIndex={-1} className="workspace-fallback" data-testid="route-error">
       <section className="workspace-notice" role="alert">
         <p className="eyebrow">UNEXPECTED ERROR</p>
         <h2>页面出错了</h2>

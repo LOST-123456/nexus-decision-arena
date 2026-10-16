@@ -13,7 +13,7 @@ export const metadata: Metadata = {
  */
 export default function NotFound() {
   return (
-    <main className="workspace-fallback" data-testid="not-found">
+    <main id="main" tabIndex={-1} className="workspace-fallback" data-testid="not-found">
       <section className="workspace-notice" data-tone="neutral" role="alert">
         <p className="eyebrow">404 / NOT FOUND</p>
         <h2>页面不存在</h2>

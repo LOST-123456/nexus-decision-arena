@@ -130,6 +130,9 @@ describe("SessionWorkspace when the session does not exist", () => {
     render(<SessionWorkspace sessionId={sessionId} />);
 
     expect(await screen.findByTestId("session-not-found")).toBeTruthy();
+    // Even the refusal is the page landmark, so the skip link still has a
+    // target when a session is missing.
+    expect(screen.getByTestId("session-not-found").id).toBe("main");
     expect(screen.getByRole("heading", { name: "会话不存在" })).toBeTruthy();
     // A dead link must not offer a retry whose only outcome is failing again.
     expect(screen.queryByRole("button", { name: "重新加载" })).toBeNull();
