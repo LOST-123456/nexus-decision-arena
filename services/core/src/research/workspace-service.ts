@@ -24,6 +24,17 @@ export type WorkspacePhaseState = {
   operationalStatus: string;
   researchQuestion: string | null;
   currentConclusion: string | null;
+  /**
+   * The owning project's name, when the deployment can supply one.
+   *
+   * The workspace header shows a title so a researcher with several tabs open
+   * can tell which research they are in; `decision_sessions` has no title
+   * column of its own, so this comes from the project the session belongs to.
+   * Optional and nullable on purpose: an older row, a deployment that does not
+   * join projects, or a legacy session must degrade to "no title" rather than
+   * to a made-up one.
+   */
+  title?: string | null;
 };
 
 export type ResearchWorkspace = {

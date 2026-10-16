@@ -55,6 +55,7 @@ import { SourceReader } from "./source-reader";
 import {
   claimStatusLabel,
   formatDate,
+  operationalStatusLabel,
   pendingVerificationLabel,
   sourceImportStateLabel,
   sourceImportStateTone,
@@ -170,6 +171,25 @@ export function ResearchWorkspace({
    * research — the same failure this product already fixed on the arena side.
    */
   const [loadFailure, setLoadFailure] = useState<LoadFailure | null>(null);
+  /**
+   * Bumping this re-runs the load effect above. A failed load used to leave
+   * the reader with only "back to the list" — a transient core outage meant
+   * leaving the page and coming back. The retry button now re-issues the
+   * same request through the same effect, so nothing about the first load is
+   * duplicated in a second code path.
+   */
+  const [reloadNonce, setReloadNonce] = useState(0);
+  /**
+   * The detail column's own three states. It used to share the panel-wide
+   * `error`, and a failed detail fetch landed in state the detail panel never
+   * read: with `context` still null the column showed "select an evidence
+   * item" — the empty state — so a network failure was indistinguishable
+   * from having selected nothing.
+   */
+  const [contextLoading, setContextLoading] = useState(false);
+  const [contextError, setContextError] = useState<string | null>(null);
+  /** Same-value setState would not re-run the effect; this makes retry real. */
+  const [contextReloadNonce, setContextReloadNonce] = useState(0);
   const [history, setHistory] = useState<string[]>([]);
   /**
    * Which sources in this research are copies, keyed by the local source id.
@@ -240,27 +260,40 @@ export function ResearchWorkspace({
     return () => {
       cancelled = true;
     };
-  }, [sessionId, refreshHistory]);
+  }, [sessionId, refreshHistory, reloadNonce]);
 
   useEffect(() => {
     if (!selectedEvidenceId) {
       setContext(null);
+      setContextError(null);
+      setContextLoading(false);
       return;
     }
     let cancelled = false;
+    setContextLoading(true);
+    setContextError(null);
     getEvidenceContext(sessionId, selectedEvidenceId)
       .then((next) => {
-        if (!cancelled) setContext(next);
+        if (!cancelled) {
+          setContext(next);
+          setContextLoading(false);
+        }
       })
       .catch((cause) => {
         if (!cancelled) {
-          setError(cause instanceof Error ? cause.message : "Failed to load detail");
+          // Drop whatever was showing: a stale detail for the previous item
+          // would read as the answer for this one.
+          setContext(null);
+          setContextLoading(false);
+          setContextError(
+            cause instanceof Error ? cause.message : "Failed to load detail"
+          );
         }
       });
     return () => {
       cancelled = true;
     };
-  }, [sessionId, selectedEvidenceId]);
+  }, [sessionId, selectedEvidenceId, contextReloadNonce]);
 
   /**
    * The copy lineage is read when the detail panel is opened, not once at
@@ -527,14 +560,29 @@ export function ResearchWorkspace({
                 ? "它可能已被删除，或者这个链接有误。"
                 : "无法读取研究工作台。请确认后端已启动并完成 0005 迁移。"}
             </p>
-            <p style={{ marginTop: 12 }}>
+            <div className="research-actions" style={{ marginTop: 12 }}>
+              {notFound ? null : (
+                /* Only a service failure is worth retrying: a deleted research
+                   will still be deleted on the second try, and a retry button
+                   that cannot help is a lie with a cursor. */
+                <button
+                  type="button"
+                  className="research-button"
+                  onClick={() => {
+                    setLoadFailure(null);
+                    setReloadNonce((value) => value + 1);
+                  }}
+                >
+                  重试
+                </button>
+              )}
               <Link
                 className="research-button research-button-secondary"
                 href="/research"
               >
                 返回研究列表
               </Link>
-            </p>
+            </div>
           </section>
         </div>
       </div>
@@ -615,7 +663,7 @@ export function ResearchWorkspace({
     return (
       <>
         {tabs}
-        <div className="research-body" data-testid="research-body" data-mode="reader">
+        <div className="research-body" data-testid="research-body" id="research-workspace-panel" data-mode="reader">
           {readerSourceId ? (
             <SourceReader
               sessionId={sessionId}
@@ -657,7 +705,7 @@ export function ResearchWorkspace({
         {tabs}
         <div
           className="research-body"
-          data-testid="research-body"
+          data-testid="research-body" id="research-workspace-panel"
           data-mode="analyze"
         >
           {analyzeSourceId ? (
@@ -702,7 +750,7 @@ export function ResearchWorkspace({
         {tabs}
         <div
           className="research-body"
-          data-testid="research-body"
+          data-testid="research-body" id="research-workspace-panel"
           data-mode="analyze"
         >
           <div className="research-column">
@@ -739,7 +787,7 @@ export function ResearchWorkspace({
         {tabs}
         <div
           className="research-body"
-          data-testid="research-body"
+          data-testid="research-body" id="research-workspace-panel"
           data-mode="analyze"
         >
           <div className="research-column">
@@ -765,7 +813,7 @@ export function ResearchWorkspace({
         {tabs}
         <div
           className="research-body"
-          data-testid="research-body"
+          data-testid="research-body" id="research-workspace-panel"
           data-mode="analyze"
         >
           <div className="research-column">
@@ -794,7 +842,7 @@ export function ResearchWorkspace({
         {tabs}
         <div
           className="research-body"
-          data-testid="research-body"
+          data-testid="research-body" id="research-workspace-panel"
           data-mode="analyze"
         >
           <div className="research-column">
@@ -834,7 +882,7 @@ export function ResearchWorkspace({
         {tabs}
         <div
           className="research-body"
-          data-testid="research-body"
+          data-testid="research-body" id="research-workspace-panel"
           data-mode="analyze"
         >
           <FileImportPanel
@@ -860,7 +908,7 @@ export function ResearchWorkspace({
         {tabs}
         <div
           className="research-body"
-          data-testid="research-body"
+          data-testid="research-body" id="research-workspace-panel"
           data-mode="reader"
         >
           {readerFileId ? (
@@ -898,7 +946,7 @@ export function ResearchWorkspace({
         {tabs}
         <div
           className="research-body"
-          data-testid="research-body"
+          data-testid="research-body" id="research-workspace-panel"
           data-mode="analyze"
         >
           <div className="research-column">
@@ -917,7 +965,7 @@ export function ResearchWorkspace({
         {tabs}
         <div
           className="research-body"
-          data-testid="research-body"
+          data-testid="research-body" id="research-workspace-panel"
           data-mode="analyze"
         >
           <div className="research-column">
@@ -939,7 +987,7 @@ export function ResearchWorkspace({
         {tabs}
         <div
           className="research-body"
-          data-testid="research-body"
+          data-testid="research-body" id="research-workspace-panel"
           data-mode="analyze"
         >
           <SourceLibraryPanel
@@ -964,7 +1012,7 @@ export function ResearchWorkspace({
         {tabs}
         <div
           className="research-body"
-          data-testid="research-body"
+          data-testid="research-body" id="research-workspace-panel"
           data-mode="analyze"
         >
           <CollaborationPanel
@@ -984,9 +1032,88 @@ export function ResearchWorkspace({
     <>
       {tabs}
 
+      {/*
+       * The workspace header: which research this is, where it stands, and the
+       * actions that must not disappear when a panel takes over the screen.
+       *
+       * It exists because the page had no <h1> at all — the title lives on the
+       * project row, the phase was buried in the first panel of the claim rail,
+       * and every primary action (add claim, import, report) was inside a
+       * column that the focus modes and the full-width panels remove. With
+       * several researches open in tabs there was nothing on screen to say
+       * which one you were looking at.
+       */}
+      <header className="research-workspace-head" data-testid="research-workspace-head">
+        <div className="research-workspace-head-identity">
+          <p className="research-eyebrow">研究工作台</p>
+          <h1 className="research-workspace-title">
+            {workspace.session.title ?? "未命名研究"}
+          </h1>
+          <p className="research-workspace-question">
+            {workspace.session.researchQuestion ?? "（未填写研究问题）"}
+          </p>
+          <div className="research-workspace-head-status">
+            <StatusPill tone="research-pill-neutral">
+              {workflowLabel(workspace.session.phase)}
+            </StatusPill>
+            <StatusPill tone="research-pill-neutral">
+              {operationalStatusLabel(workspace.session.operationalStatus)}
+            </StatusPill>
+          </div>
+        </div>
+
+        <dl className="research-workspace-vitals" data-testid="research-workspace-vitals">
+          <div className="research-workspace-vital">
+            <dt>主张</dt>
+            <dd>{workspace.claims.length}</dd>
+          </div>
+          <div className="research-workspace-vital">
+            <dt>材料</dt>
+            <dd>
+              {workspace.summary.verified} 已核实 /{" "}
+              {workspace.summary.unverified} 待核实
+            </dd>
+          </div>
+          <div className="research-workspace-vital">
+            <dt>来源</dt>
+            <dd>{workspace.summary.sources}</dd>
+          </div>
+          <div className="research-workspace-vital">
+            <dt>待处理</dt>
+            <dd>
+              {pendingVerificationLabel(workspace.summary.unverified)} ·{" "}
+              {workspace.summary.openVerdicts} 条主张未定论
+            </dd>
+          </div>
+        </dl>
+
+        <div className="research-workspace-head-actions">
+          <button
+            type="button"
+            className="research-button research-button-secondary"
+            onClick={() => setOpenForm(openForm === "claim" ? "none" : "claim")}
+          >
+            添加主张
+          </button>
+          <button
+            type="button"
+            className="research-button research-button-secondary"
+            onClick={() => setOpenForm(openForm === "import" ? "none" : "import")}
+          >
+            导入来源
+          </button>
+          <Link
+            className="research-button"
+            href={`/research/${sessionId}/report`}
+          >
+            事实核查报告
+          </Link>
+        </div>
+      </header>
+
       <div
         className="research-body"
-        data-testid="research-body"
+        data-testid="research-body" id="research-workspace-panel"
         data-mode={focusMode ? "focus" : "research"}
       >
         {/* ---------- left: claims and flow (always on screen when wide) ---------- */}
@@ -1536,6 +1663,37 @@ export function ResearchWorkspace({
                 setPanel("analyze");
               }}
             />
+          ) : contextLoading ? (
+            /* "Reading the excerpt" is not "nothing selected" — the two used to
+               render the same empty-state sentence, and a slow fetch looked
+               like an empty column. */
+            <div className="research-column">
+              <section className="research-panel">
+                <p className="research-empty" data-testid="evidence-context-loading">
+                  正在读取原文摘录与来源信息…
+                </p>
+              </section>
+            </div>
+          ) : contextError ? (
+            <div className="research-column">
+              <section className="research-panel">
+                <p className="research-error" role="alert" data-testid="evidence-context-error">
+                  {contextError}
+                </p>
+                <p className="research-muted" style={{ marginTop: 8 }}>
+                  原文详情没能加载。这不会影响已核实状态，你可以在左侧重新选择这条材料。
+                </p>
+                <div className="research-actions" style={{ marginTop: 10 }}>
+                  <button
+                    type="button"
+                    className="research-button research-button-secondary"
+                    onClick={() => setContextReloadNonce((value) => value + 1)}
+                  >
+                    重新加载
+                  </button>
+                </div>
+              </section>
+            </div>
           ) : (
             <div className="research-column">
               <section className="research-panel">

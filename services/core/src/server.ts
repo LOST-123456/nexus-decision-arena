@@ -267,12 +267,17 @@ const workspaceService = new ResearchWorkspaceService({
   getSession: async (sessionId) => {
     const session = await sessions.getById(sessionId);
     if (!session) return null;
+    // The session's title is its project's name (decision_sessions has no
+    // title column). Read it in the same call path so the workspace header can
+    // name the research; a missing project degrades to null, never to a guess.
+    const project = await sessions.getProjectBySessionId(sessionId);
     return {
       id: session.id,
       phase: session.phase,
       operationalStatus: session.operationalStatus,
       researchQuestion: session.researchQuestion ?? null,
-      currentConclusion: session.currentConclusion ?? null
+      currentConclusion: session.currentConclusion ?? null,
+      title: project?.name ?? null
     };
   }
 });

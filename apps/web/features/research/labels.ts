@@ -143,8 +143,7 @@ export function verdictTone(status: ClaimVerdictStatus): string {
   return "research-pill-neutral";
 }
 
-/** The rule that produced a verdict, spelled out so it can be checked. */
-export function verdictRuleLabel(rule: ClaimVerdictRule): string {
+/** The rule that produced a verdict, spelled out so it can be checked. */export function verdictRuleLabel(rule: ClaimVerdictRule): string {
   switch (rule) {
     case "no_evidence":
       return "没有任何关联材料";
@@ -303,6 +302,20 @@ export function workflowLabel(phase: string): string {
 /** Verification backlog wording used on Research Home. */
 export function pendingVerificationLabel(count: number): string {
   return count === 0 ? "无待核实材料" : `${count} 条待核实`;
+}
+
+/**
+ * The session's operational status.
+ *
+ * The server stores ACTIVE / PAUSED and the workspace header now shows it —
+ * a paused research is a fact a researcher needs before wondering why nothing
+ * is running. Anything outside the known vocabulary is passed through
+ * untouched rather than mapped to a plausible-looking label.
+ */
+export function operationalStatusLabel(status: string): string {
+  if (status === "ACTIVE") return "进行中";
+  if (status === "PAUSED") return "已暂停";
+  return status;
 }
 
 /**

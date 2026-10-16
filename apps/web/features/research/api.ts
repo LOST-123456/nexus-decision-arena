@@ -84,6 +84,12 @@ export type ResearchSessionState = {
   operationalStatus: string;
   researchQuestion: string | null;
   currentConclusion: string | null;
+  /**
+   * The owning project's name, when the server can supply it. The workspace
+   * header names the research with it; absent for a session whose project row
+   * cannot be read, in which case the header says so instead of inventing one.
+   */
+  title?: string | null;
 };
 
 export type ResearchSummary = {
