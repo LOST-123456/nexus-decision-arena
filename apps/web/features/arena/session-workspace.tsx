@@ -13,6 +13,8 @@ import { DecisionMap } from "../../components/decision-map";
 import { HumanCheckpoint } from "../../components/human-checkpoint";
 import { Inspector } from "../../components/inspector";
 import { RuntimeModeBadge } from "../../components/runtime-mode-badge";
+import { ActionLink, Button } from "../../components/ui/button";
+import { FullPageNotice } from "../../components/ui/notice";
 import {
   Timeline,
   type TimelineEvent
@@ -397,66 +399,44 @@ export function SessionWorkspace({ sessionId }: { sessionId: string }) {
     // panel and a way out instead of a retry button that can only fail again.
     const notFound = loadFailure.status === 404;
     return (
-      <main
-        id="main"
-        tabIndex={-1}
-        className="workspace-fallback"
-        data-testid={notFound ? "session-not-found" : "session-load-error"}
-      >
-        <section className="workspace-notice" role="alert">
-          <p className="eyebrow">
-            {notFound ? "SESSION NOT FOUND" : "SESSION UNAVAILABLE"}
-          </p>
-          <h2>{notFound ? "会话不存在" : "无法加载会话"}</h2>
-          <p className="workspace-notice-reason">{loadFailure.message}</p>
-          {notFound ? (
-            <p className="workspace-notice-hint">
-              它可能已被删除，或者这个链接有误。
-            </p>
+      <FullPageNotice
+        testId={notFound ? "session-not-found" : "session-load-error"}
+        role="alert"
+        eyebrow={notFound ? "SESSION NOT FOUND" : "SESSION UNAVAILABLE"}
+        title={notFound ? "会话不存在" : "无法加载会话"}
+        reason={loadFailure.message}
+        hint={
+          notFound
+            ? "它可能已被删除，或者这个链接有误。"
+            : "请确认核心 API 正在运行（默认 4100 端口），然后重新加载。"
+        }
+        actions={
+          notFound ? (
+            <>
+              <ActionLink href="/history">返回最近会话</ActionLink>
+              <ActionLink href="/sessions/new">新建评审</ActionLink>
+            </>
           ) : (
-            <p className="workspace-notice-hint">
-              请确认核心 API 正在运行（默认 4100 端口），然后重新加载。
-            </p>
-          )}
-          {notFound ? (
-            <div className="workspace-notice-actions">
-              <Link className="workspace-retry" href="/history">
-                返回最近会话
-              </Link>
-              <Link className="workspace-retry" href="/sessions/new">
-                新建评审
-              </Link>
-            </div>
-          ) : (
-            <button
-              type="button"
-              className="workspace-retry"
-              onClick={() => void loadSession(() => true)}
-            >
+            <Button onClick={() => void loadSession(() => true)}>
               重新加载
-            </button>
-          )}
-        </section>
-      </main>
+            </Button>
+          )
+        }
+      />
     );
   }
 
   if (persisted && loading) {
     return (
-      <main
-        id="main"
-        tabIndex={-1}
-        className="workspace-fallback"
-        data-testid="session-loading"
-      >
-        <section className="workspace-notice" data-tone="loading">
-          <p className="eyebrow">LOADING</p>
-          <h2>正在载入会话</h2>
-          <p className="workspace-notice-hint">
-            正在读取会话状态、执行事件与 Claim 详情。
-          </p>
-        </section>
-      </main>
+      <FullPageNotice
+        testId="session-loading"
+        tone="loading"
+        role="status"
+        live="polite"
+        eyebrow="LOADING"
+        title="正在载入会话"
+        hint="正在读取会话状态、执行事件与 Claim 详情。"
+      />
     );
   }
 

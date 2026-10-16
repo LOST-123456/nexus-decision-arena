@@ -1,3 +1,5 @@
+import { FullPageNotice } from "../components/ui/notice";
+
 /**
  * Suspense fallback for route segments. The failure side of the app already
  * says what went wrong (P16); this is the mirror image — it says something is
@@ -5,17 +7,14 @@
  */
 export default function Loading() {
   return (
-    <main id="main" tabIndex={-1} className="workspace-fallback" data-testid="route-loading">
-      <section
-        className="workspace-notice"
-        data-tone="loading"
-        role="status"
-        aria-live="polite"
-      >
-        <p className="eyebrow">LOADING</p>
-        <h2>正在载入</h2>
-        <p className="workspace-notice-hint">正在准备页面内容…</p>
-      </section>
-    </main>
+    <FullPageNotice
+      testId="route-loading"
+      tone="loading"
+      role="status"
+      live="polite"
+      eyebrow="LOADING"
+      title="正在载入"
+      hint="正在准备页面内容…"
+    />
   );
 }

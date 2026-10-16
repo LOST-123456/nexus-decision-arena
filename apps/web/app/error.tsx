@@ -1,7 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect } from "react";
+import { ActionLink, Button } from "../components/ui/button";
+import { FullPageNotice } from "../components/ui/notice";
 
 /**
  * Route-level error boundary. Without it an uncaught render error falls back
@@ -21,26 +22,21 @@ export default function RouteError({
   }, [error]);
 
   return (
-    <main id="main" tabIndex={-1} className="workspace-fallback" data-testid="route-error">
-      <section className="workspace-notice" role="alert">
-        <p className="eyebrow">UNEXPECTED ERROR</p>
-        <h2>页面出错了</h2>
-        <p className="workspace-notice-reason">
-          {error.message || "渲染这个页面时发生了未预期的错误。"}
-        </p>
-        <p className="workspace-notice-hint">
-          可以先重试；如果反复出现，请把页面地址反馈给管理员
-          {error.digest ? `（错误编号 ${error.digest}）` : ""}。
-        </p>
-        <div className="workspace-notice-actions">
-          <button type="button" className="workspace-retry" onClick={reset}>
-            重试
-          </button>
-          <Link className="workspace-retry" href="/">
-            返回首页
-          </Link>
-        </div>
-      </section>
-    </main>
+    <FullPageNotice
+      testId="route-error"
+      role="alert"
+      eyebrow="UNEXPECTED ERROR"
+      title="页面出错了"
+      reason={error.message || "渲染这个页面时发生了未预期的错误。"}
+      hint={`可以先重试；如果反复出现，请把页面地址反馈给管理员${
+        error.digest ? `（错误编号 ${error.digest}）` : ""
+      }。`}
+      actions={
+        <>
+          <Button onClick={reset}>重试</Button>
+          <ActionLink href="/">返回首页</ActionLink>
+        </>
+      }
+    />
   );
 }
