@@ -60,6 +60,9 @@ import {
 } from "@nexus/db";
 import { ResearchWorkspaceService } from "./research/workspace-service";
 import { DiskFileStorage } from "./research/file-storage";
+import { resolveAuthConfig } from "./auth-config";
+import { createConsoleAuditSink } from "./auth-audit";
+import { LoginThrottle } from "./login-rate-limit";
 import { AuthService } from "./auth";
 
 import { dirname, resolve } from "node:path";
@@ -111,13 +114,37 @@ const translationProvider =
       })
     : new UnavailableTranslationProvider();
 
+/**
+ * Authentication is resolved before anything listens, so a deployment that is
+ * not allowed to run never serves a single request. See `auth-config.ts` for
+ * why a public deployment may not fall back to the built-in secret or to the
+ * built-in owner password.
+ */
+const authConfig = resolveAuthConfig(process.env, {
+  usersPath: resolve(
+    dirname(fileURLToPath(import.meta.url)),
+    "../../..",
+    ".data",
+    "users.json"
+  )
+});
+if (!authConfig.secretFromEnvironment) {
+  process.stderr.write(
+    "[auth] AUTH_SECRET is not set, so session tokens are signed with the built-in demo secret. That is acceptable for a local development run only; set AUTH_SECRET before this service is reachable by anyone else.\n"
+  );
+}
+if (authConfig.mode === "public" && !authConfig.secureCookies) {
+  process.stderr.write(
+    "[auth] This deployment is public but its session cookie is not marked Secure. Point WEB_ORIGIN at an https:// origin, or set AUTH_COOKIE_SECURE=true.\n"
+  );
+}
+
 const auth = new AuthService({
-  usersPath:
-    process.env.AUTH_USERS_PATH ??
-    resolve(dirname(fileURLToPath(import.meta.url)), "../../..", ".data", "users.json"),
-  secret: process.env.AUTH_SECRET ?? "nexus-local-demo-secret",
-  defaultOwnerPassword: process.env.AUTH_DEFAULT_OWNER_PASSWORD ?? "nexus-owner",
-  defaultViewerPassword: process.env.AUTH_DEFAULT_VIEWER_PASSWORD ?? "nexus-viewer"
+  usersPath: authConfig.usersPath,
+  secret: authConfig.secret,
+  defaultOwnerPassword: authConfig.defaultOwnerPassword,
+  defaultViewerPassword: authConfig.defaultViewerPassword,
+  allowDemoBootstrap: authConfig.allowDemoBootstrap
 });
 await auth.initialize();
 const mode = process.env.LLM_MODE ?? "mock";
@@ -437,7 +464,12 @@ const app = createApp(
           },
     ...(process.env.WEB_ORIGIN
       ? { webOrigin: process.env.WEB_ORIGIN }
-      : {})
+      : {}),
+    authRuntime: {
+      secureCookies: authConfig.secureCookies,
+      loginThrottle: new LoginThrottle(),
+      auditSink: createConsoleAuditSink()
+    }
   }
 );
 

@@ -4,7 +4,7 @@ import {
   scryptSync,
   timingSafeEqual
 } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { newId } from "@nexus/shared";
 import type { FastifyRequest } from "fastify";
@@ -24,12 +24,42 @@ type StoredUser = AuthUser & {
   createdAt: string;
 };
 
-type AuthServiceOptions = {
+export type AuthServiceOptions = {
   usersPath: string;
   secret: string;
-  defaultOwnerPassword: string;
-  defaultViewerPassword: string;
+  /**
+   * Password for the first `owner`. Null means this deployment must not create
+   * an owner at all — see `AuthBootstrapForbiddenError`.
+   */
+  defaultOwnerPassword: string | null;
+  /** Password for the first `viewer`; null means no viewer is created. */
+  defaultViewerPassword: string | null;
+  /**
+   * Whether an empty or absent user file may be filled with the built-in
+   * convenience accounts. A public deployment resolves this to false unless an
+   * operator set an initial password explicitly.
+   */
+  allowDemoBootstrap: boolean;
 };
+
+/** Raised when the user file cannot be trusted. The file is never rewritten. */
+export class AuthUsersFileError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AuthUsersFileError";
+  }
+}
+
+/**
+ * Raised when there is no administrator to sign in as and this deployment is
+ * not allowed to invent one from credentials shipped in the source.
+ */
+export class AuthBootstrapForbiddenError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AuthBootstrapForbiddenError";
+  }
+}
 
 function hashPassword(password: string, salt: string): string {
   return scryptSync(password, salt, 64).toString("hex");
@@ -44,30 +74,70 @@ function safeEqual(left: string, right: string): boolean {
   );
 }
 
+function isStoredUser(value: unknown): value is StoredUser {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<StoredUser>;
+  return (
+    typeof candidate.id === "string" &&
+    candidate.id.length > 0 &&
+    typeof candidate.username === "string" &&
+    candidate.username.length > 0 &&
+    typeof candidate.salt === "string" &&
+    candidate.salt.length > 0 &&
+    typeof candidate.passwordHash === "string" &&
+    candidate.passwordHash.length > 0 &&
+    (candidate.role === "owner" ||
+      candidate.role === "reviewer" ||
+      candidate.role === "viewer")
+  );
+}
+
+function describeError(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error);
+}
+
+function errorCode(error: unknown): string | undefined {
+  return typeof error === "object" && error !== null && "code" in error
+    ? String((error as { code?: unknown }).code)
+    : undefined;
+}
+
+/**
+ * A fixed salt/hash pair used to make an unknown username cost the same work
+ * as a known one. Without it, "no such user" returns in microseconds while
+ * "wrong password" runs a key derivation, and the response time tells an
+ * attacker which usernames exist — which is exactly the side channel that
+ * makes a uniform error message pointless.
+ */
+let timingEqualization: { salt: string; passwordHash: string } | null = null;
+function equalizationTarget(): { salt: string; passwordHash: string } {
+  timingEqualization ??= {
+    salt: "nexus-timing-equalization",
+    passwordHash: hashPassword(
+      "nexus-timing-equalization",
+      "nexus-timing-equalization"
+    )
+  };
+  return timingEqualization;
+}
+
 export class AuthService {
   private users: StoredUser[] = [];
+  /**
+   * Serializes writes to the user file. `createUser` checks for a duplicate
+   * and then persists; without this chain, two concurrent calls can both pass
+   * the check and the second write silently drops the first account.
+   */
+  private writeQueue: Promise<unknown> = Promise.resolve();
 
   constructor(private readonly options: AuthServiceOptions) {}
 
   async initialize(): Promise<void> {
     await mkdir(dirname(this.options.usersPath), { recursive: true });
-    try {
-      const parsed = JSON.parse(
-        await readFile(this.options.usersPath, "utf8")
-      ) as StoredUser[];
-      this.users = Array.isArray(parsed) ? parsed : [];
-    } catch {
-      this.users = [];
-    }
-
+    this.users = await this.readUsersFile();
     if (this.users.length === 0) {
-      this.users = [
-        this.buildUser("owner", "Owner", "owner", this.options.defaultOwnerPassword),
-        this.users.length === 0
-          ? this.buildUser("viewer", "Viewer", "viewer", this.options.defaultViewerPassword)
-          : null
-      ].filter((user): user is StoredUser => user !== null);
-      await this.persist();
+      await this.bootstrapInitialUsers();
     }
   }
 
@@ -78,11 +148,13 @@ export class AuthService {
     const user = this.users.find(
       (candidate) => candidate.username.toLowerCase() === username.toLowerCase()
     );
-    if (!user) return null;
-    const candidateHash = hashPassword(password, user.salt);
-    return safeEqual(candidateHash, user.passwordHash)
-      ? this.publicUser(user)
-      : null;
+    // Derive against the real salt when the account exists and against a fixed
+    // one when it does not, so the two paths cost the same.
+    const target = user ?? equalizationTarget();
+    const candidateHash = hashPassword(password, target.salt);
+    const matches = safeEqual(candidateHash, target.passwordHash);
+    if (!user || !matches) return null;
+    return this.publicUser(user);
   }
 
   async createUser(input: {
@@ -91,22 +163,16 @@ export class AuthService {
     role: AuthRole;
     password: string;
   }): Promise<AuthUser> {
-    if (
-      this.users.some(
-        (user) => user.username.toLowerCase() === input.username.toLowerCase()
-      )
-    ) {
-      throw new Error("Username already exists");
-    }
-    const user = this.buildUser(
-      input.username,
-      input.displayName,
-      input.role,
-      input.password
+    const attempt = this.writeQueue.then(() =>
+      this.createUserSerialized(input)
     );
-    this.users.push(user);
-    await this.persist();
-    return this.publicUser(user);
+    // Keep the chain alive even when this attempt fails, so one rejected
+    // request does not break every later one.
+    this.writeQueue = attempt.then(
+      () => undefined,
+      () => undefined
+    );
+    return attempt;
   }
 
   listUsers(): AuthUser[] {
@@ -158,6 +224,116 @@ export class AuthService {
     }
   }
 
+  /**
+   * Reads the user file, telling "there is no file yet" apart from "there is a
+   * file and it cannot be trusted".
+   *
+   * The distinction is the whole point. The previous implementation caught
+   * every error and reset the account list to empty, so a truncated write, a
+   * permission change or a hand-edited typo silently destroyed every account
+   * and replaced it with the built-in ones — with the operator's passwords
+   * gone and nothing in the log saying so. A missing file is a first start; a
+   * file that cannot be read or parsed is a stop.
+   */
+  private async readUsersFile(): Promise<StoredUser[]> {
+    let raw: string;
+    try {
+      raw = await readFile(this.options.usersPath, "utf8");
+    } catch (error) {
+      if (errorCode(error) === "ENOENT") return [];
+      throw new AuthUsersFileError(
+        `Cannot read the user file at ${this.options.usersPath}: ${describeError(
+          error
+        )}. Existing accounts were left untouched; fix the file or its permissions and start again.`
+      );
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      throw new AuthUsersFileError(
+        `The user file at ${this.options.usersPath} is not valid JSON. Existing accounts were left untouched; repair the file and start again.`
+      );
+    }
+    if (!Array.isArray(parsed)) {
+      throw new AuthUsersFileError(
+        `The user file at ${this.options.usersPath} does not contain an array of accounts. Existing accounts were left untouched; repair the file and start again.`
+      );
+    }
+    const unusable = parsed.filter((entry) => !isStoredUser(entry)).length;
+    if (unusable > 0) {
+      throw new AuthUsersFileError(
+        `The user file at ${this.options.usersPath} contains ${unusable} entr${
+          unusable === 1 ? "y" : "ies"
+        } without a username, salt, password hash or valid role. Existing accounts were left untouched; repair the file and start again.`
+      );
+    }
+    return parsed as StoredUser[];
+  }
+
+  private async bootstrapInitialUsers(): Promise<void> {
+    if (!this.options.allowDemoBootstrap) {
+      throw new AuthBootstrapForbiddenError(
+        `No administrator exists yet, and this deployment is not allowed to create one from credentials shipped in the source. Set AUTH_DEFAULT_OWNER_PASSWORD (and AUTH_DEFAULT_VIEWER_PASSWORD if a viewer account is wanted) before the first start. The user file at ${this.options.usersPath} was left untouched.`
+      );
+    }
+    const created: StoredUser[] = [];
+    if (this.options.defaultOwnerPassword) {
+      created.push(
+        this.buildUser(
+          "owner",
+          "Owner",
+          "owner",
+          this.options.defaultOwnerPassword
+        )
+      );
+    }
+    if (this.options.defaultViewerPassword) {
+      created.push(
+        this.buildUser(
+          "viewer",
+          "Viewer",
+          "viewer",
+          this.options.defaultViewerPassword
+        )
+      );
+    }
+    if (created.length === 0) {
+      throw new AuthBootstrapForbiddenError(
+        `No administrator exists yet and no initial password is configured. Set AUTH_DEFAULT_OWNER_PASSWORD before the first start. The user file at ${this.options.usersPath} was left untouched.`
+      );
+    }
+    this.users = created;
+    await this.persist();
+  }
+
+  private async createUserSerialized(input: {
+    username: string;
+    displayName: string;
+    role: AuthRole;
+    password: string;
+  }): Promise<AuthUser> {
+    // Re-checked inside the lock: the earlier check in the caller ran while
+    // another request could still have been persisting the same username.
+    if (
+      this.users.some(
+        (user) => user.username.toLowerCase() === input.username.toLowerCase()
+      )
+    ) {
+      throw new Error("Username already exists");
+    }
+    const user = this.buildUser(
+      input.username,
+      input.displayName,
+      input.role,
+      input.password
+    );
+    this.users.push(user);
+    await this.persist();
+    return this.publicUser(user);
+  }
+
   private buildUser(
     username: string,
     displayName: string,
@@ -185,11 +361,31 @@ export class AuthService {
     };
   }
 
+  /**
+   * Writes the account file by renaming a temporary file over it.
+   *
+   * A direct `writeFile` truncates the target first, so a crash or a full disk
+   * between the two leaves a half-written file where every account used to be.
+   * `rename` is atomic within a filesystem, so the file is either the old
+   * content or the new content — never a blend. The file holds password
+   * hashes, so it is created 0600 rather than inheriting the process umask.
+   */
   private async persist(): Promise<void> {
-    await writeFile(
-      this.options.usersPath,
-      `${JSON.stringify(this.users, null, 2)}\n`,
-      "utf8"
-    );
+    const target = this.options.usersPath;
+    const temporary = `${target}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`;
+    const payload = `${JSON.stringify(this.users, null, 2)}\n`;
+    try {
+      await writeFile(temporary, payload, { encoding: "utf8", mode: 0o600 });
+      await chmod(temporary, 0o600);
+      await rename(temporary, target);
+    } catch (error) {
+      await rm(temporary, { force: true }).catch(() => undefined);
+      throw new AuthUsersFileError(
+        `Cannot write the user file at ${target}: ${describeError(error)}. Existing accounts were left untouched.`
+      );
+    }
+    // `rename` keeps the destination's original permissions, so tighten them
+    // here in case the file already existed with wider ones.
+    await chmod(target, 0o600).catch(() => undefined);
   }
 }

@@ -18,6 +18,8 @@ import {
   type IdempotencyStore
 } from "./api/plugins/idempotency";
 import { registerAuthRoutes } from "./api/routes/auth";
+import type { AuthAuditSink } from "./auth-audit";
+import { LoginThrottle } from "./login-rate-limit";
 import { registerEvidenceRoutes } from "./api/routes/evidence";
 import { registerEvidenceMapRoutes } from "./api/routes/evidence-map";
 import { registerEventRoutes } from "./api/routes/events";
@@ -232,6 +234,16 @@ export type AppOptions = {
     provider: string;
     model: string;
   };
+  /**
+   * How the authentication routes behave. Left unset, a test app gets an
+   * in-process throttle and a non-secure cookie; `server.ts` passes the real
+   * deployment values resolved from the environment.
+   */
+  authRuntime?: {
+    secureCookies?: boolean;
+    loginThrottle?: LoginThrottle;
+    auditSink?: AuthAuditSink;
+  };
 };
 
 export function createApp(
@@ -319,7 +331,14 @@ export function createApp(
   );
 
   if (dependencies.auth) {
-    registerAuthRoutes(app, dependencies.auth);
+    const authRuntime = options.authRuntime;
+    registerAuthRoutes(app, dependencies.auth, {
+      secureCookies: authRuntime?.secureCookies === true,
+      loginThrottle: authRuntime?.loginThrottle ?? new LoginThrottle(),
+      // Spread rather than assign: `exactOptionalPropertyTypes` is on, and
+      // passing an explicit `undefined` here would be a different type.
+      ...(authRuntime?.auditSink ? { auditSink: authRuntime.auditSink } : {})
+    });
   }
   registerSessionRoutes(app, dependencies, idempotency);
   registerInspectorRoutes(app, dependencies);
