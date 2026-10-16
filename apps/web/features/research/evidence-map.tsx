@@ -9,7 +9,7 @@ import {
   Panel,
   Position,
   ReactFlow,
-  useNodesInitialized,
+  useStoreApi,
   type NodeProps
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -45,26 +45,119 @@ const nodeTypes = {
 };
 
 /**
- * Publishes "every node has been measured" upward.
- *
- * React Flow keeps a node `visibility: hidden` until its ResizeObserver has
- * reported real dimensions, and it reports nothing at all if the observer never
- * fires for a node — so a node can stay hidden indefinitely rather than merely
- * briefly. Exposing the library's own readiness signal lets the page state it
- * plainly ("the graph is readable") instead of leaving callers to guess from
- * whether some label happens to be visible yet.
+ * The slice of React Flow's internal node record this panel needs in order to
+ * say "this node has been measured". Declared structurally so the predicate
+ * below stays a pure function that unit tests can drive without a browser.
  */
-function NodeReadinessReporter({
-  onReady
-}: {
-  onReady: () => void;
-}) {
-  const initialized = useNodesInitialized();
-  useEffect(() => {
-    if (initialized) {
-      onReady();
+export type MeasurableNodeRecord = {
+  id: string;
+  hidden?: boolean;
+  internals: { handleBounds?: unknown };
+};
+
+/**
+ * True when the store holds exactly the expected node set and every one of
+ * them has been measured.
+ *
+ * "Measured" means React Flow's own `updateNodeInternals` has run for that
+ * node: it is the only place that writes `internals.handleBounds`, and it only
+ * gets there after `getDimensions` returned a non-zero width and height. A node
+ * whose handle bounds are still `undefined` has not been laid out yet, so its
+ * edges have no real endpoints to attach to.
+ *
+ * The store is compared as a *set*, not a count. React Flow adopts a new `nodes`
+ * prop in an effect, so for one render after a filter change the store still
+ * describes the previous node set; a count alone can coincide with the new one
+ * and claim readiness a frame early. Comparing ids makes that impossible.
+ *
+ * `hidden` nodes render nothing, so they are neither waited for nor allowed to
+ * widen the answer. This panel never hides a node — the adapter sets no such
+ * flag — so the branch exists only to stay faithful to how React Flow itself
+ * counts.
+ */
+export function allNodesMeasured(
+  nodes: Iterable<MeasurableNodeRecord>,
+  expectedIds: ReadonlySet<string>
+): boolean {
+  if (expectedIds.size === 0) {
+    // An empty graph has nothing to wait for; its empty state is the answer.
+    return true;
+  }
+  let visible = 0;
+  let measured = 0;
+  for (const node of nodes) {
+    if (node.hidden) {
+      continue;
     }
-  }, [initialized, onReady]);
+    visible += 1;
+    if (!expectedIds.has(node.id)) {
+      // The store still holds a node this view no longer shows.
+      return false;
+    }
+    if (node.internals.handleBounds !== undefined) {
+      measured += 1;
+    }
+  }
+  return visible === expectedIds.size && measured === visible;
+}
+
+/**
+ * Reads "has every node been measured" out of the React Flow store.
+ *
+ * Why not `useNodesInitialized()`: that hook additionally requires
+ * `measured` on the **user** node object, and React Flow only writes that back
+ * through `applyNodeChanges`, which `triggerNodeChanges` calls solely in
+ * uncontrolled (`defaultNodes`) mode. This panel drives `<ReactFlow>` with a
+ * controlled `nodes` prop and no `onNodesChange`, so the measurement genuinely
+ * happens — the store's internal nodes carry `measured` and
+ * `internals.handleBounds`, and the edges are drawn from them — but the user
+ * node is never updated and the hook stays `false` forever. Reading the store
+ * field the hook checks first is the correct handling for this dependency
+ * version; it is the same record the library itself uses to decide a node is
+ * initialized.
+ *
+ * Must be rendered inside `<ReactFlow>`, which is where the store context
+ * lives — hence the reporter component below rather than a hook in the panel.
+ */
+function useEvidenceMapNodesMeasured(expectedIds: ReadonlySet<string>): boolean {
+  const store = useStoreApi();
+  const [measured, setMeasured] = useState(false);
+
+  useEffect(() => {
+    const read = () => {
+      setMeasured(
+        allNodesMeasured(store.getState().nodeLookup.values(), expectedIds)
+      );
+    };
+    read();
+    // The store mutates on pan, zoom and drag too; setMeasured bails out when
+    // the answer has not changed, so those updates cost nothing.
+    return store.subscribe(read);
+  }, [store, expectedIds]);
+
+  return measured;
+}
+
+/**
+ * Bridges the store-derived measurement answer up to the panel, which owns the
+ * element the page (and the tests) read.
+ *
+ * The bridge reports *both* directions, so the panel's state mirrors the store
+ * instead of latching: when a filter swaps the node set, the new nodes have no
+ * handle bounds yet and the panel drops back to "not measured" on its own,
+ * with no separate reset effect to keep in sync.
+ */
+function NodesMeasuredReporter({
+  expectedIds,
+  onChange
+}: {
+  expectedIds: ReadonlySet<string>;
+  onChange: (measured: boolean) => void;
+}) {
+  const measured = useEvidenceMapNodesMeasured(expectedIds);
+  useEffect(() => {
+    onChange(measured);
+  }, [measured, onChange]);
   return null;
 }
 
@@ -241,18 +334,27 @@ export function EvidenceMapPanel({ sessionId }: { sessionId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<EvidenceMapFilter>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+
   /**
-   * Reset whenever the node set changes: React Flow measures per node, so a
-   * filtered view (or a reloaded graph) has to be measured again before its
-   * nodes stop being hidden.
+   * Two separate readiness states, deliberately not one flag:
+   *
+   *  - `graphLoaded`  — the graph request finished and produced data. It says
+   *                     nothing about layout.
+   *  - `nodesMeasured`— React Flow has measured every node currently in the
+   *                     flow. It is mirrored from the store by the reporter
+   *                     inside `<ReactFlow>`, so it drops back to false by
+   *                     itself when a filter changes the node set.
+   *
+   * Collapsing them into one boolean is what made the old signal unfalsifiable:
+   * the page could not tell "still fetching" from "fetched but never laid out",
+   * so a measurement bug looked like a slow network.
    */
-  const [nodesReady, setNodesReady] = useState(false);
-
-  const markNodesReady = useCallback(() => setNodesReady(true), []);
-
-  useEffect(() => {
-    setNodesReady(false);
-  }, [graph, filter]);
+  const graphLoaded = !loading && !error && graph !== null;
+  const [nodesMeasured, setNodesMeasured] = useState(false);
+  const handleNodesMeasured = useCallback(
+    (measured: boolean) => setNodesMeasured(measured),
+    []
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -279,6 +381,11 @@ export function EvidenceMapPanel({ sessionId }: { sessionId: string }) {
   const flow = useMemo(
     () => (filtered ? toEvidenceMapFlow(filtered) : { nodes: [], edges: [] }),
     [filtered]
+  );
+  // Identity-stable, because the reporter subscribes to it.
+  const flowNodeIds = useMemo(
+    () => new Set(flow.nodes.map((node) => node.id)),
+    [flow]
   );
 
   const header = (
@@ -348,7 +455,8 @@ export function EvidenceMapPanel({ sessionId }: { sessionId: string }) {
       <div
         className="evidence-map-canvas"
         data-testid="evidence-map-canvas"
-        data-nodes-ready={nodesReady ? "true" : "false"}
+        data-graph-loaded={graphLoaded ? "true" : "false"}
+        data-nodes-ready={graphLoaded && nodesMeasured ? "true" : "false"}
       >
         <ReactFlow
           nodes={flow.nodes}
@@ -364,7 +472,10 @@ export function EvidenceMapPanel({ sessionId }: { sessionId: string }) {
           elementsSelectable={true}
           proOptions={{ hideAttribution: true }}
         >
-          <NodeReadinessReporter onReady={markNodesReady} />
+          <NodesMeasuredReporter
+            expectedIds={flowNodeIds}
+            onChange={handleNodesMeasured}
+          />
             {/* Colour comes from the `--xy-*` tokens bound in globals.css, so the
                 canvas follows the active theme without subscribing to it here. */}
             <Background gap={24} size={1} variant={BackgroundVariant.Dots} />
