@@ -848,6 +848,48 @@
 }
 
 /*
+ * The workspace bar, grouped.
+ *
+ * Sixteen buttons in one scrollable row meant reading every label in turn to
+ * find the one you wanted, with nothing saying which labels belonged together.
+ * Grouping turns that into two decisions — which area, then which panel — and
+ * because each group is one flex item, a group wraps as a unit and its label
+ * can never end up stranded from its own tabs.
+ *
+ * `research-tabs` is deliberately kept on the container as well: the print rule
+ * that hides the bar matches on that class, and the other surfaces (协作子面板
+ * / 证据面板 / 报告) still use it for a plain single-row strip.
+ */
+.research-tab-groups {
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 6px 18px;
+  overflow: visible;
+}
+
+.research-tab-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.research-tab-group-label {
+  flex: none;
+  padding-left: 4px;
+  color: var(--rw-muted);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+}
+
+.research-tab-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+/*
  * 资料库 is a browse-and-copy surface rather than a claim-scoped column layout:
  * the filters and the visible-research list sit on the left, the results and
  * the sharing table on the right. It owns its own grid so neither column is
@@ -888,5 +930,21 @@
   }
   .research-tab-narrow {
     display: inline-block;
+  }
+  /*
+   * Narrow: scroll the bar rather than wrap it. Wrapping four labelled groups
+   * onto a phone would stack five or six rows of chrome above the content; one
+   * scrolling row keeps the height the old strip had, and the labels still say
+   * who belongs to whom as you scroll past.
+   */
+  .research-tab-groups {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+  .research-tab-group {
+    flex: none;
+  }
+  .research-tab-strip {
+    flex-wrap: nowrap;
   }
 }

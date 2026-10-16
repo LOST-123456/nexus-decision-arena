@@ -137,3 +137,87 @@ describe("ResearchHome · 删除研究", () => {
     expect(deleteSession).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * 创建门槛。
+ *
+ * 模板要求五个字段全部非空，表单就照抄了五个 `required` —— 结果是用户在
+ * 还没看到任何材料之前，先被要求编出「业务模式」「已有资料」。现在只有名称必填，
+ * 其余留空时以一个**写明未填写**的值提交（而不是空串，也不是替用户编一个值）。
+ */
+describe("ResearchHome · 新建研究的门槛", () => {
+  beforeEach(() => {
+    createSession.mockResolvedValue({ id: "s-2" });
+  });
+
+  it("只有研究名称是必填字段", () => {
+    render(<ResearchHome />);
+
+    const required = (label: RegExp) =>
+      (screen.getByLabelText(label) as HTMLInputElement | HTMLTextAreaElement)
+        .required;
+
+    expect(required(/研究名称/)).toBe(true);
+    expect(required(/研究问题/)).toBe(false);
+    expect(required(/背景摘要/)).toBe(false);
+    expect(required(/涉及对象/)).toBe(false);
+    expect(required(/业务模式/)).toBe(false);
+    expect(required(/已有资料/)).toBe(false);
+  });
+
+  it("只填名称即可创建，留空字段以「未填写」提交而不是空串", async () => {
+    render(<ResearchHome />);
+
+    fireEvent.change(screen.getByLabelText(/研究名称/), {
+      target: { value: "  危化品安全平台  " }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "创建并进入工作台" }));
+
+    await waitFor(() => expect(createSession).toHaveBeenCalledTimes(1));
+    const command = createSession.mock.calls[0]?.[0];
+
+    expect(command.project.name).toBe("危化品安全平台");
+    expect(command.project.summary).toBe("（未填写）");
+    expect(command.project.targetUsers).toBe("（未填写）");
+    expect(command.project.businessModel).toBe("（未填写）");
+    expect(command.project.expectedData).toBe("（未填写）");
+    // 研究问题本就是可选：留空时不带这个键，而不是发一个空串。
+    expect("researchQuestion" in command).toBe(false);
+  });
+
+  it("填了的字段照原样提交，不被占位符覆盖", async () => {
+    render(<ResearchHome />);
+
+    fireEvent.change(screen.getByLabelText(/研究名称/), {
+      target: { value: "危化品安全平台" }
+    });
+    fireEvent.change(screen.getByLabelText(/背景摘要/), {
+      target: { value: "为采购决策提供依据" }
+    });
+    fireEvent.change(screen.getByLabelText(/已有资料/), {
+      target: { value: "两年度出货报表" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "创建并进入工作台" }));
+
+    await waitFor(() => expect(createSession).toHaveBeenCalledTimes(1));
+    const command = createSession.mock.calls[0]?.[0];
+
+    expect(command.project.summary).toBe("为采购决策提供依据");
+    expect(command.project.expectedData).toBe("两年度出货报表");
+    expect(command.project.targetUsers).toBe("（未填写）");
+  });
+
+  it("名称只填空白时不发请求，并说明原因", async () => {
+    render(<ResearchHome />);
+
+    fireEvent.change(screen.getByLabelText(/研究名称/), {
+      target: { value: "   " }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "创建并进入工作台" }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toContain("研究名称")
+    );
+    expect(createSession).not.toHaveBeenCalled();
+  });
+});

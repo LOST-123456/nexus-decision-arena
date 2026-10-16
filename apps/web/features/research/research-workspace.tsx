@@ -65,53 +65,8 @@ import {
   verdictLabel,
   workflowLabel
 } from "./labels";
-
-type Panel =
-  | "claims"
-  | "content"
-  | "cross"
-  | "review"
-  | "detail"
-  | "reader"
-  | "analyze"
-  | "citations"
-  | "independence"
-  | "plan"
-  | "quality"
-  | "map"
-  | "files"
-  | "filereader"
-  | "agentops"
-  | "library"
-  | "collaboration";
-
-/**
- * `claims` and `detail` are their own tabs only where the layout collapses: on
- * a wide screen the claim rail and the source detail are always on screen, so
- * offering a tab that changes nothing would be a dead control.
- *
- * `reader` is the exception — it is a real destination on every width, because
- * reading a stored page replaces the whole workspace rather than sitting in a
- * column beside it.
- */
-const PANELS: Array<{ id: Panel; label: string; narrowOnly?: boolean }> = [
-  { id: "claims", label: "主张", narrowOnly: true },
-  { id: "content", label: "研究内容" },
-  { id: "cross", label: "交叉审查" },
-  { id: "review", label: "审核中心" },
-  { id: "detail", label: "来源详情", narrowOnly: true },
-  { id: "reader", label: "原文阅读" },
-  { id: "analyze", label: "AI 拆解" },
-  { id: "citations", label: "引用核查" },
-  { id: "independence", label: "来源关系" },
-  { id: "plan", label: "研究计划" },
-  { id: "quality", label: "研究质量" },
-  { id: "map", label: "证据地图" },
-  { id: "files", label: "文件导入" },
-  { id: "agentops", label: "运行中心" },
-  { id: "library", label: "资料库" },
-  { id: "collaboration", label: "团队协作" }
-];
+import { WorkspaceTabBar } from "./workspace-tab-bar";
+import { type Panel } from "./workspace-nav";
 
 /**
  * One address inside a multi-url import. The state is the workspace's own
@@ -651,27 +606,9 @@ export function ResearchWorkspace({
    */
   const detailCopy = context?.source ? copyLineage[context.source.id] : undefined;
 
-  const tabs = (
-    <div
-      className="research-tabs"
-      role="tablist"
-      aria-label="研究面板"
-      data-testid="research-tabs"
-    >
-      {PANELS.map((item) => (
-        <button
-          key={item.id}
-          type="button"
-          role="tab"
-          className={`research-tab${item.narrowOnly ? " research-tab-narrow" : ""}`}
-          aria-selected={panel === item.id}
-          onClick={() => setPanel(item.id)}
-        >
-          {item.label}
-        </button>
-      ))}
-    </div>
-  );
+  // The bar lives in workspace-tab-bar.tsx: it needs nothing but the navigation
+  // model, so its grouping can be asserted on directly.
+  const tabs = <WorkspaceTabBar panel={panel} onSelect={setPanel} />;
 
   // Reading a stored page is a surface of its own, not a column: it gets the
   // full width so long text is not squeezed, and it keeps the tab bar so the

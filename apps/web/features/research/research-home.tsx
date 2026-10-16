@@ -20,6 +20,17 @@ const emptyProject = {
 };
 
 /**
+ * What the API is told when an optional field is left alone.
+ *
+ * Every project field has to be a non-empty string on the server, so dropping
+ * `required` from these inputs is only honest if something non-empty goes out.
+ * This states that the field was not filled in, rather than inventing a value
+ * for it or letting a 400 come back as a generic failure. The repository's own
+ * integration tests fill the same fields with "n/a".
+ */
+const UNFILLED = "（未填写）";
+
+/**
  * The recent-research list has three genuinely different states, and merging
  * them is a lie: "we could not reach the server" must never render as "you
  * have no research yet". A dead core used to fall through to the empty state
@@ -62,11 +73,25 @@ export function ResearchHome() {
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
+    // `required` rejects an empty box, not one holding only spaces — and the
+    // API rejects an empty name outright. Saying it here keeps a whitespace-only
+    // name from coming back as a generic 400.
+    const name = project.name.trim();
+    if (name === "") {
+      setError("请填写研究名称。");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
       const command: CreateSessionCommand = {
-        project,
+        project: {
+          name,
+          summary: project.summary.trim() || UNFILLED,
+          targetUsers: project.targetUsers.trim() || UNFILLED,
+          businessModel: project.businessModel.trim() || UNFILLED,
+          expectedData: project.expectedData.trim() || UNFILLED
+        },
         locale: "zh-CN",
         ...(researchQuestion.trim() ? { researchQuestion: researchQuestion.trim() } : {})
       };
@@ -115,7 +140,7 @@ export function ResearchHome() {
           <form className="research-form" onSubmit={submit}>
             <div className="research-field">
               <label className="research-label" htmlFor="project-name">
-                研究名称
+                研究名称（必填）
               </label>
               <input
                 id="project-name"
@@ -126,10 +151,13 @@ export function ResearchHome() {
                 }
                 required
               />
+              <p className="research-muted">
+                取一个以后能一眼认出的名字，例如「危化品安全平台可行性」。
+              </p>
             </div>
             <div className="research-field">
               <label className="research-label" htmlFor="research-question">
-                研究问题（这项研究要回答什么）
+                研究问题（可选）
               </label>
               <textarea
                 id="research-question"
@@ -138,10 +166,13 @@ export function ResearchHome() {
                 onChange={(event) => setResearchQuestion(event.target.value)}
                 placeholder="例如：该公司上一季度出货量是否同比增长？"
               />
+              <p className="research-muted">
+                这项研究要回答的那一个问题。先创建、之后在工作台补写也可以。
+              </p>
             </div>
             <div className="research-field">
               <label className="research-label" htmlFor="project-summary">
-                背景摘要
+                背景摘要（可选）
               </label>
               <textarea
                 id="project-summary"
@@ -150,16 +181,30 @@ export function ResearchHome() {
                 onChange={(event) =>
                   setProject({ ...project, summary: event.target.value })
                 }
-                required
               />
+              <p className="research-muted">
+                为什么做这项研究、结论要支撑什么决策。留空将记为「未填写」。
+              </p>
             </div>
             {(
               [
-                ["targetUsers", "涉及对象"],
-                ["businessModel", "业务模式"],
-                ["expectedData", "已有资料"]
+                [
+                  "targetUsers",
+                  "涉及对象（可选）",
+                  "结论会影响或服务于谁，例如「采购委员会」。"
+                ],
+                [
+                  "businessModel",
+                  "业务模式（可选）",
+                  "这项工作所在业务的收入或成本方式；不适用就留空。"
+                ],
+                [
+                  "expectedData",
+                  "已有资料（可选）",
+                  "手上已经有哪些数据、报告或文档。"
+                ]
               ] as const
-            ).map(([field, label]) => (
+            ).map(([field, label, hint]) => (
               <div className="research-field" key={field}>
                 <label className="research-label" htmlFor={`project-${field}`}>
                   {label}
@@ -171,8 +216,8 @@ export function ResearchHome() {
                   onChange={(event) =>
                     setProject({ ...project, [field]: event.target.value })
                   }
-                  required
                 />
+                <p className="research-muted">{hint}</p>
               </div>
             ))}
             {error ? (
@@ -185,6 +230,9 @@ export function ResearchHome() {
                 创建并进入工作台
               </button>
             </div>
+            <p className="research-muted">
+              只有研究名称是必填。其余字段可以留空：留空的项目会记为「未填写」，之后在工作台里随时补充。
+            </p>
           </form>
         </section>
 
