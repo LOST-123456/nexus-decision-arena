@@ -36,3 +36,4 @@ export * from "./domain/collaboration";
 export * from "./research/research-quality";
 export * from "./research/multilingual";
 export * from "./replay/decision-replay";
+export * from "./pagination";

@@ -3,6 +3,7 @@ import {
   isRetrySupportedPurpose,
   isRetryableRun,
   type AgentRunDetail,
+  type AgentRunEvent,
   type AgentRunView
 } from "@nexus/shared";
 import type { ArenaRepository, EventRepository, ReviewRepository } from "@nexus/db";
@@ -165,7 +166,13 @@ export type AgentRunServiceDependencies = {
     | "cancelAgentRun"
     | "abandonStaleRun"
   >;
-  arena: Pick<ArenaRepository, "getSessionArtifacts">;
+  arena: Pick<
+    ArenaRepository,
+    | "getSessionArtifacts"
+    | "listChallengesByRun"
+    | "listResponseClaimsByRun"
+    | "listConflictsByChallengeIds"
+  >;
   /** Append-only execution log; used to record who cancelled a run. */
   events: Pick<EventRepository, "append">;
   /**
@@ -217,31 +224,59 @@ export class AgentRunService {
       runId
     );
 
-    // Link the run to the work it produced. A cross-review run owns challenges
-    // (by `challengerRunId`) and response claims (by `agentRunId`); conflicts
-    // are reached through the challenges it created. Evidence and human rulings
-    // are never produced by a run, so they are not linked here — linking them
-    // would falsely imply a run can change a verdict.
-    const artifacts = await this.dependencies.arena.getSessionArtifacts(
-      sessionId
+    // Link the run to the work it produced, queried by the run's own id rather
+    // than by loading the whole session and filtering in the app. A cross-review
+    // run owns challenges (by `challengerRunId`) and response claims (by
+    // `agentRunId`); conflicts are reached through the challenges it created,
+    // via a jsonb overlap test on `conflict.challengeIds`. In a large session
+    // this turns four full-table scans into four tiny index seeks.
+    const challenges = await this.dependencies.arena.listChallengesByRun(
+      sessionId,
+      runId
     );
-    const challengeIds = (artifacts?.challenges ?? [])
-      .filter((challenge) => challenge.challengerRunId === runId)
-      .map((challenge) => challenge.id);
-    const responseClaimIds = (artifacts?.claims ?? [])
-      .filter((claim) => claim.agentRunId === runId)
-      .map((claim) => claim.id);
-    const conflictIds = (artifacts?.conflicts ?? [])
+    const responseClaims = await this.dependencies.arena.listResponseClaimsByRun(
+      sessionId,
+      runId
+    );
+    const challengeIds = challenges.map((challenge) => challenge.id);
+    const conflicts =
+      await this.dependencies.arena.listConflictsByChallengeIds(
+        sessionId,
+        challengeIds
+      );
+    const conflictIds = conflicts
       .filter((conflict) =>
         conflict.challengeIds.some((id) => challengeIds.includes(id))
       )
       .map((conflict) => conflict.id);
+    const responseClaimIds = responseClaims.map((claim) => claim.id);
 
     return {
       ...run,
       events,
       outcome: { challengeIds, conflictIds, responseClaimIds }
     };
+  }
+
+  /**
+   * A run's event timeline alone — the same ledger `getRunDetail` reads, but
+   * without the run-linked artifacts. The agent-runs events route used to call
+   * `getRunDetail` (and thereby load the whole session) just to return
+   * `detail.events`; this returns the same events straight from the execution
+   * log, after confirming the run exists in this session.
+   */
+  async getRunEvents(
+    sessionId: string,
+    runId: string
+  ): Promise<AgentRunEvent[]> {
+    const run = await this.dependencies.reviews.getAgentRunById(
+      sessionId,
+      runId
+    );
+    if (!run) {
+      throw new AgentRunNotFoundError(runId);
+    }
+    return this.dependencies.reviews.listAgentRunEvents(sessionId, runId);
   }
 
   /**

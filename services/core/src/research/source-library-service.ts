@@ -635,18 +635,15 @@ export class SourceLibraryService {
       return new Map();
     }
 
-    const originSnapshots = new Map<string, string | null>();
+    // One round trip for every distinct origin instead of one per copy: a
+    // session that copies from N origins used to make N serial round trips.
+    const distinctOrigins = new Set<string>();
     for (const copy of copies.values()) {
-      if (!originSnapshots.has(copy.originSourceId)) {
-        const latest = await this.library.getLatestSnapshotForSource(
-          copy.originSourceId
-        );
-        originSnapshots.set(
-          copy.originSourceId,
-          latest?.contentHash ?? null
-        );
-      }
+      distinctOrigins.add(copy.originSourceId);
     }
+    const originSnapshots = await this.library.getLatestSnapshotContentHashes(
+      [...distinctOrigins]
+    );
 
     const lineage = new Map<string, SourceCopyRecord>();
     for (const copy of copies.values()) {

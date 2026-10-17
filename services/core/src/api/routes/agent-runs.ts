@@ -86,18 +86,18 @@ export function registerAgentRunRoutes(
     }
   );
 
-  /** A run's event timeline, read from the session's execution log. */
+  /** A run's event timeline, read straight from the execution log. */
   app.get<{ Params: { id: string; runId: string } }>(
     "/api/sessions/:id/agent-runs/:runId/events",
     async (request, reply) => {
       if (!guard(request, reply, "read")) return;
       if (!service) return notConfigured(reply);
       try {
-        const detail = await service.getRunDetail(
+        const events = await service.getRunEvents(
           request.params.id,
           request.params.runId
         );
-        return { events: detail.events };
+        return { events };
       } catch (error) {
         if (error instanceof AgentRunNotFoundError) {
           return reply.code(404).send({ error: error.message });

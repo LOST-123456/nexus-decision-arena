@@ -39,7 +39,12 @@ function makeDeps(over: Record<string, unknown> = {}) {
     cancelAgentRun: vi.fn(),
     abandonStaleRun: vi.fn()
   };
-  const arena = { getSessionArtifacts: vi.fn() };
+  const arena = {
+    getSessionArtifacts: vi.fn(),
+    listChallengesByRun: vi.fn(),
+    listResponseClaimsByRun: vi.fn(),
+    listConflictsByChallengeIds: vi.fn()
+  };
   const events = { append: vi.fn().mockResolvedValue(undefined) };
   const crossReview = {
     runForClaim: vi.fn()
@@ -87,14 +92,18 @@ describe("AgentRunService", () => {
     d.reviews.listAgentRunEvents.mockResolvedValue([
       { sequence: 1, type: "AGENT_RUN_STARTED", occurredAt: "t", payload: {} }
     ]);
-    d.arena.getSessionArtifacts.mockResolvedValue({
-      challenges: [
-        { id: "ch-1", challengerRunId: "run-1" },
-        { id: "ch-2", challengerRunId: "other" }
-      ],
-      conflicts: [{ id: "cf-1", challengeIds: ["ch-1"] }],
-      claims: [{ id: "cl-1", agentRunId: "run-1" }]
-    });
+    // Each artifact list is queried by the run's own id (and, for conflicts, by
+    // the challenge ids the run produced), so the repository returns only the
+    // rows that belong to this run — no whole-session load-and-filter.
+    d.arena.listChallengesByRun.mockResolvedValue([
+      { id: "ch-1", challengerRunId: "run-1" }
+    ]);
+    d.arena.listResponseClaimsByRun.mockResolvedValue([
+      { id: "cl-1", agentRunId: "run-1" }
+    ]);
+    d.arena.listConflictsByChallengeIds.mockResolvedValue([
+      { id: "cf-1", challengeIds: ["ch-1"] }
+    ]);
     const detail = await d.service.getRunDetail("session-1", "run-1");
     expect(detail.events).toHaveLength(1);
     expect(detail.outcome).toEqual({
@@ -102,6 +111,27 @@ describe("AgentRunService", () => {
       conflictIds: ["cf-1"],
       responseClaimIds: ["cl-1"]
     });
+  });
+
+  it("getRunEvents returns the run's timeline after confirming the run exists", async () => {
+    const d = makeDeps();
+    d.reviews.getAgentRunById.mockResolvedValue(makeRun());
+    d.reviews.listAgentRunEvents.mockResolvedValue([
+      { sequence: 1, type: "AGENT_RUN_STARTED", occurredAt: "t", payload: {} },
+      { sequence: 2, type: "AGENT_RUN_COMPLETED", occurredAt: "t", payload: {} }
+    ]);
+    const events = await d.service.getRunEvents("session-1", "run-1");
+    expect(events).toHaveLength(2);
+    expect(d.reviews.getAgentRunById).toHaveBeenCalledWith("session-1", "run-1");
+    expect(d.reviews.listAgentRunEvents).toHaveBeenCalledWith("session-1", "run-1");
+  });
+
+  it("getRunEvents throws NotFound when the run is absent", async () => {
+    const d = makeDeps();
+    d.reviews.getAgentRunById.mockResolvedValue(null);
+    await expect(d.service.getRunEvents("session-1", "run-1")).rejects.toBeInstanceOf(
+      AgentRunNotFoundError
+    );
   });
 
   it("cancelRun emits an audit event on a fresh cancel", async () => {

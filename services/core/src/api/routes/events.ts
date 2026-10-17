@@ -1,4 +1,8 @@
-import type { ExecutionEvent } from "@nexus/shared";
+import {
+  resolvePageLimit,
+  type CursorPage,
+  type ExecutionEvent
+} from "@nexus/shared";
 import type { FastifyInstance } from "fastify";
 import type { AppDependencies } from "../../app";
 import { normalizeOrigin } from "../security/origin-policy";
@@ -30,14 +34,44 @@ export function registerEventRoutes(
   },
   allowedOrigins: ReadonlySet<string> = new Set()
 ): void {
-  app.get<{ Params: { id: string } }>(
+  app.get<{
+    Params: { id: string };
+    Querystring: { limit?: string; after?: string };
+  }>(
     "/api/sessions/:id/events",
     async (request, reply) => {
-      const events = await dependencies.repository.listAfter(
+      const afterRaw = request.query.after;
+      const after =
+        typeof afterRaw === "string" && afterRaw.length > 0
+          ? Number(afterRaw)
+          : 0;
+      const limitRaw = request.query.limit;
+      const limit =
+        typeof limitRaw === "string" && limitRaw.length > 0
+          ? resolvePageLimit(Number(limitRaw))
+          : null;
+
+      const items = (await dependencies.repository.listAfter(
         request.params.id,
-        0
-      );
-      return reply.send(events);
+        Number.isFinite(after) ? after : 0,
+        undefined,
+        limit === null ? {} : { limit }
+      )) as ExecutionEvent[];
+
+      // Opt-in pagination: a client that asks for a limit gets a cursor page;
+      // one that does not keeps receiving the whole feed, so the existing
+      // timeline consumers never change. Either way the bound (when requested)
+      // is enforced server-side — never faked on the client.
+      if (limit !== null) {
+        const last = items.length > 0 ? items[items.length - 1]!.sequence : null;
+        const page: CursorPage<ExecutionEvent> = {
+          items,
+          nextCursor: last,
+          hasNextPage: items.length === limit
+        };
+        return reply.send(page);
+      }
+      return reply.send(items);
     }
   );
 

@@ -482,6 +482,83 @@ export class ArenaRepository {
     };
   }
 
+  /**
+   * Challenges opened by one run. Scoped to the session and resolved by
+   * `(session_id, challenger_run_id)`, so a single run's challenges are a small
+   * index seek instead of a scan of the whole session's challenges. This is the
+   * query that lets "open one agent run" stay cheap in a large session — the
+   * alternative, loading every challenge of the session and filtering in the
+   * app, grows linearly with session size.
+   */
+  async listChallengesByRun(
+    sessionId: string,
+    runId: string,
+    executor: ReadExecutor = this.database
+  ): Promise<Challenge[]> {
+    const rows = await executor
+      .select()
+      .from(challenges)
+      .where(
+        and(
+          eq(challenges.sessionId, sessionId),
+          eq(challenges.challengerRunId, runId)
+        )
+      );
+    return parseChallenges(rows);
+  }
+
+  /**
+   * The response claims a run produced; claims carry the producing run's id and
+   * are resolved by `(session_id, agent_run_id)`.
+   */
+  async listResponseClaimsByRun(
+    sessionId: string,
+    runId: string,
+    executor: ReadExecutor = this.database
+  ): Promise<Claim[]> {
+    const rows = await executor
+      .select()
+      .from(claims)
+      .where(
+        and(eq(claims.sessionId, sessionId), eq(claims.agentRunId, runId))
+      );
+    return parseClaims(rows);
+  }
+
+  /**
+   * Conflicts that name any of the given challenge ids. Conflicts store their
+   * challenge ids as a jsonb array; the overlap is asked of Postgres rather than
+   * by pulling the whole session's conflicts into the app to filter there.
+   * An empty id list is an immediate empty result — no query needed.
+   *
+   * The overlap is expressed as an OR of single-element `@>` containment tests
+   * (the same shape `evidenceCoversAnyClaim` uses), NOT as a raw
+   * `challenge_ids ?| ${ids}::text[]`: passing a JS array as a raw `sql`
+   * parameter makes the Postgres driver send it as one scalar string, which
+   * fails at runtime with `malformed array literal` (22P02). Each id is passed
+   * as a one-element jsonb value via `JSON.stringify`, which the driver
+   * serializes safely.
+   */
+  async listConflictsByChallengeIds(
+    sessionId: string,
+    challengeIds: string[],
+    executor: ReadExecutor = this.database
+  ): Promise<Conflict[]> {
+    if (challengeIds.length === 0) return [];
+    const overlap = sql`(${sql.join(
+      challengeIds.map(
+        (challengeId) =>
+          sql`${conflicts.challengeIds} @> ${JSON.stringify([challengeId])}::jsonb`
+      ),
+      sql` OR `
+    )})`;
+    const rows = await executor
+      .select()
+      .from(conflicts)
+      .where(and(eq(conflicts.sessionId, sessionId), overlap));
+    return parseConflicts(rows);
+  }
+
   async getClaimValidationContext(claimId: string): Promise<{
     claim: Claim;
     evidence: Evidence[];

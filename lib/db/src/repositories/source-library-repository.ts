@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import {
   newId,
   type ExecutionEvent,
@@ -513,6 +513,45 @@ export class SourceLibraryRepository {
       .orderBy(desc(sourceSnapshots.retrievedAt))
       .limit(1);
     return row ? (parseSourceSnapshots([row])[0] ?? null) : null;
+  }
+
+  /**
+   * The latest content hash of each of the given sources, in one round trip.
+   *
+   * `listCopyLineage` used to call `getLatestSnapshotForSource` once per
+   * distinct origin, so a session copying from N origins made N serial round
+   * trips. This collapses that into a single `DISTINCT ON` query: one row per
+   * source with its newest capture's hash. An empty id list is an immediate
+   * empty map — no query.
+   */
+  async getLatestSnapshotContentHashes(
+    sourceIds: string[]
+  ): Promise<Map<string, string | null>> {
+    const result = new Map<string, string | null>();
+    if (sourceIds.length === 0) return result;
+    // One round trip for every distinct origin instead of one per copy: a
+    // session that copies from N origins used to make N serial round trips.
+    // `inArray` (not a raw `= ANY(${array})`) is used because drizzle's `sql`
+    // template does not expand a JS array into a Postgres array literal, which
+    // made the cast fail with "malformed array literal". We fetch every
+    // snapshot for the requested sources and keep the newest per source in JS.
+    const rows = await this.database
+      .select({
+        sourceId: sourceSnapshots.sourceId,
+        contentHash: sourceSnapshots.contentHash,
+        retrievedAt: sourceSnapshots.retrievedAt
+      })
+      .from(sourceSnapshots)
+      .where(inArray(sourceSnapshots.sourceId, sourceIds))
+      .orderBy(asc(sourceSnapshots.sourceId), desc(sourceSnapshots.retrievedAt));
+    for (const row of rows) {
+      // Ordered by (sourceId ASC, retrievedAt DESC): the first row seen for a
+      // source is its newest capture.
+      if (!result.has(row.sourceId)) {
+        result.set(row.sourceId, row.contentHash ?? null);
+      }
+    }
+    return result;
   }
 
   async findDuplicateInSession(

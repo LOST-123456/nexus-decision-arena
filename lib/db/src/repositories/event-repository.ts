@@ -56,12 +56,22 @@ export class EventRepository {
     });
   }
 
+  /**
+   * Execution events after a sequence, oldest first.
+   *
+   * `limit` is optional: the snapshot writer and the SSE replay pass nothing and
+   * get the whole tail (they must reconstruct full history), while the polled
+   * `GET /events` endpoint passes a clamped limit to bound memory and latency
+   * on large sessions. Passing a limit never changes correctness — it only
+   * caps how many rows one call returns.
+   */
   async listAfter(
     sessionId: string,
     sequence: number,
-    executor: ReadExecutor = this.database
+    executor: ReadExecutor = this.database,
+    options: { limit?: number } = {}
   ) {
-    return executor
+    const query = executor
       .select()
       .from(executionEvents)
       .where(
@@ -71,5 +81,15 @@ export class EventRepository {
         )
       )
       .orderBy(asc(executionEvents.sequence));
+    // `limit` is optional. The snapshot writer and the SSE replay pass nothing
+    // and get the whole tail (they must reconstruct full history), while the
+    // polled `GET /events` endpoint passes a clamped limit to bound memory and
+    // latency on large sessions. Passing a limit never changes correctness — it
+    // only caps how many rows one call returns. The two branches return the same
+    // awaitable builder, so callers (which `await` for rows) are unaffected.
+    if (typeof options.limit === "number" && options.limit > 0) {
+      return query.limit(options.limit);
+    }
+    return query;
   }
 }
