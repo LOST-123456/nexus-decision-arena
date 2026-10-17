@@ -254,7 +254,7 @@
 .research-workspace-head-actions {
   display: flex;
   gap: 8px;
-  align-items: center;
+  align-items: flex-end;
   flex-wrap: wrap;
 }
 
@@ -433,14 +433,10 @@
  * the sticky header and zebra striping from the globals copy, and adds the
  * wrap the ten unwrapped tables were missing.
  */
-.research-table-scroll {
-  max-height: 420px;
-  margin-top: 8px;
-  overflow: auto;
-  border: 1px solid var(--rw-line);
-  border-radius: 10px;
-}
-
+/* Both names are kept because both are already in use across the research
+   surface; the rules were identical, so they now share one block instead of
+   drifting apart the next time one of them is touched. */
+.research-table-scroll,
 .research-table-wrap {
   max-height: 420px;
   margin-top: 8px;

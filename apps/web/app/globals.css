@@ -698,6 +698,102 @@ main:focus-visible {
   justify-self: start;
 }
 
+/* =========================================================================
+   Confirmation dialog
+   -------------------------------------------------------------------------
+   One overlay for every confirmation the app asks. It borrows the same
+   surface, border and radius language as the notice panels so it reads as
+   part of the design system instead of a browser alert that wandered in;
+   only the scrim and the elevation are new, because a modal has to be
+   visibly above the page it is blocking.
+   ========================================================================= */
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-dialog);
+  display: grid;
+  place-items: center;
+  padding: var(--space-4);
+  background: var(--surface-scrim);
+  animation: dialog-fade var(--duration-fast) var(--ease-standard);
+}
+
+.dialog-panel {
+  display: grid;
+  gap: var(--space-4);
+  width: min(26rem, 100%);
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-lg);
+  background: var(--surface-panel);
+  padding: var(--space-5);
+  box-shadow: var(--shadow-3);
+  animation: dialog-pop var(--duration-fast) var(--ease-standard);
+}
+
+.dialog-title {
+  font-size: var(--text-lg);
+  font-weight: 650;
+  line-height: var(--leading-tight);
+}
+
+.dialog-description {
+  color: var(--content-subtle);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  overflow-wrap: anywhere;
+}
+
+.dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  justify-content: flex-end;
+}
+
+/*
+ * The confirm control keeps the accent pair for ordinary acknowledgements.
+ * `danger` swaps in the danger pair instead: an irreversible or outward-facing
+ * action has to look different from the rest before it is pressed, not after.
+ * Both variants sit after `.workspace-retry` in this file, so their single
+ * class wins the tie against the shared button base.
+ */
+.dialog-confirm-danger {
+  border-color: var(--tint-danger-border);
+  background: var(--tint-danger-bg);
+  color: var(--status-danger);
+}
+
+.dialog-confirm-danger:hover {
+  border-color: var(--status-danger);
+}
+
+.dialog-actions button:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+/* A short viewport must not push the confirmation out of reach, so the panel
+   caps itself and scrolls inside rather than off the screen. */
+@media (max-height: 30rem) {
+  .dialog-panel {
+    max-height: calc(100dvh - 2rem);
+    overflow-y: auto;
+  }
+}
+
+@keyframes dialog-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes dialog-pop {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+
 /* Live stream dropped (core restarting, laptop woke up): the browser is
    already reconnecting, so this is a status, not a dead end. */
 .stream-offline-chip {

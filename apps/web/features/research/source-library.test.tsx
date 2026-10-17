@@ -1,4 +1,11 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   LibrarySourceDetailSchema,
@@ -468,10 +475,33 @@ describe("cross-research library panel", () => {
 
     fireEvent.click(screen.getByTestId("library-grant-revoke"));
 
+    // Revoking takes another account's access away, so the confirmation is not
+    // decoration: nothing leaves this panel until it is answered.
+    const dialog = await screen.findByTestId("library-grant-revoke-dialog");
+    expect(revokeShareGrant).not.toHaveBeenCalled();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "撤销" }));
+
     await waitFor(() => expect(revokeShareGrant).toHaveBeenCalled());
     expect(revokeShareGrant).toHaveBeenCalledWith(GRANT_ID, "撤销共享");
     const message = await screen.findByTestId("library-message");
     expect(message.textContent).toContain("副本与审计记录保留");
+  });
+
+  it("leaves the grant alone when the revocation is dismissed", async () => {
+    primeLibrary({
+      grants: [grantFixture({ id: GRANT_ID, scope: "read" })]
+    });
+
+    render(<SourceLibraryPanel currentSessionId={OWN_SESSION} />);
+    await settle();
+
+    fireEvent.click(await screen.findByTestId("library-grant-revoke"));
+    const dialog = await screen.findByTestId("library-grant-revoke-dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "取消" }));
+
+    await waitFor(() => expect(screen.queryByTestId("library-grant-revoke-dialog")).toBeNull());
+    expect(revokeShareGrant).not.toHaveBeenCalled();
   });
 
   it("asks for a username and says an unresolvable subject is refused, not filed", async () => {

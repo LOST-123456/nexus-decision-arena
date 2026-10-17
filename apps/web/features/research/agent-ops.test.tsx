@@ -1,4 +1,11 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 /**
@@ -93,7 +100,7 @@ describe("AgentOpsPanel", () => {
     expect(cancel.title).toContain("无法取消");
   });
 
-  it("allows cancelling a queued run", async () => {
+  it("allows cancelling a queued run, but only after the confirmation", async () => {
     listAgentRuns.mockResolvedValue({ runs: [QUEUED_RUN] });
     getAgentRun.mockResolvedValue({
       ...QUEUED_RUN,
@@ -106,8 +113,32 @@ describe("AgentOpsPanel", () => {
     fireEvent.click(row.querySelector("button")!);
     const cancel = (await screen.findByTestId("agent-run-cancel")) as HTMLButtonElement;
     expect(cancel.disabled).toBe(false);
+
+    // A cancel is terminal for that run, so the button only opens the question.
     fireEvent.click(cancel);
+    const dialog = await screen.findByTestId("agent-run-cancel-dialog");
+    expect(cancelAgentRun).not.toHaveBeenCalled();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "取消运行" }));
     await waitFor(() => expect(cancelAgentRun).toHaveBeenCalledWith(SESSION_ID, RUN_QUEUED));
+  });
+
+  it("leaves the run running when the cancellation is dismissed", async () => {
+    listAgentRuns.mockResolvedValue({ runs: [QUEUED_RUN] });
+    getAgentRun.mockResolvedValue({
+      ...QUEUED_RUN,
+      events: [],
+      outcome: { challengeIds: [], conflictIds: [], responseClaimIds: [] }
+    });
+    render(<AgentOpsPanel sessionId={SESSION_ID} canEdit={true} />);
+    const row = await screen.findByTestId("agent-run-row");
+    fireEvent.click(row.querySelector("button")!);
+    fireEvent.click(await screen.findByTestId("agent-run-cancel"));
+    const dialog = await screen.findByTestId("agent-run-cancel-dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "取消" }));
+
+    await waitFor(() => expect(screen.queryByTestId("agent-run-cancel-dialog")).toBeNull());
+    expect(cancelAgentRun).not.toHaveBeenCalled();
   });
 
   it("hides cancel/retry actions from a viewer", async () => {

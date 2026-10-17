@@ -2,6 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { getCurrentUser, type AuthUser } from "../arena/api-client";
+import { ConfirmDialog } from "../../components/ui/dialog";
+import { Notice } from "../../components/ui/notice";
+import { formatDateTime } from "./labels";
 import {
   acceptCollaborationInvitation,
   cancelCollaborationReviewRequest,
@@ -57,6 +60,35 @@ const ROLE_LABELS: Record<TeamMemberRole, string> = {
   editor: "编辑",
   reviewer: "审核者",
   viewer: "只读"
+};
+
+const REQUEST_TYPE_LABELS: Record<ReviewRequestType, string> = {
+  claim_review: "主张审核",
+  source_review: "来源审核",
+  report_review: "报告审核",
+  conflict_review: "冲突审核"
+};
+
+/**
+ * The audit trail shares one `execution_events` table with the research
+ * material, so its rows arrive wearing the machine's own type names. Printing
+ * "COMMENT_DELETED" at a reader is a leak rather than a feature; an unknown
+ * type still shows itself instead of silently vanishing, because a row that
+ * disappears is worse than a row that is ugly.
+ */
+const ACTIVITY_TYPE_LABELS: Record<string, string> = {
+  MEMBER_INVITED: "邀请成员",
+  MEMBER_JOINED: "成员接受邀请",
+  MEMBER_DECLINED: "成员拒绝邀请",
+  MEMBER_ROLE_CHANGED: "修改成员角色",
+  MEMBER_REMOVED: "移除成员",
+  WORK_ITEM_CREATED: "创建研究任务",
+  COMMENT_CREATED: "发表评论",
+  COMMENT_DELETED: "删除评论",
+  REVIEW_REQUEST_CREATED: "发起审核请求",
+  REVIEW_REQUEST_ASSIGNED: "认领审核",
+  REVIEW_REQUEST_DECIDED: "审核结论",
+  REVIEW_REQUEST_CANCELLED: "取消审核请求"
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -250,11 +282,44 @@ export function CollaborationPanel({
   if (loadError) {
     return (
       <div className="research-column">
-        <section className="research-panel">
-          <p className="research-error" role="alert" data-testid="collab-load-error">
-            {loadError}
-          </p>
-        </section>
+        <Notice
+          eyebrow="COLLABORATION / 读取失败"
+          title="无法读取团队协作"
+          reason={loadError}
+          hint="成员、任务、讨论与审核记录都在 core 服务里；重试会重新读取，不会改变任何数据。"
+          role="alert"
+          testId="collab-load-error"
+          actions={
+            <button
+              type="button"
+              className="workspace-retry"
+              onClick={() => {
+                setLoadError(null);
+                void (async () => {
+                  try {
+                    const current = await getCurrentUser().catch(() => null);
+                    setUser(current);
+                    await reloadMembers();
+                    await reloadWork();
+                    await reloadReviews();
+                    await reloadActivity();
+                  } catch (cause) {
+                    setLoadError(
+                      cause instanceof CollaborationFailedError &&
+                        cause.status === 404
+                        ? "你不是该研究的协作者，无法查看团队协作。"
+                        : cause instanceof Error
+                          ? cause.message
+                          : "团队协作加载失败"
+                    );
+                  }
+                })();
+              }}
+            >
+              重试
+            </button>
+          }
+        />
       </div>
     );
   }
@@ -560,147 +625,149 @@ function MembersView({
         </form>
       ) : null}
 
-      <table className="research-table">
-        <thead>
-          <tr>
-            <th>账号</th>
-            <th>角色</th>
-            <th>状态</th>
-            <th>邀请人</th>
-            <th>版本</th>
-            <th>操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          {members.map((member) => {
-            const isSelf = member.userId === myUserId;
-            const canActOnThis =
-              canManageMembers && !isSelf && member.status === "active";
-            return (
-              <tr key={member.id} data-testid="collab-member">
-                <td>
-                  <span className="research-source-title">{member.userId}</span>
-                  {isSelf ? (
-                    <span className="research-pill research-pill-neutral">（你）</span>
-                  ) : null}
-                </td>
-                <td>
-                  <span className="research-pill research-pill-neutral">
-                    {ROLE_LABELS[member.role]}
-                  </span>
-                </td>
-                <td>{STATUS_LABELS[member.status] ?? member.status}</td>
-                <td className="research-muted">{member.invitedBy}</td>
-                <td className="research-muted">{member.version}</td>
-                <td>
-                  {member.status === "pending" && isSelf ? (
-                    <>
-                      <button
-                        className="research-button"
-                        type="button"
-                        data-testid={`collab-accept-${member.userId}`}
-                        disabled={busy}
-                        onClick={() => void accept(member)}
-                      >
-                        接受
-                      </button>
-                      <button
-                        className="research-button-secondary"
-                        type="button"
-                        data-testid={`collab-decline-${member.userId}`}
-                        disabled={busy}
-                        onClick={() => void decline(member)}
-                      >
-                        拒绝
-                      </button>
-                    </>
-                  ) : null}
-                  {canActOnThis ? (
-                    <>
-                      <select
-                        className="research-input"
-                        data-testid={`collab-role-${member.userId}`}
-                        value={member.role}
-                        disabled={busy}
-                        onChange={(event) =>
-                          void changeRole(
-                            member,
-                            event.target.value as Exclude<
-                              TeamMemberRole,
-                              "owner"
-                            >
-                          )
-                        }
-                      >
-                        <option value="owner" disabled>
-                          负责人
-                        </option>
-                        <option value="editor">编辑</option>
-                        <option value="reviewer">审核者</option>
-                        <option value="viewer">只读</option>
-                      </select>
-                      {removing === member.userId ? (
-                        <>
-                          <input
-                            className="research-input"
-                            data-testid={`collab-remove-reason-${member.userId}`}
-                            value={removeReason}
-                            placeholder="移除原因（必填）"
-                            onChange={(event) => setRemoveReason(event.target.value)}
-                          />
-                          <button
-                            className="research-button"
-                            type="button"
-                            data-testid={`collab-remove-confirm-${member.userId}`}
-                            disabled={busy}
-                            onClick={() => void confirmRemove(member)}
-                          >
-                            确认移除
-                          </button>
-                          <button
-                            className="research-button-secondary"
-                            type="button"
-                            disabled={busy}
-                            onClick={() => {
-                              setRemoving(null);
-                              setRemoveReason("");
-                            }}
-                          >
-                            取消
-                          </button>
-                        </>
-                      ) : (
+      <div className="research-table-scroll">
+        <table className="research-table">
+          <thead>
+            <tr>
+              <th>账号</th>
+              <th>角色</th>
+              <th>状态</th>
+              <th>邀请人</th>
+              <th>版本</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {members.map((member) => {
+              const isSelf = member.userId === myUserId;
+              const canActOnThis =
+                canManageMembers && !isSelf && member.status === "active";
+              return (
+                <tr key={member.id} data-testid="collab-member">
+                  <td>
+                    <span className="research-source-title">{member.userId}</span>
+                    {isSelf ? (
+                      <span className="research-pill research-pill-neutral">（你）</span>
+                    ) : null}
+                  </td>
+                  <td>
+                    <span className="research-pill research-pill-neutral">
+                      {ROLE_LABELS[member.role]}
+                    </span>
+                  </td>
+                  <td>{STATUS_LABELS[member.status] ?? member.status}</td>
+                  <td className="research-muted">{member.invitedBy}</td>
+                  <td className="research-muted">{member.version}</td>
+                  <td>
+                    {member.status === "pending" && isSelf ? (
+                      <>
+                        <button
+                          className="research-button"
+                          type="button"
+                          data-testid={`collab-accept-${member.userId}`}
+                          disabled={busy}
+                          onClick={() => void accept(member)}
+                        >
+                          接受
+                        </button>
                         <button
                           className="research-button-secondary"
                           type="button"
-                          data-testid={`collab-remove-${member.userId}`}
+                          data-testid={`collab-decline-${member.userId}`}
                           disabled={busy}
-                          onClick={() => {
-                            setRemoving(member.userId);
-                            setRemoveReason("");
-                          }}
+                          onClick={() => void decline(member)}
                         >
-                          移除
+                          拒绝
                         </button>
-                      )}
-                    </>
-                  ) : null}
-                  {member.status === "removed" && member.removeReason ? (
-                    <span className="research-muted">原因：{member.removeReason}</span>
-                  ) : null}
+                      </>
+                    ) : null}
+                    {canActOnThis ? (
+                      <>
+                        <select
+                          className="research-input"
+                          data-testid={`collab-role-${member.userId}`}
+                          value={member.role}
+                          disabled={busy}
+                          onChange={(event) =>
+                            void changeRole(
+                              member,
+                              event.target.value as Exclude<
+                                TeamMemberRole,
+                                "owner"
+                              >
+                            )
+                          }
+                        >
+                          <option value="owner" disabled>
+                            负责人
+                          </option>
+                          <option value="editor">编辑</option>
+                          <option value="reviewer">审核者</option>
+                          <option value="viewer">只读</option>
+                        </select>
+                        {removing === member.userId ? (
+                          <>
+                            <input
+                              className="research-input"
+                              data-testid={`collab-remove-reason-${member.userId}`}
+                              value={removeReason}
+                              placeholder="移除原因（必填）"
+                              onChange={(event) => setRemoveReason(event.target.value)}
+                            />
+                            <button
+                              className="research-button"
+                              type="button"
+                              data-testid={`collab-remove-confirm-${member.userId}`}
+                              disabled={busy}
+                              onClick={() => void confirmRemove(member)}
+                            >
+                              确认移除
+                            </button>
+                            <button
+                              className="research-button-secondary"
+                              type="button"
+                              disabled={busy}
+                              onClick={() => {
+                                setRemoving(null);
+                                setRemoveReason("");
+                              }}
+                            >
+                              取消
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            className="research-button-secondary"
+                            type="button"
+                            data-testid={`collab-remove-${member.userId}`}
+                            disabled={busy}
+                            onClick={() => {
+                              setRemoving(member.userId);
+                              setRemoveReason("");
+                            }}
+                          >
+                            移除
+                          </button>
+                        )}
+                      </>
+                    ) : null}
+                    {member.status === "removed" && member.removeReason ? (
+                      <span className="research-muted">原因：{member.removeReason}</span>
+                    ) : null}
+                  </td>
+                </tr>
+              );
+            })}
+            {members.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="research-muted">
+                  还没有团队成员。
                 </td>
               </tr>
-            );
-          })}
-          {members.length === 0 ? (
-            <tr>
-              <td colSpan={6} className="research-muted">
-                还没有团队成员。
-              </td>
-            </tr>
-          ) : null}
-        </tbody>
-      </table>
+            ) : null}
+          </tbody>
+        </table>
+      </div>
       {!canManageMembers && user ? (
         <p className="research-muted">
           只有研究负责人可以管理成员。你的角色（{ROLE_LABELS[memberRoleFromUser(members, user?.id)]}）没有该权限。
@@ -844,98 +911,100 @@ function WorkItemsView({
         </form>
       ) : null}
 
-      <table className="research-table">
-        <thead>
-          <tr>
-            <th>标题</th>
-            <th>状态</th>
-            <th>指派人</th>
-            <th>创建人</th>
-            <th>版本</th>
-            {canWrite ? <th>操作</th> : null}
-          </tr>
-        </thead>
-        <tbody>
-          {workItems.map((workItem) => (
-            <tr key={workItem.id} data-testid="collab-work-item">
-              <td>
-                <span className="research-source-title">{workItem.title}</span>
-                {workItem.description ? (
-                  <p className="research-muted">{workItem.description}</p>
-                ) : null}
-              </td>
-              <td>
-                {canWrite ? (
-                  <select
-                    className="research-input"
-                    data-testid={`collab-work-status-${workItem.id}`}
-                    value={workItem.status}
-                    disabled={busy}
-                    onChange={(event) =>
-                      void update(workItem, {
-                        status: event.target.value as WorkItemStatus
-                      })
-                    }
-                  >
-                    <option value="open">待办</option>
-                    <option value="in_progress">进行中</option>
-                    <option value="in_review">待审核</option>
-                    <option value="completed">已完成</option>
-                    <option value="cancelled">已取消</option>
-                  </select>
-                ) : (
-                  <span className="research-pill research-pill-neutral">
-                    {STATUS_LABELS[workItem.status] ?? workItem.status}
-                  </span>
-                )}
-              </td>
-              <td className="research-muted">
-                {workItem.assigneeUserId ?? "—"}
-              </td>
-              <td className="research-muted">{workItem.createdBy}</td>
-              <td className="research-muted">{workItem.version}</td>
-              {canWrite ? (
-                <td>
-                  <select
-                    className="research-input"
-                    data-testid={`collab-work-assignee-${workItem.id}`}
-                    value={workItem.assigneeUserId ?? ""}
-                    disabled={busy}
-                    onChange={(event) => {
-                      // The server model has no "clear assignee" path (an absent
-                      // field means "no change", not "unassign"), so unassigning
-                      // is not offered: the placeholder is disabled and only a
-                      // real, active member can ever be selected.
-                      const nextAssignee = event.target.value;
-                      if (!nextAssignee) return;
-                      void update(workItem, { assigneeUserId: nextAssignee });
-                    }}
-                  >
-                    <option value="" disabled>
-                      未指派
-                    </option>
-                    {activeAssignable.map((m) => (
-                      <option key={m.id} value={m.userId}>
-                        {m.userId}（{ROLE_LABELS[m.role]}）
-                      </option>
-                    ))}
-                  </select>
-                </td>
-              ) : null}
-            </tr>
-          ))}
-          {workItems.length === 0 ? (
+      <div className="research-table-scroll">
+        <table className="research-table">
+          <thead>
             <tr>
-              <td
-                colSpan={canWrite ? 6 : 5}
-                className="research-muted"
-              >
-                还没有研究任务。
-              </td>
+              <th>标题</th>
+              <th>状态</th>
+              <th>指派人</th>
+              <th>创建人</th>
+              <th>版本</th>
+              {canWrite ? <th>操作</th> : null}
             </tr>
-          ) : null}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {workItems.map((workItem) => (
+              <tr key={workItem.id} data-testid="collab-work-item">
+                <td>
+                  <span className="research-source-title">{workItem.title}</span>
+                  {workItem.description ? (
+                    <p className="research-muted">{workItem.description}</p>
+                  ) : null}
+                </td>
+                <td>
+                  {canWrite ? (
+                    <select
+                      className="research-input"
+                      data-testid={`collab-work-status-${workItem.id}`}
+                      value={workItem.status}
+                      disabled={busy}
+                      onChange={(event) =>
+                        void update(workItem, {
+                          status: event.target.value as WorkItemStatus
+                        })
+                      }
+                    >
+                      <option value="open">待办</option>
+                      <option value="in_progress">进行中</option>
+                      <option value="in_review">待审核</option>
+                      <option value="completed">已完成</option>
+                      <option value="cancelled">已取消</option>
+                    </select>
+                  ) : (
+                    <span className="research-pill research-pill-neutral">
+                      {STATUS_LABELS[workItem.status] ?? workItem.status}
+                    </span>
+                  )}
+                </td>
+                <td className="research-muted">
+                  {workItem.assigneeUserId ?? "—"}
+                </td>
+                <td className="research-muted">{workItem.createdBy}</td>
+                <td className="research-muted">{workItem.version}</td>
+                {canWrite ? (
+                  <td>
+                    <select
+                      className="research-input"
+                      data-testid={`collab-work-assignee-${workItem.id}`}
+                      value={workItem.assigneeUserId ?? ""}
+                      disabled={busy}
+                      onChange={(event) => {
+                        // The server model has no "clear assignee" path (an absent
+                        // field means "no change", not "unassign"), so unassigning
+                        // is not offered: the placeholder is disabled and only a
+                        // real, active member can ever be selected.
+                        const nextAssignee = event.target.value;
+                        if (!nextAssignee) return;
+                        void update(workItem, { assigneeUserId: nextAssignee });
+                      }}
+                    >
+                      <option value="" disabled>
+                        未指派
+                      </option>
+                      {activeAssignable.map((m) => (
+                        <option key={m.id} value={m.userId}>
+                          {m.userId}（{ROLE_LABELS[m.role]}）
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                ) : null}
+              </tr>
+            ))}
+            {workItems.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={canWrite ? 6 : 5}
+                  className="research-muted"
+                >
+                  还没有研究任务。
+                </td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+      </div>
     </section>
   );
 }
@@ -970,6 +1039,10 @@ function CommentsView({
   afterChange: () => Promise<void>;
 }) {
   const [body, setBody] = useState("");
+  // The comment waiting for a confirmation before it is deleted. Only the
+  // author ever sees this control, and the server only lets the author delete,
+  // but a one-way action still gets asked for.
+  const [deleteTarget, setDeleteTarget] = useState<Comment | null>(null);
 
   const create = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -1085,7 +1158,7 @@ function CommentsView({
               </span>
               <p>{comment.body}</p>
               <span className="research-muted">
-                版本 {comment.version} · 创建于 {comment.createdAt.slice(0, 19).replace("T", " ")}
+                版本 {comment.version} · 创建于 {formatDateTime(comment.createdAt)}
               </span>
               {!comment.deletedAt && isSelf && canComment ? (
                 <button
@@ -1093,7 +1166,7 @@ function CommentsView({
                   type="button"
                   data-testid={`collab-comment-delete-${comment.id}`}
                   disabled={busy}
-                  onClick={() => void remove(comment)}
+                  onClick={() => setDeleteTarget(comment)}
                 >
                   删除
                 </button>
@@ -1105,6 +1178,23 @@ function CommentsView({
           <li className="research-muted">该目标下还没有评论。</li>
         ) : null}
       </ul>
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title="删除这条评论？"
+        description="删除是软删除：评论会标记为「已删除」并记录一条审计事件（含删除人），记录本身保留，删除后无法恢复显示。"
+        confirmLabel="删除"
+        busy={busy}
+        testId="collab-comment-delete-dialog"
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={() => {
+          const comment = deleteTarget;
+          if (!comment) return;
+          void (async () => {
+            await remove(comment);
+            setDeleteTarget(null);
+          })();
+        }}
+      />
     </section>
   );
 }
@@ -1136,6 +1226,11 @@ function ReviewRequestsView({
     useState<ReviewRequestTargetType>("claim");
   const [targetId, setTargetId] = useState("");
   const [reviewer, setReviewer] = useState("");
+  // The two one-way rulings on a review request. Approving and claiming stay
+  // single-click: they are the ordinary forward path. Rejecting throws the
+  // request away and cancelling abandons it, so both are asked for first.
+  const [rejectTarget, setRejectTarget] = useState<ReviewRequest | null>(null);
+  const [cancelTarget, setCancelTarget] = useState<ReviewRequest | null>(null);
 
   const create = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -1278,111 +1373,147 @@ function ReviewRequestsView({
         </p>
       )}
 
-      <table className="research-table">
-        <thead>
-          <tr>
-            <th>类型</th>
-            <th>目标</th>
-            <th>状态</th>
-            <th>请求人</th>
-            <th>审核人</th>
-            <th>结论</th>
-            <th>操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          {reviewRequests.map((request) => {
-            const isRequester = request.requestedBy === myUserId;
-            const isAssigned =
-              request.assignedReviewerUserId === myUserId;
-            const canClaim =
-              request.status === "open" &&
-              !isRequester &&
-              (request.requestedReviewerUserId === undefined ||
-                request.requestedReviewerUserId === myUserId);
-            const canDecide =
-              request.status === "in_review" && isAssigned;
-            const canCancel =
-              request.status === "open" &&
-              (isRequester || myUserId === null);
-            return (
-              <tr key={request.id} data-testid="collab-review-item">
-                <td>{request.requestType}</td>
-                <td className="research-muted">
-                  {request.targetType}:{request.targetId}
-                </td>
-                <td>
-                  <span className="research-pill research-pill-neutral">
-                    {STATUS_LABELS[request.status] ?? request.status}
-                  </span>
-                </td>
-                <td className="research-muted">{request.requestedBy}</td>
-                <td className="research-muted">
-                  {request.assignedReviewerUserId ?? "—"}
-                </td>
-                <td className="research-muted">
-                  {request.decision
-                    ? STATUS_LABELS[request.decision] ?? request.decision
-                    : "—"}
-                </td>
-                <td>
-                  {canClaim ? (
-                    <button
-                      className="research-button"
-                      type="button"
-                      data-testid={`collab-review-claim-${request.id}`}
-                      disabled={busy}
-                      onClick={() => void claim(request)}
-                    >
-                      认领
-                    </button>
-                  ) : null}
-                  {canDecide ? (
-                    <>
+      <div className="research-table-scroll">
+        <table className="research-table">
+          <thead>
+            <tr>
+              <th>类型</th>
+              <th>目标</th>
+              <th>状态</th>
+              <th>请求人</th>
+              <th>审核人</th>
+              <th>结论</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {reviewRequests.map((request) => {
+              const isRequester = request.requestedBy === myUserId;
+              const isAssigned =
+                request.assignedReviewerUserId === myUserId;
+              const canClaim =
+                request.status === "open" &&
+                !isRequester &&
+                (request.requestedReviewerUserId === undefined ||
+                  request.requestedReviewerUserId === myUserId);
+              const canDecide =
+                request.status === "in_review" && isAssigned;
+              const canCancel =
+                request.status === "open" &&
+                (isRequester || myUserId === null);
+              return (
+                <tr key={request.id} data-testid="collab-review-item">
+                  <td>{REQUEST_TYPE_LABELS[request.requestType] ?? request.requestType}</td>
+                  <td className="research-muted">
+                    {request.targetType}:{request.targetId}
+                  </td>
+                  <td>
+                    <span className="research-pill research-pill-neutral">
+                      {STATUS_LABELS[request.status] ?? request.status}
+                    </span>
+                  </td>
+                  <td className="research-muted">{request.requestedBy}</td>
+                  <td className="research-muted">
+                    {request.assignedReviewerUserId ?? "—"}
+                  </td>
+                  <td className="research-muted">
+                    {request.decision
+                      ? STATUS_LABELS[request.decision] ?? request.decision
+                      : "—"}
+                  </td>
+                  <td>
+                    {canClaim ? (
                       <button
                         className="research-button"
                         type="button"
-                        data-testid={`collab-review-approve-${request.id}`}
+                        data-testid={`collab-review-claim-${request.id}`}
                         disabled={busy}
-                        onClick={() => void decide(request, "approved")}
+                        onClick={() => void claim(request)}
                       >
-                        通过
+                        认领
                       </button>
+                    ) : null}
+                    {canDecide ? (
+                      <>
+                        <button
+                          className="research-button"
+                          type="button"
+                          data-testid={`collab-review-approve-${request.id}`}
+                          disabled={busy}
+                          onClick={() => void decide(request, "approved")}
+                        >
+                          通过
+                        </button>
+                        <button
+                          className="research-button-secondary"
+                          type="button"
+                          data-testid={`collab-review-reject-${request.id}`}
+                          disabled={busy}
+                          onClick={() => setRejectTarget(request)}
+                        >
+                          驳回
+                        </button>
+                      </>
+                    ) : null}
+                    {canCancel ? (
                       <button
                         className="research-button-secondary"
                         type="button"
-                        data-testid={`collab-review-reject-${request.id}`}
+                        data-testid={`collab-review-cancel-${request.id}`}
                         disabled={busy}
-                        onClick={() => void decide(request, "rejected")}
+                        onClick={() => setCancelTarget(request)}
                       >
-                        驳回
+                        取消
                       </button>
-                    </>
-                  ) : null}
-                  {canCancel ? (
-                    <button
-                      className="research-button-secondary"
-                      type="button"
-                      data-testid={`collab-review-cancel-${request.id}`}
-                      disabled={busy}
-                      onClick={() => void cancel(request)}
-                    >
-                      取消
-                    </button>
-                  ) : null}
+                    ) : null}
+                  </td>
+                </tr>
+              );
+            })}
+            {reviewRequests.length === 0 ? (
+              <tr>
+                <td colSpan={7} className="research-muted">
+                  还没有审核请求。
                 </td>
               </tr>
-            );
-          })}
-          {reviewRequests.length === 0 ? (
-            <tr>
-              <td colSpan={7} className="research-muted">
-                还没有审核请求。
-              </td>
-            </tr>
-          ) : null}
-        </tbody>
-      </table>
+            ) : null}
+          </tbody>
+        </table>
+      </div>
+      <ConfirmDialog
+        open={rejectTarget !== null}
+        title="驳回这个审核请求？"
+        description="驳回会记录为一次人工结论：该工件未通过审核，请求随即关闭。审核结论是对工件的人工确认，不等于主张判定，也不改变核实状态。"
+        confirmLabel="驳回"
+        busy={busy}
+        testId="collab-review-reject-dialog"
+        onCancel={() => setRejectTarget(null)}
+        onConfirm={() => {
+          const request = rejectTarget;
+          if (!request) return;
+          void (async () => {
+            await decide(request, "rejected");
+            setRejectTarget(null);
+          })();
+        }}
+      />
+      <ConfirmDialog
+        open={cancelTarget !== null}
+        title="取消这个审核请求？"
+        description="取消会关闭请求并留下记录，不会记录任何结论；需要时再重新发起。"
+        confirmLabel="取消请求"
+        busy={busy}
+        testId="collab-review-cancel-dialog"
+        onCancel={() => setCancelTarget(null)}
+        onConfirm={() => {
+          const request = cancelTarget;
+          if (!request) return;
+          void (async () => {
+            await cancel(request);
+            setCancelTarget(null);
+          })();
+        }}
+      />
     </section>
   );
 }
@@ -1403,10 +1534,11 @@ function ActivityView({ activity }: { activity: CollaborationActivity[] }) {
       <ul className="research-plain-list" data-testid="collab-activity-list">
         {activity.map((item) => (
           <li key={item.id} className="research-plain-list-item" data-testid="collab-activity-item">
-            <span className="research-source-title">{item.type}</span>
+            <span className="research-source-title">
+              {ACTIVITY_TYPE_LABELS[item.type] ?? item.type}
+            </span>
             <span className="research-muted">
-              #{item.sequence} · 发生于{" "}
-              {item.occurredAt.slice(0, 19).replace("T", " ")}
+              #{item.sequence} · 发生于 {formatDateTime(item.occurredAt)}
             </span>
           </li>
         ))}

@@ -22,6 +22,7 @@ import {
   type LibrarySearchQuery
 } from "./api";
 import { getCurrentUser, type AuthUser } from "../arena/api-client";
+import { ConfirmDialog } from "../../components/ui/dialog";
 import { forkStateLabel, grantScopeLabel, originStatusLabel } from "./labels";
 
 /**
@@ -97,6 +98,15 @@ export function SourceLibraryPanel({
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // False until the first read of the library has come back. Before that the
+  // lists are empty because nothing has arrived yet, not because there is
+  // nothing to show — and an empty state that lies about that is worse than a
+  // loading line.
+  const [booted, setBooted] = useState(false);
+  // The grant waiting for a confirmation. Revoking is immediate and takes
+  // access away from another account, so it goes through the shared dialog
+  // rather than firing on a single click.
+  const [revokeTarget, setRevokeTarget] = useState<ShareGrant | null>(null);
 
   const ownSessions = sessions.filter((session) => session.access === "own");
 
@@ -166,6 +176,8 @@ export function SourceLibraryPanel({
         }
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : "资料库加载失败");
+      } finally {
+        setBooted(true);
       }
     })();
     // Intentionally once: later refreshes are explicit user actions.
@@ -521,7 +533,9 @@ export function SourceLibraryPanel({
                 </span>
               </li>
             ))}
-            {sessions.length === 0 ? (
+            {!booted ? (
+              <li className="research-muted">正在读取可见研究…</li>
+            ) : sessions.length === 0 ? (
               <li className="research-muted">暂无可见研究。</li>
             ) : null}
           </ul>
@@ -625,7 +639,13 @@ export function SourceLibraryPanel({
                     </td>
                   </tr>
                 ))}
-                {results.length === 0 ? (
+                {!booted ? (
+                  <tr>
+                    <td colSpan={7} className="research-muted">
+                      正在读取资料库…
+                    </td>
+                  </tr>
+                ) : results.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="research-muted">
                       没有符合条件的来源。资料库不会把未授权研究的资料混入结果。
@@ -794,7 +814,7 @@ export function SourceLibraryPanel({
                             type="button"
                             data-testid="library-grant-revoke"
                             disabled={busy}
-                            onClick={() => void revoke(grant.id)}
+                            onClick={() => setRevokeTarget(grant)}
                           >
                             撤销
                           </button>
@@ -815,6 +835,29 @@ export function SourceLibraryPanel({
           </section>
         ) : null}
       </div>
+      <ConfirmDialog
+        open={revokeTarget !== null}
+        title="撤销这条共享授权？"
+        description={
+          revokeTarget
+            ? `${
+                revokeTarget.subjectType === "user" ? "账号" : "角色"
+              } ${revokeTarget.subjectId} 将立即失去访问。已复制到其他研究的副本与审计记录会保留，但无法再从原研究读取。`
+            : undefined
+        }
+        confirmLabel="撤销"
+        busy={busy}
+        testId="library-grant-revoke-dialog"
+        onCancel={() => setRevokeTarget(null)}
+        onConfirm={() => {
+          const grant = revokeTarget;
+          if (!grant) return;
+          void (async () => {
+            await revoke(grant.id);
+            setRevokeTarget(null);
+          })();
+        }}
+      />
     </div>
   );
 }

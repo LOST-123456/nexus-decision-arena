@@ -16,6 +16,7 @@ import {
   type ResearchSearchTaskListItem
 } from "./api";
 import { StatusPill } from "./components";
+import { ConfirmDialog } from "../../components/ui/dialog";
 import {
   formatDate,
   researchSearchFailureLabel,
@@ -84,6 +85,11 @@ export function ResearchSearchTasks({
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   const [candidates, setCandidates] = useState<Record<string, SearchCandidate[]>>({});
   const [candidateError, setCandidateError] = useState<string | null>(null);
+  // The task whose candidates are about to be registered as Sources. The
+  // promotion is worth asking about, and the dialog restates the boundary this
+  // panel exists to hold: a candidate is not evidence, and registering one as
+  // a Source does not verify anything.
+  const [approveTarget, setApproveTarget] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -320,7 +326,7 @@ export function ResearchSearchTasks({
                       <button
                         type="button"
                         className="research-button-primary"
-                        onClick={() => void approve(task.id)}
+                        onClick={() => setApproveTarget(task.id)}
                         disabled={busy}
                       >
                         核准为来源
@@ -454,6 +460,24 @@ export function ResearchSearchTasks({
           </div>
         </div>
       ) : null}
+      <ConfirmDialog
+        open={approveTarget !== null}
+        title="核准这批候选来源？"
+        description="候选来源会被登记为「来源」（记录出处），但不会成为证据，也不代表已核实；之后仍需逐条核实。"
+        confirmLabel="核准为来源"
+        tone="neutral"
+        busy={busy}
+        testId="research-search-approve-dialog"
+        onCancel={() => setApproveTarget(null)}
+        onConfirm={() => {
+          const taskId = approveTarget;
+          if (!taskId) return;
+          void (async () => {
+            await approve(taskId);
+            setApproveTarget(null);
+          })();
+        }}
+      />
     </section>
   );
 }

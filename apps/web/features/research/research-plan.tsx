@@ -232,12 +232,15 @@ export function ResearchPlanPanel({
       </header>
 
       {notice ? (
-        <p
-          className={notice.kind === "error" ? "research-error" : "research-muted"}
+        // A success used to render in the same muted grey as everything else,
+        // so "已创建缺口" and a neutral hint looked identical. The notice
+        // classes carry the three tones the panel actually produces.
+        <div
+          className={`research-notice research-notice-${notice.kind}`}
           data-testid="plan-notice"
         >
           {notice.text}
-        </p>
+        </div>
       ) : null}
 
       {failure ? (

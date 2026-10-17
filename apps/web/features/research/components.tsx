@@ -406,32 +406,34 @@ export function CrossReviewPanel({
             还没有针对该主张的交叉审查运行记录。
           </div>
         ) : (
-          <table className="research-table" data-testid="cross-review-runs">
-            <thead>
-              <tr>
-                <th scope="col">用途</th>
-                <th scope="col">角色</th>
-                <th scope="col">状态</th>
-                <th scope="col">开始</th>
-                <th scope="col">失败原因</th>
-              </tr>
-            </thead>
-            <tbody>
-              {runs.map((run) => (
-                <tr key={run.id}>
-                  <td className="research-muted">{runPurposeLabel(run.purpose)}</td>
-                  <td className="research-muted">{run.roleId.slice(0, 8)}</td>
-                  <td>
-                    <StatusPill tone={runStatusTone(run.status)}>
-                      {runStatusLabel(run.status)}
-                    </StatusPill>
-                  </td>
-                  <td className="research-muted">{formatDate(run.startedAt)}</td>
-                  <td className="research-muted">{run.error ?? "—"}</td>
+          <div className="research-table-scroll">
+            <table className="research-table" data-testid="cross-review-runs">
+              <thead>
+                <tr>
+                  <th scope="col">用途</th>
+                  <th scope="col">角色</th>
+                  <th scope="col">状态</th>
+                  <th scope="col">开始</th>
+                  <th scope="col">失败原因</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {runs.map((run) => (
+                  <tr key={run.id}>
+                    <td className="research-muted">{runPurposeLabel(run.purpose)}</td>
+                    <td className="research-muted">{run.roleId.slice(0, 8)}</td>
+                    <td>
+                      <StatusPill tone={runStatusTone(run.status)}>
+                        {runStatusLabel(run.status)}
+                      </StatusPill>
+                    </td>
+                    <td className="research-muted">{formatDate(run.startedAt)}</td>
+                    <td className="research-muted">{run.error ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </section>
 
@@ -935,79 +937,81 @@ export function EvidenceTable({
   }
 
   return (
-    <table className="research-table" data-testid="evidence-table">
-      <caption className="research-muted" style={{ textAlign: "left", paddingBottom: 6 }}>
-        共 {evidence.length} 条证据材料；只有「已核实」的材料参与结论。
-      </caption>
-      <thead>
-        <tr>
-          <th scope="col">方向</th>
-          <th scope="col">材料</th>
-          <th scope="col">来源</th>
-          <th scope="col">定位</th>
-          <th scope="col">可靠性</th>
-          <th scope="col">核实</th>
-        </tr>
-      </thead>
-      <tbody>
-        {evidence.map((item) => {
-          const source = item.sourceId ? sourcesById.get(item.sourceId) : undefined;
-          const claimStatements = item.claimIds.map((claimId) => {
-            const claim = claimsById.get(claimId);
-            return claim ? claim.statement : "（未知主张）";
-          });
-          return (
-            <tr key={item.id} aria-selected={selectedId === item.id}>
-              <td>
-                <StatusPill tone={directionTone(item.direction)}>
-                  {directionLabel(item.direction)}
-                </StatusPill>
-              </td>
-              <td>
-                <button
-                  type="button"
-                  className="research-row-button"
-                  onClick={() => onSelect(item.id)}
-                  aria-expanded={selectedId === item.id}
-                >
-                  {item.title}
-                </button>
-                <div className="research-excerpt">{item.content}</div>
-                <div className="research-muted">
-                  {evidenceKindLabel(item.kind)}
-                  {claimStatements.length > 0
-                    ? ` · 关联：${claimStatements.join("；")}`
-                    : ""}
-                </div>
-              </td>
-              <td>
-                {source ? (
-                  <span>{source.title}</span>
-                ) : item.sourceRef ? (
-                  <a href={item.sourceRef} target="_blank" rel="noreferrer">
-                    {item.sourceRef}
-                  </a>
-                ) : (
-                  <span className="research-muted">未记录</span>
-                )}
-              </td>
-              <td>
-                <div className="research-claim-meta">
-                  <span className="research-muted">{item.locator ?? "—"}</span>
-                </div>
-                <LocatorPill evidence={item} />
-              </td>
-              <td>{item.reliability.toFixed(2)}</td>
-              <td>
-                <StatusPill tone={verificationTone(item.verificationStatus)}>
-                  {verificationLabel(item.verificationStatus)}
-                </StatusPill>
-              </td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
+    <div className="research-table-scroll">
+      <table className="research-table" data-testid="evidence-table">
+        <caption className="research-muted" style={{ textAlign: "left", paddingBottom: 6 }}>
+          共 {evidence.length} 条证据材料；只有「已核实」的材料参与结论。
+        </caption>
+        <thead>
+          <tr>
+            <th scope="col">方向</th>
+            <th scope="col">材料</th>
+            <th scope="col">来源</th>
+            <th scope="col">定位</th>
+            <th scope="col">可靠性</th>
+            <th scope="col">核实</th>
+          </tr>
+        </thead>
+        <tbody>
+          {evidence.map((item) => {
+            const source = item.sourceId ? sourcesById.get(item.sourceId) : undefined;
+            const claimStatements = item.claimIds.map((claimId) => {
+              const claim = claimsById.get(claimId);
+              return claim ? claim.statement : "（未知主张）";
+            });
+            return (
+              <tr key={item.id} aria-selected={selectedId === item.id}>
+                <td>
+                  <StatusPill tone={directionTone(item.direction)}>
+                    {directionLabel(item.direction)}
+                  </StatusPill>
+                </td>
+                <td>
+                  <button
+                    type="button"
+                    className="research-row-button"
+                    onClick={() => onSelect(item.id)}
+                    aria-expanded={selectedId === item.id}
+                  >
+                    {item.title}
+                  </button>
+                  <div className="research-excerpt">{item.content}</div>
+                  <div className="research-muted">
+                    {evidenceKindLabel(item.kind)}
+                    {claimStatements.length > 0
+                      ? ` · 关联：${claimStatements.join("；")}`
+                      : ""}
+                  </div>
+                </td>
+                <td>
+                  {source ? (
+                    <span>{source.title}</span>
+                  ) : item.sourceRef ? (
+                    <a href={item.sourceRef} target="_blank" rel="noreferrer">
+                      {item.sourceRef}
+                    </a>
+                  ) : (
+                    <span className="research-muted">未记录</span>
+                  )}
+                </td>
+                <td>
+                  <div className="research-claim-meta">
+                    <span className="research-muted">{item.locator ?? "—"}</span>
+                  </div>
+                  <LocatorPill evidence={item} />
+                </td>
+                <td>{item.reliability.toFixed(2)}</td>
+                <td>
+                  <StatusPill tone={verificationTone(item.verificationStatus)}>
+                    {verificationLabel(item.verificationStatus)}
+                  </StatusPill>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }
 

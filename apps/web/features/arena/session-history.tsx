@@ -9,6 +9,7 @@ import {
   type AuthUser,
   type SessionSummary
 } from "./api-client";
+import { ConfirmDialog } from "../../components/ui/dialog";
 
 function formatTime(value: string): string {
   return new Intl.DateTimeFormat("zh-CN", {
@@ -23,6 +24,12 @@ export function SessionHistory() {
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+  // The session waiting for a confirmation. This used to be `window.confirm`,
+  // which is the one confirmation in the app that cannot be styled, cannot be
+  // reached by a screen reader's dialog pattern, and blocks the whole thread
+  // while it is up. Deletion here is a cascading hard delete, so it now goes
+  // through the same dialog every other destructive action uses.
+  const [deleteTarget, setDeleteTarget] = useState<SessionSummary | null>(null);
 
   useEffect(() => {
     getCurrentUser()
@@ -37,7 +44,6 @@ export function SessionHistory() {
   }, []);
 
   async function remove(session: SessionSummary): Promise<void> {
-    if (!window.confirm(`确认删除“${session.projectName}”？`)) return;
     setBusyId(session.id);
     try {
       await deleteSession(session.id);
@@ -77,7 +83,7 @@ export function SessionHistory() {
                   <div className="review-actions">
                     <Link href={`/sessions/${session.id}`}>继续</Link>
                     {reportReady ? <Link href={`/sessions/${session.id}/report`}>查看报告</Link> : <span className="review-action-disabled">报告未就绪</span>}
-                    {currentUser?.role === "owner" ? (<button type="button" className="review-delete" disabled={busyId === session.id} onClick={() => remove(session)}>删除</button>) : null}
+                    {currentUser?.role === "owner" ? (<button type="button" className="review-delete" disabled={busyId === session.id} onClick={() => setDeleteTarget(session)}>删除</button>) : null}
                   </div>
                 </article>
               );
@@ -85,6 +91,23 @@ export function SessionHistory() {
           </div>
         )}
       </section>
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title={deleteTarget ? `删除「${deleteTarget.projectName}」？` : ""}
+        description="这会永久删除该评审会话及其主张、证据、运行记录与报告，无法恢复。"
+        confirmLabel="删除"
+        busy={deleteTarget !== null && busyId === deleteTarget.id}
+        testId="session-delete-dialog"
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={() => {
+          const session = deleteTarget;
+          if (!session) return;
+          void (async () => {
+            await remove(session);
+            setDeleteTarget(null);
+          })();
+        }}
+      />
     </main>
   );
 }

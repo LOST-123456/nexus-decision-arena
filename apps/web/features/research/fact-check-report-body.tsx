@@ -218,30 +218,32 @@ function ResearchQualitySection({
       </p>
 
       <div className="research-label">六个维度</div>
-      <table className="research-table">
-        <thead>
-          <tr>
-            <th scope="col">维度</th>
-            <th scope="col">分数</th>
-            <th scope="col">权重</th>
-            <th scope="col">状态</th>
-          </tr>
-        </thead>
-        <tbody>
-          {assessment.dimensions.map((dimension) => (
-            <tr key={dimension.id} data-testid={`report-quality-dimension-${dimension.id}`}>
-              <td>{qualityDimensionLabel(dimension.id)}</td>
-              <td>{qualityScoreText(dimension.score)}</td>
-              <td className="research-muted">{dimension.weight}%</td>
-              <td>
-                <StatusPill tone={qualityStatusTone(dimension.status)}>
-                  {qualityStatusLabel(dimension.status)}
-                </StatusPill>
-              </td>
+      <div className="research-table-scroll">
+        <table className="research-table">
+          <thead>
+            <tr>
+              <th scope="col">维度</th>
+              <th scope="col">分数</th>
+              <th scope="col">权重</th>
+              <th scope="col">状态</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {assessment.dimensions.map((dimension) => (
+              <tr key={dimension.id} data-testid={`report-quality-dimension-${dimension.id}`}>
+                <td>{qualityDimensionLabel(dimension.id)}</td>
+                <td>{qualityScoreText(dimension.score)}</td>
+                <td className="research-muted">{dimension.weight}%</td>
+                <td>
+                  <StatusPill tone={qualityStatusTone(dimension.status)}>
+                    {qualityStatusLabel(dimension.status)}
+                  </StatusPill>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
       <div className="research-label">
         质量问题（{assessment.findings.length}：严重 {bySeverity.critical} · 警告{" "}
@@ -618,32 +620,34 @@ export function FactCheckReportBody({
         {report.crossExamination.runs.length === 0 ? (
           <p className="research-muted">该会话还没有交叉审查运行记录。</p>
         ) : (
-          <table className="research-table">
-            <thead>
-              <tr>
-                <th scope="col">用途</th>
-                <th scope="col">角色</th>
-                <th scope="col">状态</th>
-                <th scope="col">开始</th>
-                <th scope="col">失败原因</th>
-              </tr>
-            </thead>
-            <tbody>
-              {report.crossExamination.runs.map((run) => (
-                <tr key={run.id}>
-                  <td className="research-muted">{runPurposeLabel(run.purpose)}</td>
-                  <td className="research-muted">{run.roleId.slice(0, 8)}</td>
-                  <td>
-                    <StatusPill tone={runStatusTone(run.status)}>
-                      {runStatusLabel(run.status)}
-                    </StatusPill>
-                  </td>
-                  <td className="research-muted">{formatDate(run.startedAt)}</td>
-                  <td className="research-muted">{run.error ?? "—"}</td>
+          <div className="research-table-scroll">
+            <table className="research-table">
+              <thead>
+                <tr>
+                  <th scope="col">用途</th>
+                  <th scope="col">角色</th>
+                  <th scope="col">状态</th>
+                  <th scope="col">开始</th>
+                  <th scope="col">失败原因</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {report.crossExamination.runs.map((run) => (
+                  <tr key={run.id}>
+                    <td className="research-muted">{runPurposeLabel(run.purpose)}</td>
+                    <td className="research-muted">{run.roleId.slice(0, 8)}</td>
+                    <td>
+                      <StatusPill tone={runStatusTone(run.status)}>
+                        {runStatusLabel(run.status)}
+                      </StatusPill>
+                    </td>
+                    <td className="research-muted">{formatDate(run.startedAt)}</td>
+                    <td className="research-muted">{run.error ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
         {report.crossExamination.failedRuns.length > 0 ? (
           <p className="research-muted">

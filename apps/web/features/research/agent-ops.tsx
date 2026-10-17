@@ -17,6 +17,9 @@ import {
 } from "./api";
 import { formatDate, runStatusTone } from "./labels";
 import { StatusPill } from "./components";
+import { ConfirmDialog } from "../../components/ui/dialog";
+import { Notice } from "../../components/ui/notice";
+import { Button } from "../../components/ui/button";
 
 function purposeLabel(purpose: AgentRunView["purpose"]): string {
   return purpose === "cross_review" ? "交叉审查" : "分析";
@@ -57,6 +60,9 @@ export function AgentOpsPanel({
   const [detailError, setDetailError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  // The run waiting for a confirmation before it is cancelled. A cancel is
+  // terminal for that run, so it is asked for rather than assumed.
+  const [cancelTarget, setCancelTarget] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     try {
@@ -142,11 +148,15 @@ export function AgentOpsPanel({
   if (loadError) {
     return (
       <div className="research-column">
-        <section className="research-panel">
-          <p className="research-error" role="alert">
-            {loadError}
-          </p>
-        </section>
+        <Notice
+          eyebrow="AGENT OPS / 读取失败"
+          title="无法读取 Agent 运行列表"
+          reason={loadError}
+          hint="运行记录仍在 core 服务里；重试只是重新读取，不会取消或重跑任何一次运行。"
+          role="alert"
+          testId="agent-ops-load-error"
+          actions={<Button onClick={() => void reload()}>重试</Button>}
+        />
       </div>
     );
   }
@@ -191,53 +201,55 @@ export function AgentOpsPanel({
             出现在这里。
           </p>
         ) : (
-          <table className="research-table" data-testid="agent-run-list">
-            <thead>
-              <tr>
-                <th>状态</th>
-                <th>角色</th>
-                <th>类型</th>
-                <th>开始</th>
-                <th>耗时</th>
-                <th>Token</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {runs.map((run) => (
-                <tr
-                  key={run.id}
-                  data-run-id={run.id}
-                  data-run-status={run.status}
-                  data-testid="agent-run-row"
-                >
-                  <td>
-                    <StatusPill tone={runStatusTone(run.status)}>
-                      {agentRunStatusLabel(run.status)}
-                    </StatusPill>
-                  </td>
-                  <td>{run.roleName}</td>
-                  <td>{purposeLabel(run.purpose)}</td>
-                  <td className="research-muted">
-                    {formatDate(run.startedAt)}
-                  </td>
-                  <td className="research-muted">
-                    {formatDuration(run.durationMs)}
-                  </td>
-                  <td className="research-muted">{tokenLabel(run)}</td>
-                  <td>
-                    <button
-                      type="button"
-                      className="research-button research-button-secondary"
-                      onClick={() => void openRun(run.id)}
-                    >
-                      详情
-                    </button>
-                  </td>
+          <div className="research-table-scroll">
+            <table className="research-table" data-testid="agent-run-list">
+              <thead>
+                <tr>
+                  <th>状态</th>
+                  <th>角色</th>
+                  <th>类型</th>
+                  <th>开始</th>
+                  <th>耗时</th>
+                  <th>Token</th>
+                  <th></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {runs.map((run) => (
+                  <tr
+                    key={run.id}
+                    data-run-id={run.id}
+                    data-run-status={run.status}
+                    data-testid="agent-run-row"
+                  >
+                    <td>
+                      <StatusPill tone={runStatusTone(run.status)}>
+                        {agentRunStatusLabel(run.status)}
+                      </StatusPill>
+                    </td>
+                    <td>{run.roleName}</td>
+                    <td>{purposeLabel(run.purpose)}</td>
+                    <td className="research-muted">
+                      {formatDate(run.startedAt)}
+                    </td>
+                    <td className="research-muted">
+                      {formatDuration(run.durationMs)}
+                    </td>
+                    <td className="research-muted">{tokenLabel(run)}</td>
+                    <td>
+                      <button
+                        type="button"
+                        className="research-button research-button-secondary"
+                        onClick={() => void openRun(run.id)}
+                      >
+                        详情
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </section>
 
@@ -269,12 +281,29 @@ export function AgentOpsPanel({
               canEdit={canEdit}
               busy={busy}
               actionError={actionError}
-              onCancel={() => void doCancel(shownRun.id)}
+              onCancel={() => setCancelTarget(shownRun.id)}
               onRetry={() => void doRetry(shownRun.id)}
             />
           )}
         </section>
       ) : null}
+      <ConfirmDialog
+        open={cancelTarget !== null}
+        title="取消这次运行？"
+        description="取消只记录「用户取消」，不会改动任何主张、证据或结论；这次运行已经产生的质询与回应仍会保留在运行记录中。取消无法撤销。"
+        confirmLabel="取消运行"
+        busy={busy}
+        testId="agent-run-cancel-dialog"
+        onCancel={() => setCancelTarget(null)}
+        onConfirm={() => {
+          const runId = cancelTarget;
+          if (!runId) return;
+          void (async () => {
+            await doCancel(runId);
+            setCancelTarget(null);
+          })();
+        }}
+      />
       </div>
     </div>
   );
@@ -455,6 +484,14 @@ function AgentRunDetailView({
         >
           {run.status === "cancelled" ? "已取消" : "取消运行"}
         </button>
+        {/* The reason a control is off used to live only in `title`, which a
+            keyboard or screen-reader user never sees. It is real content, so
+            it is rendered where everyone can read it. */}
+        {cancelDisabledReason ? (
+          <span className="research-muted" data-testid="agent-run-cancel-reason">
+            {cancelDisabledReason}
+          </span>
+        ) : null}
         <button
           type="button"
           className="research-button"
@@ -465,6 +502,11 @@ function AgentRunDetailView({
         >
           重试运行
         </button>
+        {retryDisabledReason ? (
+          <span className="research-muted" data-testid="agent-run-retry-reason">
+            {retryDisabledReason}
+          </span>
+        ) : null}
       </div>
     </div>
   );
