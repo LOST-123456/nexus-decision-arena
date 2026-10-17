@@ -1,10 +1,12 @@
 import {
+  canCancelRun,
   isRetryableRun,
   type AgentRunDetail,
   type AgentRunView
 } from "@nexus/shared";
 import type { ArenaRepository, EventRepository, ReviewRepository } from "@nexus/db";
 import type { CrossReviewResult, CrossReviewService } from "./cross-review-service";
+import type { RunCancellationRegistry } from "./run-cancellation";
 
 /** Hard ceiling on retry attempts per run. The run being retried has its own
  * `attempt`, and a retry opens `attempt + 1`; we stop once it would exceed this. */
@@ -41,6 +43,39 @@ export class AgentRunRetryUnsupportedError extends Error {
   }
 }
 
+/**
+ * What a cancel request actually achieved, which is deliberately not one fact
+ * but three:
+ *
+ * - the `agent_runs` row moved to `cancelled` (`statusChanged`),
+ * - the request is on the record with who asked, when, and why,
+ * - and the executor was — or was not — told to stop (`execution`).
+ *
+ * `execution: "signal_delivered"` means a live executor *in this process* was
+ * aborted. It does not mean the executor has stopped: that is
+ * `AGENT_RUN_EXECUTION_STOPPED`, written by the executor itself. Nor does
+ * `"not_running_here"` mean the run is dangerous — the write guard in the
+ * arena repository refuses new results for a cancelled run regardless of which
+ * process is holding the work.
+ */
+export type AgentRunCancellation = {
+  run: AgentRunView;
+  /** The run was already cancelled; this call changed nothing and logged nothing. */
+  alreadyCancelled: boolean;
+  /** The row moved from `queued`/`running` to `cancelled` because of this call. */
+  statusChanged: boolean;
+  /** What this process could do about the work in flight. */
+  execution: "signal_delivered" | "not_running_here";
+  /**
+   * The status the row had when the cancel was accepted. `queued` means there
+   * was never an executor to stop, which is a materially different story from
+   * "a running executor we could not reach".
+   */
+  previousStatus: AgentRunView["status"];
+  /** The operator's reason, echoed back — only ever as the caller recorded it. */
+  reason: string | null;
+};
+
 /** The retry ceiling has been reached for this run. */
 export class AgentRunRetryLimitError extends Error {
   constructor(readonly attempt: number, readonly limit: number) {
@@ -61,6 +96,13 @@ export type AgentRunServiceDependencies = {
   arena: Pick<ArenaRepository, "getSessionArtifacts">;
   /** Append-only execution log; used to record who cancelled a run. */
   events: Pick<EventRepository, "append">;
+  /**
+   * Where the runs this process is executing register their abort signals.
+   * Optional on purpose: with no registry every cancel still takes effect
+   * durably, it just cannot interrupt a provider call early — the honest
+   * answer in that case is `not_running_here`.
+   */
+  cancellations?: Pick<RunCancellationRegistry, "cancel">;
   /** Only needed for retry; absent when cross-review is not configured. */
   crossReview?: Pick<CrossReviewService, "runForClaim">;
 };
@@ -75,6 +117,10 @@ export type AgentRunServiceDependencies = {
  * writes evidence or human rulings on a run's behalf (retry re-runs the same
  * agent work, which produces challenges and response claims — not citations or
  * verdicts).
+ *
+ * Cancel writes one row, two events and, when the work happens to be running
+ * here, one abort. It cannot promise the execution stopped, so it does not: see
+ * `AgentRunCancellation`.
  */
 export class AgentRunService {
   constructor(private readonly dependencies: AgentRunServiceDependencies) {}
@@ -127,20 +173,31 @@ export class AgentRunService {
   }
 
   /**
-   * Safe cancel. Returns the resulting run; `alreadyCancelled` is true when the
-   * run was already cancelled (idempotent — the same answer comes back). A run
-   * in any other terminal state cannot be cancelled.
+   * Safe cancel, in three verifiable steps: move the row, record who asked and
+   * why, then try to interrupt the work.
    *
-   * The only failure category this writes is `cancelled_by_user`, and the
-   * repository guard guarantees a cancelled run has no results committed: the
-   * executor (cross-review) only writes output on completion or failure, never
-   * after a cancel, so a cancelled run is provably result-free.
+   * The order is not cosmetic. Moving the row first makes every later write by
+   * that run fail its row-locked guard, so the outcome is already safe before
+   * anything else happens. Recording the request second means the trail
+   * explains the `cancelled` row even if this process dies before it reaches
+   * the executor. The registry lookup comes last because it is the only
+   * best-effort part: it knows about runs *this* process is executing, and a
+   * second instance has an empty registry. That is why the answer says
+   * `signal_delivered` or `not_running_here` rather than claiming the execution
+   * stopped — the executor is the only party that can say that, and it says it
+   * with `AGENT_RUN_EXECUTION_STOPPED`.
+   *
+   * Idempotent by state, not by luck: a run that is already cancelled is
+   * answered again without logging a second request, so a double-click or a
+   * retried POST cannot produce duplicate events. Any other terminal state is
+   * refused — it can no longer be stopped.
    */
   async cancelRun(
     sessionId: string,
     runId: string,
-    actor: string | null
-  ): Promise<{ run: AgentRunView; alreadyCancelled: boolean }> {
+    actor: string | null,
+    options: { reason?: string | null } = {}
+  ): Promise<AgentRunCancellation> {
     const run = await this.dependencies.reviews.getAgentRunById(
       sessionId,
       runId
@@ -148,30 +205,96 @@ export class AgentRunService {
     if (!run) {
       throw new AgentRunNotFoundError(runId);
     }
+    if (run.status === "cancelled") {
+      // Repeat request for a run that is already cancelled: same answer, no
+      // new event. The first request owns the trail.
+      return {
+        run,
+        alreadyCancelled: true,
+        statusChanged: false,
+        execution: "not_running_here",
+        previousStatus: "cancelled",
+        reason: null
+      };
+    }
+    if (!canCancelRun(run.status)) {
+      throw new AgentRunTerminalError(run.status);
+    }
+
     const cancelled = await this.dependencies.reviews.cancelAgentRun(
       sessionId,
       runId
     );
-    if (cancelled) {
-      await this.dependencies.events.append({
+    if (!cancelled) {
+      // Lost the race: a concurrent cancel, or a completion, committed first.
+      const existing = await this.dependencies.reviews.getAgentRunById(
         sessionId,
-        correlationId: runId,
-        type: "AGENT_RUN_CANCELLED",
-        payload: { agentRunId: runId, requestedBy: actor ?? "unattributed" }
-      });
-      return { run: cancelled, alreadyCancelled: false };
+        runId
+      );
+      if (!existing) {
+        throw new AgentRunNotFoundError(runId);
+      }
+      if (existing.status === "cancelled") {
+        // The other cancel won and logged the trail; this call adds nothing.
+        return {
+          run: existing,
+          alreadyCancelled: true,
+          statusChanged: false,
+          execution: "not_running_here",
+          previousStatus: "cancelled",
+          reason: null
+        };
+      }
+      throw new AgentRunTerminalError(existing.status);
     }
-    const existing = await this.dependencies.reviews.getAgentRunById(
+
+    const requestedBy = actor ?? "unattributed";
+    const reason = normaliseReason(options.reason);
+    const previousStatus = run.status;
+    const requestedAt = new Date().toISOString();
+
+    await this.dependencies.events.append({
       sessionId,
-      runId
-    );
-    if (!existing) {
-      throw new AgentRunNotFoundError(runId);
-    }
-    if (existing.status === "cancelled") {
-      return { run: existing, alreadyCancelled: true };
-    }
-    throw new AgentRunTerminalError(existing.status);
+      correlationId: runId,
+      type: "AGENT_RUN_CANCEL_REQUESTED",
+      payload: {
+        agentRunId: runId,
+        requestedBy,
+        reason,
+        requestedAt,
+        previousStatus
+      }
+    });
+
+    // Best effort, and reported as such: `false` means the work is not being
+    // executed by this process, which is a fact the operator needs, not an
+    // error to hide.
+    const signalled = this.dependencies.cancellations?.cancel(runId) ?? false;
+    const execution = signalled ? "signal_delivered" : "not_running_here";
+
+    await this.dependencies.events.append({
+      sessionId,
+      correlationId: runId,
+      type: "AGENT_RUN_CANCELLED",
+      payload: {
+        agentRunId: runId,
+        requestedBy,
+        reason,
+        requestedAt,
+        previousStatus,
+        /** What this process did — never "the executor has stopped". */
+        execution
+      }
+    });
+
+    return {
+      run: cancelled,
+      alreadyCancelled: false,
+      statusChanged: true,
+      execution,
+      previousStatus,
+      reason
+    };
   }
 
   /**
@@ -227,4 +350,11 @@ export class AgentRunService {
     }
     return result;
   }
+}
+
+/** A reason is operator text: trimmed, non-empty, and bounded before storage. */
+function normaliseReason(reason: string | null | undefined): string | null {
+  if (typeof reason !== "string") return null;
+  const trimmed = reason.trim();
+  return trimmed.length === 0 ? null : trimmed.slice(0, 500);
 }

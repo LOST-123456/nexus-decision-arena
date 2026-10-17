@@ -215,21 +215,36 @@ export class DeterministicAgentRunner implements AgentRunner {
   createChallengeDependencies(): {
     generateChallenge: (
       challenger: AgentRole,
-      target: Claim
+      target: Claim,
+      signal?: AbortSignal
     ) => Promise<ChallengeDraft>;
     respondToChallenge: (
       challenge: Challenge,
-      target: Claim
+      target: Claim,
+      signal?: AbortSignal
     ) => Promise<Claim>;
     evaluateResponse: (
       challenge: Challenge,
-      responseClaim: Claim
+      responseClaim: Claim,
+      signal?: AbortSignal
     ) => Promise<"resolved" | "unresolved">;
   } {
     let index = 0;
     let expectedStatus: "resolved" | "unresolved" = "unresolved";
+    /**
+     * The deterministic runner is fast, so it never blocks long enough for an
+     * abort to arrive mid-call. It still honours the signal at every step: a
+     * cancelled run must stop producing fixture output, or a test could not
+     * tell a real cancellation from a lucky one.
+     */
+    const stopIfCancelled = (signal?: AbortSignal): void => {
+      if (signal?.aborted) {
+        throw new DOMException("The run was cancelled.", "AbortError");
+      }
+    };
     return {
-      generateChallenge: async (_challenger, target) => {
+      generateChallenge: async (_challenger, target, signal) => {
+        stopIfCancelled(signal);
         const fixture = this.fixtures.challenges[index];
         if (!fixture) {
           throw new Error("No deterministic challenge fixture remains");
@@ -248,7 +263,8 @@ export class DeterministicAgentRunner implements AgentRunner {
           resolutionStrategy: fixture.resolutionStrategy
         };
       },
-      respondToChallenge: async (challenge, target) => {
+      respondToChallenge: async (challenge, target, signal) => {
+        stopIfCancelled(signal);
         const status =
           expectedStatus === "resolved" ? "supported" : "contested";
         return ClaimSchema.parse({
@@ -269,7 +285,10 @@ export class DeterministicAgentRunner implements AgentRunner {
           updatedAt: new Date().toISOString()
         });
       },
-      evaluateResponse: async () => expectedStatus
+      evaluateResponse: async (_challenge, _responseClaim, signal) => {
+        stopIfCancelled(signal);
+        return expectedStatus;
+      }
     };
   }
 }

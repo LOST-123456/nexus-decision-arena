@@ -9,6 +9,7 @@ import {
   MAX_AGENT_RUN_RETRIES
 } from "./agent-run-service";
 import type { AgentRunView } from "@nexus/shared";
+import { RunCancellationRegistry } from "./run-cancellation";
 
 function makeRun(over: Partial<AgentRunView> = {}): AgentRunView {
   return {
@@ -40,12 +41,20 @@ function makeDeps(over: Record<string, unknown> = {}) {
   const crossReview = {
     runForClaim: vi.fn()
   };
+  const cancellations = new RunCancellationRegistry();
   return {
     reviews,
     arena,
     events,
     crossReview,
-    service: new AgentRunService({ reviews, arena, events, crossReview }),
+    cancellations,
+    service: new AgentRunService({
+      reviews,
+      arena,
+      events,
+      cancellations,
+      crossReview
+    }),
     ...over
   };
 }
@@ -131,6 +140,86 @@ describe("AgentRunService", () => {
     await expect(d.service.cancelRun("session-1", "run-1", "Owner")).rejects.toBeInstanceOf(
       AgentRunTerminalError
     );
+  });
+
+  it("cancelRun records the request before the verdict, with who, when and why", async () => {
+    const d = makeDeps();
+    d.reviews.getAgentRunById.mockResolvedValue(makeRun({ status: "running" }));
+    d.reviews.cancelAgentRun.mockResolvedValue(
+      makeRun({ status: "cancelled", errorCode: "cancelled_by_user" })
+    );
+
+    await d.service.cancelRun("session-1", "run-1", "Owner (owner)", {
+      reason: "  结果已经不需要了  "
+    });
+
+    const types = d.events.append.mock.calls.map(
+      (call) => (call[0] as { type: string }).type
+    );
+    expect(types).toEqual(["AGENT_RUN_CANCEL_REQUESTED", "AGENT_RUN_CANCELLED"]);
+    const requested = d.events.append.mock.calls[0]?.[0] as {
+      payload: Record<string, unknown>;
+    };
+    expect(requested.payload.requestedBy).toBe("Owner (owner)");
+    // The reason is trimmed before it is stored, and attributed to the session
+    // identity rather than to anything the client sent.
+    expect(requested.payload.reason).toBe("结果已经不需要了");
+    expect(requested.payload.previousStatus).toBe("running");
+    expect(typeof requested.payload.requestedAt).toBe("string");
+  });
+
+  it("cancelRun reports whether this process could actually abort the work", async () => {
+    const d = makeDeps();
+    d.reviews.getAgentRunById.mockResolvedValue(makeRun({ status: "running" }));
+    d.reviews.cancelAgentRun.mockResolvedValue(
+      makeRun({ status: "cancelled", errorCode: "cancelled_by_user" })
+    );
+    const signal = d.cancellations.begin("run-1");
+
+    const result = await d.service.cancelRun("session-1", "run-1", "Owner");
+
+    expect(result.statusChanged).toBe(true);
+    expect(result.execution).toBe("signal_delivered");
+    // The signal the executor is holding is the thing that fired — not a new one.
+    expect(signal.aborted).toBe(true);
+  });
+
+  it("cancelRun admits when the work is not running in this process", async () => {
+    const d = makeDeps();
+    d.reviews.getAgentRunById.mockResolvedValue(makeRun({ status: "running" }));
+    d.reviews.cancelAgentRun.mockResolvedValue(
+      makeRun({ status: "cancelled", errorCode: "cancelled_by_user" })
+    );
+
+    const result = await d.service.cancelRun("session-1", "run-1", "Owner");
+
+    // Nothing was aborted here, and the answer says so instead of implying the
+    // execution stopped. The database is the part that is guaranteed.
+    expect(result.execution).toBe("not_running_here");
+    expect(result.statusChanged).toBe(true);
+    const verdict = d.events.append.mock.calls[1]?.[0] as {
+      payload: Record<string, unknown>;
+    };
+    expect(verdict.payload.execution).toBe("not_running_here");
+  });
+
+  it("cancelRun logs nothing for a repeat request that loses the race", async () => {
+    const d = makeDeps();
+    // The row was still running when we looked…
+    d.reviews.getAgentRunById
+      .mockResolvedValueOnce(makeRun({ status: "running" }))
+      // …but a concurrent cancel committed first, so our update moved nothing.
+      .mockResolvedValueOnce(
+        makeRun({ status: "cancelled", errorCode: "cancelled_by_user" })
+      );
+    d.reviews.cancelAgentRun.mockResolvedValue(null);
+
+    const result = await d.service.cancelRun("session-1", "run-1", "Owner");
+
+    expect(result.alreadyCancelled).toBe(true);
+    expect(result.statusChanged).toBe(false);
+    // Exactly one request, exactly one verdict — from whichever call won.
+    expect(d.events.append).not.toHaveBeenCalled();
   });
 
   it("retryRun re-runs cross-review and records the parent", async () => {

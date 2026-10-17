@@ -109,26 +109,66 @@ export function registerAgentRunRoutes(
   /**
    * Cancels a run. Safe: only a `queued` or `running` run can be cancelled; a
    * terminal one (that is not already cancelled) is refused. Idempotent for an
-   * already-cancelled run. A run in another session is a 404, never a 200.
+   * already-cancelled run, and lease-guarded by `Idempotency-Key` so a
+   * double-submit cannot produce two cancel requests for one decision.
+   *
+   * The response separates what is durable from what is not: `run.status` and
+   * `statusChanged` are the database, `execution` is what this process managed
+   * to do about the work in flight. Neither claims the executor has stopped —
+   * only `AGENT_RUN_EXECUTION_STOPPED` in the run's timeline says that.
+   *
+   * `cancelledBy` is never read from the body: the actor comes from the
+   * authenticated request, so a client cannot attribute a cancel to someone
+   * else.
    */
-  app.post<{ Params: { id: string; runId: string } }>(
+  app.post<{
+    Params: { id: string; runId: string };
+    Body: { reason?: string } | undefined;
+  }>(
     "/api/sessions/:id/agent-runs/:runId/cancel",
     async (request, reply) => {
       const actor = guard(request, reply, "write");
       if (!actor) return;
       if (!service) return notConfigured(reply);
+      const key = getIdempotencyKey(request);
+      if (!key) {
+        return reply
+          .code(400)
+          .send({ error: "Idempotency-Key header is required" });
+      }
       const requestedBy = actorName(actor.user) ?? "unattributed";
+      const { id, runId } = request.params;
+      const body = request.body;
+      const reason =
+        typeof body?.reason === "string" ? body.reason : null;
+      const requestHash = hashIdempotencyRequest({
+        operation: "agent-run-cancel",
+        sessionId: id,
+        runId
+      });
       try {
-        const result = await service.cancelRun(
-          request.params.id,
-          request.params.runId,
-          requestedBy
-        );
-        return reply.code(200).send({
-          run: result.run,
-          alreadyCancelled: result.alreadyCancelled
+        const result = await idempotency.execute(key, requestHash, async () => {
+          const cancelled = await service.cancelRun(id, runId, requestedBy, {
+            reason
+          });
+          return {
+            run: cancelled.run,
+            alreadyCancelled: cancelled.alreadyCancelled,
+            statusChanged: cancelled.statusChanged,
+            execution: cancelled.execution,
+            previousStatus: cancelled.previousStatus,
+            reason: cancelled.reason
+          };
         });
+        return reply.code(200).send(result.response);
       } catch (error) {
+        if (
+          error instanceof IdempotencyConflictError ||
+          error instanceof IdempotencyTimeoutError ||
+          error instanceof IdempotencyLeaseLostError
+        ) {
+          return reply.code(409).send({ error: error.message });
+        }
         if (error instanceof AgentRunNotFoundError) {
           return reply.code(404).send({ error: error.message });
         }

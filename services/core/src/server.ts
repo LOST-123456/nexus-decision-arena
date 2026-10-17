@@ -37,6 +37,7 @@ import { ProviderAgentRunner } from "./arena/provider-agent-runner";
 import { EventBus } from "./execution/event-bus";
 import { CrossReviewService } from "./research/cross-review-service";
 import { AgentRunService } from "./research/agent-run-service";
+import { RunCancellationRegistry } from "./research/run-cancellation";
 import { ClaimExtractionService } from "./research/claim-extraction-service";
 import { CitationReviewService } from "./research/citation-review-service";
 import { SourceIndependenceService } from "./research/source-independence-service";
@@ -219,7 +220,14 @@ const runSession = new RunSessionService(agentRunner, {
  * Claim-level cross-examination. It reuses the arena's challenger selection
  * and CrossExaminationService, but gives every challenger its own agent run so
  * the research workspace can show real task status and real failure reasons.
+ *
+ * `cancellations` is process-scoped and shared with the operations center: the
+ * executor registers a signal per run, the cancel endpoint aborts it. Sharing
+ * one instance is the whole point — two instances would each abort nothing.
+ * Correctness never depends on it, though; the arena's row-locked writes reject
+ * results from a cancelled run whichever process produced them.
  */
+const cancellations = new RunCancellationRegistry();
 const crossReview = new CrossReviewService({
   readArtifacts: (sessionId) => arena.getSessionArtifacts(sessionId),
   readRoles: async (sessionId) => {
@@ -233,6 +241,7 @@ const crossReview = new CrossReviewService({
   },
   runs: researchReviews,
   arena,
+  cancellations,
   getClaimValidationContext: (claimId) =>
     arena.getClaimValidationContext(claimId),
   crossExamination: createCrossExamination,
@@ -352,6 +361,7 @@ const app = createApp(
       reviews: researchReviews,
       arena,
       events,
+      cancellations,
       crossReview
     }),
     sourceIntake: new SourceImportService({

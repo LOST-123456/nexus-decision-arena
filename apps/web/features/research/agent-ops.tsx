@@ -13,13 +13,75 @@ import {
   cancelAgentRun,
   getAgentRun,
   listAgentRuns,
-  retryAgentRun
+  retryAgentRun,
+  type AgentRunCancelResult
 } from "./api";
 import { formatDate, runStatusTone } from "./labels";
 import { StatusPill } from "./components";
 import { ConfirmDialog } from "../../components/ui/dialog";
 import { Notice } from "../../components/ui/notice";
 import { Button } from "../../components/ui/button";
+
+/**
+ * What the panel can honestly say about a cancel, in the order the facts
+ * actually arrive: the request is in flight, the server has recorded it, the
+ * executor has confirmed it stopped — or it has not, and we say so.
+ *
+ * The row reading `cancelled` is *not* the last step. A cancel stops new
+ * results from being committed; whether the process doing the work has finished
+ * unwinding is a separate fact, and only the executor can report it.
+ */
+type CancelPhase =
+  | "requesting"
+  | "recorded"
+  | "stopping"
+  | "stopped"
+  | "unconfirmed";
+
+function describeCancellation(input: {
+  status: AgentRunView["status"];
+  ack: AgentRunCancelResult | null;
+  /** The executor's own report — the only source for "it stopped". */
+  stopConfirmed: boolean;
+  /** A cancel request is on this run's timeline. */
+  requestedOnRecord: boolean;
+  inFlight: boolean;
+}): { phase: CancelPhase; text: string } | null {
+  if (input.inFlight) {
+    return {
+      phase: "requesting",
+      text: "正在请求取消：已发出，等待服务端确认。确认前不会显示「已取消」。"
+    };
+  }
+  if (input.status !== "cancelled") {
+    return null;
+  }
+  if (input.stopConfirmed) {
+    return {
+      phase: "stopped",
+      text: "已取消，执行器已确认停止。取消前写入的质询与回应会保留。"
+    };
+  }
+  if (input.ack?.previousStatus === "queued") {
+    return {
+      phase: "recorded",
+      text: "已取消。该运行尚未开始执行，没有执行器需要停止。"
+    };
+  }
+  if (input.ack?.execution === "signal_delivered") {
+    return {
+      phase: "stopping",
+      text: "取消处理中：执行器已收到停止信号，正在结束。停止确认到达前，它可能仍在收尾。"
+    };
+  }
+  if (input.ack?.execution === "not_running_here" || input.requestedOnRecord) {
+    return {
+      phase: "unconfirmed",
+      text: "已取消：服务端已记录取消并阻止后续结果写入；执行器停止未获确认（可能由其他实例执行，或未上报）。"
+    };
+  }
+  return null;
+}
 
 function purposeLabel(purpose: AgentRunView["purpose"]): string {
   return purpose === "cross_review" ? "交叉审查" : "分析";
@@ -63,6 +125,15 @@ export function AgentOpsPanel({
   // The run waiting for a confirmation before it is cancelled. A cancel is
   // terminal for that run, so it is asked for rather than assumed.
   const [cancelTarget, setCancelTarget] = useState<string | null>(null);
+  // The run whose cancel request is on the wire. Tracked separately from
+  // `busy` so "asking to cancel" is never confused with "retrying".
+  const [cancelling, setCancelling] = useState<string | null>(null);
+  const [cancelReason, setCancelReason] = useState("");
+  // What the server answered for each run. Absent means nothing has been
+  // acknowledged — the panel then says nothing about the execution either.
+  const [cancelAcks, setCancelAcks] = useState<
+    Record<string, AgentRunCancelResult>
+  >({});
 
   const reload = useCallback(async () => {
     try {
@@ -119,14 +190,26 @@ export function AgentOpsPanel({
 
   async function doCancel(runId: string) {
     setBusy(true);
+    setCancelling(runId);
     setActionError(null);
     try {
-      await cancelAgentRun(sessionId, runId);
+      // Only what the server answers is displayed. A 200 here means the cancel
+      // is recorded; it does not mean the executor has stopped.
+      const result = await cancelAgentRun(sessionId, runId, {
+        reason: cancelReason
+      });
+      setCancelAcks((previous) => ({ ...previous, [runId]: result }));
+      setCancelReason("");
       await reload();
       if (selectedRunId) await openRun(selectedRunId);
     } catch (cause) {
-      setActionError(cause instanceof Error ? cause.message : "取消失败");
+      setActionError(
+        cause instanceof Error
+          ? `取消失败：${cause.message}`
+          : "取消失败：服务端未确认取消"
+      );
     } finally {
+      setCancelling(null);
       setBusy(false);
     }
   }
@@ -191,9 +274,10 @@ export function AgentOpsPanel({
         </div>
         <p className="research-muted">
           这里展示的是同一张 <code>agent_runs</code> 表中的真实运行记录：状态、
-          角色、耗时、Token 用量与失败原因。取消只记录「用户取消」，重试会开启一次
-          新的运行（新的 id、更高的尝试次数、并指回被重试的运行），不会改动任何
-          结论。
+          角色、耗时、Token 用量与失败原因。取消会立即记录并阻止该运行在取消之后
+          写入新的质询、回应主张或冲突；执行器是否真的停下，以事件时间线里的
+          「执行器已停止」记录为准。重试会开启一次新的运行（新的 id、更高的尝试
+          次数、并指回被重试的运行），不会改动任何结论。
         </p>
         {runs.length === 0 ? (
           <p className="research-muted" style={{ marginTop: 8 }}>
@@ -280,6 +364,8 @@ export function AgentOpsPanel({
               detail={detail}
               canEdit={canEdit}
               busy={busy}
+              cancelling={cancelling === shownRun.id}
+              cancelAck={cancelAcks[shownRun.id] ?? null}
               actionError={actionError}
               onCancel={() => setCancelTarget(shownRun.id)}
               onRetry={() => void doRetry(shownRun.id)}
@@ -290,7 +376,27 @@ export function AgentOpsPanel({
       <ConfirmDialog
         open={cancelTarget !== null}
         title="取消这次运行？"
-        description="取消只记录「用户取消」，不会改动任何主张、证据或结论；这次运行已经产生的质询与回应仍会保留在运行记录中。取消无法撤销。"
+        description={
+          <div className="research-field">
+            <p style={{ margin: 0 }}>
+              取消会立刻把这次运行标记为已取消，并阻止它在取消之后写入新的质询、
+              回应主张或冲突；取消前已经写入的成果会保留。执行器是否已经停止，以
+              事件时间线里的「执行器已停止」记录为准，本面板不会替你假设。
+            </p>
+            <label className="research-label" htmlFor="agent-run-cancel-reason">
+              取消原因（可选，记入审计）
+            </label>
+            <textarea
+              id="agent-run-cancel-reason"
+              className="research-textarea"
+              data-testid="agent-run-cancel-reason-input"
+              rows={2}
+              maxLength={500}
+              value={cancelReason}
+              onChange={(event) => setCancelReason(event.target.value)}
+            />
+          </div>
+        }
         confirmLabel="取消运行"
         busy={busy}
         testId="agent-run-cancel-dialog"
@@ -314,6 +420,8 @@ function AgentRunDetailView({
   detail,
   canEdit,
   busy,
+  cancelling,
+  cancelAck,
   actionError,
   onCancel,
   onRetry
@@ -322,12 +430,27 @@ function AgentRunDetailView({
   detail: AgentRunDetail | null;
   canEdit: boolean;
   busy: boolean;
+  cancelling: boolean;
+  cancelAck: AgentRunCancelResult | null;
   actionError: string | null;
   onCancel: () => void;
   onRetry: () => void;
 }) {
   const canCancel = canCancelRun(run.status);
   const canRetry = isRetryableRun(run.status);
+  const stopConfirmed =
+    detail?.events.some((event) => event.type === "AGENT_RUN_EXECUTION_STOPPED") ??
+    false;
+  const requestedOnRecord =
+    detail?.events.some((event) => event.type === "AGENT_RUN_CANCEL_REQUESTED") ??
+    false;
+  const cancellation = describeCancellation({
+    status: run.status,
+    ack: cancelAck,
+    stopConfirmed,
+    requestedOnRecord,
+    inFlight: cancelling
+  });
   const cancelDisabledReason =
     !canEdit
       ? "观众不可取消运行"
@@ -474,6 +597,19 @@ function AgentRunDetailView({
             {actionError}
           </p>
         ) : null}
+        {/* The three states of a cancel, each one only after the server said
+            it. A live region, because the operator may have moved focus here
+            after confirming. */}
+        {cancellation ? (
+          <p
+            className="research-muted"
+            role="status"
+            data-testid="agent-run-cancel-state"
+            data-cancel-phase={cancellation.phase}
+          >
+            {cancellation.text}
+          </p>
+        ) : null}
         <button
           type="button"
           className="research-button research-button-secondary"
@@ -482,7 +618,11 @@ function AgentRunDetailView({
           onClick={onCancel}
           data-testid="agent-run-cancel"
         >
-          {run.status === "cancelled" ? "已取消" : "取消运行"}
+          {cancelling
+            ? "取消中…"
+            : run.status === "cancelled"
+              ? "已取消"
+              : "取消运行"}
         </button>
         {/* The reason a control is off used to live only in `title`, which a
             keyboard or screen-reader user never sees. It is real content, so

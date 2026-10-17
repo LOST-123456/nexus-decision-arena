@@ -17,6 +17,7 @@ import {
 } from "../arena/cross-examination";
 import { assignChallengers } from "../workflow/challenger-assigner";
 import type { SessionArtifacts } from "../arena/run-session";
+import type { RunCancellationRegistry } from "./run-cancellation";
 
 export class CrossReviewClaimNotFoundError extends Error {
   constructor(claimId: string) {
@@ -45,15 +46,19 @@ export class CrossReviewNoChallengerError extends Error {
 export type CrossReviewRunOutcome = {
   run: AgentRun;
   challenges: Challenge[];
-  status: "completed" | "failed";
+  /**
+   * `cancelled` means the run was stopped on purpose before it finished. It is
+   * neither success nor failure, and it is never counted as a completed run.
+   */
+  status: "completed" | "failed" | "cancelled";
   failure: string | null;
 };
 
 export type CrossReviewResult = {
   sessionId: string;
   claimId: string;
-  /** `failed` means every challenger run failed — it is never a success. */
-  status: "completed" | "partial" | "failed";
+  /** `cancelled` means every challenger run was stopped before finishing. */
+  status: "completed" | "partial" | "failed" | "cancelled";
   runs: CrossReviewRunOutcome[];
   challenges: Challenge[];
   responseClaims: Claim[];
@@ -71,11 +76,22 @@ export type CrossReviewDependencies = {
     | "completeCrossReviewRun"
     | "failCrossReviewRun"
     | "findRunningCrossReview"
+    | "getRunStatus"
   >;
+  /**
+   * Every artifact write goes through a `…WhileRunActive` method: the write and
+   * the "is this run still running?" answer are one transaction with a row lock
+   * on `agent_runs`, so a cancel cannot slip between them.
+   */
   arena: Pick<
     ArenaRepository,
-    "saveChallenge" | "updateChallenge" | "saveClaim" | "saveConflict"
+    | "saveChallengeWhileRunActive"
+    | "updateChallengeWhileRunActive"
+    | "saveClaimWhileRunActive"
+    | "saveConflictWhileRunActive"
   >;
+  /** Owns the AbortSignals for runs this process is executing. */
+  cancellations: Pick<RunCancellationRegistry, "begin" | "signal" | "end">;
   getClaimValidationContext: ArenaRepository["getClaimValidationContext"];
   /**
    * The arena's own cross-examination engine. Only `run` is needed, so this is
@@ -142,11 +158,13 @@ export class CrossReviewService {
       throw new CrossReviewNoChallengerError();
     }
 
-    // A real run row per challenger, before any model work happens.
+    // A real run row per challenger, before any model work happens. Each run
+    // also gets a signal here, so a cancel that arrives during the very first
+    // provider call still has something to abort.
     const claims: Array<{ run: AgentRun; challenger: AgentRole }> = [];
+    const signals = new Map<string, AbortSignal>();
     for (const challenger of challengers) {
       const runId = newId();
-      const correlationId = newId();
       const run = await this.dependencies.runs.startCrossReviewRun({
         id: runId,
         sessionId: input.sessionId,
@@ -154,9 +172,15 @@ export class CrossReviewService {
         promptVersionId: challenger.promptVersionId,
         targetClaimId: input.claimId,
         requestedBy: input.actor,
-        correlationId
+        // The run id is its own correlation anchor. Every event in this run's
+        // life is filed under it — which is what makes the run detail timeline
+        // show the whole story instead of starting at the outcome. (It used to
+        // be a second, unrelated id, so `AGENT_RUN_STARTED` was filed where no
+        // run-scoped reader could ever find it.)
+        correlationId: runId
       });
-      await this.emit(input.sessionId, correlationId, "AGENT_RUN_STARTED", {
+      signals.set(runId, this.dependencies.cancellations.begin(runId));
+      await this.emit(input.sessionId, runId, "AGENT_RUN_STARTED", {
         roleId: challenger.id,
         agentRunId: runId,
         purpose: "cross_review",
@@ -169,6 +193,9 @@ export class CrossReviewService {
     const responseClaims: Claim[] = [];
     const conflicts: Conflict[] = [];
     const failuresByRoleId = new Map<string, string>();
+    /** Which run produced which challenge — needed to guard downstream writes. */
+    const runIdByChallengeId = new Map<string, string>();
+    const fallbackRunId = claims[0]?.run.id ?? null;
 
     const plans: CrossExaminationPlan[] = claims.map(({ run, challenger }) => ({
       targetClaimId: input.claimId,
@@ -177,13 +204,15 @@ export class CrossReviewService {
     }));
 
     const service = this.dependencies.crossExamination();
-    await service.run({
+    await service
+      .run({
       sessionId: input.sessionId,
       // The whole claim set is passed so challenge context stays consistent,
       // but `plans` restricts the work to the claim under examination.
       claims: artifacts.claims,
       roles,
       plans,
+      signalFor: (challengerRunId) => signals.get(challengerRunId),
       persistChallenge: async (challenge) => {
         const target = await this.dependencies.getClaimValidationContext(
           challenge.targetClaimId
@@ -194,19 +223,59 @@ export class CrossReviewService {
             challenge
           ]);
         }
-        await this.dependencies.arena.saveChallenge(challenge);
+        const stored = await this.dependencies.arena.saveChallengeWhileRunActive(
+          challenge.challengerRunId,
+          challenge
+        );
+        if (stored) {
+          runIdByChallengeId.set(challenge.id, challenge.challengerRunId);
+        }
+        return stored;
       },
       persistResponseClaim: async (responseClaim) => {
         const context = await this.dependencies.getClaimValidationContext(
           responseClaim.revisionOfClaimId ?? responseClaim.id
         );
         assertClaimInvariants(responseClaim, context?.evidence ?? []);
-        await this.dependencies.arena.saveClaim(responseClaim);
+        // The run that owns this write is the one that raised the challenge it
+        // answers — not whatever `agentRunId` the target claim happened to
+        // carry. Attributing it correctly also makes the run detail page list
+        // the response under the run that actually produced it.
+        const runId = responseClaim.respondsToChallengeId
+          ? runIdByChallengeId.get(responseClaim.respondsToChallengeId)
+          : undefined;
+        if (!runId) {
+          // No owning run on this path means there is nothing to guard against;
+          // writing unguarded would defeat the guard entirely.
+          return false;
+        }
+        return this.dependencies.arena.saveClaimWhileRunActive(runId, {
+          ...responseClaim,
+          agentRunId: runId
+        });
       },
-      persistChallengeUpdate: (challenge) =>
-        this.dependencies.arena.updateChallenge(challenge),
-      persistConflict: (conflict) =>
-        this.dependencies.arena.saveConflict(conflict),
+      persistChallengeUpdate: (challenge) => {
+        const runId =
+          runIdByChallengeId.get(challenge.id) ??
+          challenge.challengerRunId ??
+          fallbackRunId;
+        if (!runId) return Promise.resolve(false);
+        return this.dependencies.arena.updateChallengeWhileRunActive(
+          runId,
+          challenge
+        );
+      },
+      persistConflict: (conflict) => {
+        // A conflict names challenges, not a run. Attribute it to the run that
+        // raised one of them; when none is left (every challenger cancelled),
+        // refuse the write rather than persist an ownerless result.
+        const runId =
+          conflict.challengeIds
+            .map((id) => runIdByChallengeId.get(id))
+            .find((id): id is string => typeof id === "string") ?? fallbackRunId;
+        if (!runId) return Promise.resolve(false);
+        return this.dependencies.arena.saveConflictWhileRunActive(runId, conflict);
+      },
       emit: async (event) => {
         // The challenger's own failure is the only signal the service gives us
         // for why nothing came back, so it has to be captured here.
@@ -238,7 +307,13 @@ export class CrossReviewService {
           event.payload
         );
       }
-    });
+      })
+      .catch((error: unknown) => {
+        // The engine only throws for reasons that stopped the whole
+        // examination; the signals must not outlive the call either way.
+        this.releaseSignals(claims);
+        throw error;
+      });
 
     // `responseClaims` is not emitted by the service, so read what landed.
     const collected = [...challengeById.values()];
@@ -266,14 +341,59 @@ export class CrossReviewService {
       );
       const failure = failuresByRoleId.get(challenger.id);
 
+      // The database is the authority on whether this run still existed when
+      // the work came back. Reading it before deciding keeps a cancel that
+      // landed mid-flight from being reported as a completion or a failure.
+      const settled = await this.dependencies.runs.getRunStatus(run.id);
+      if (settled === "cancelled") {
+        // This process can add one fact the cancelling side could not: whether
+        // the work here actually stopped. A fired signal on a run we owned is
+        // that fact. When the cancel came from another instance there is no
+        // local signal, and inventing this event would be a lie about work we
+        // never touched — so it is simply absent.
+        if (signals.get(run.id)?.aborted === true) {
+          await this.emit(
+            input.sessionId,
+            run.id,
+            "AGENT_RUN_EXECUTION_STOPPED",
+            {
+              agentRunId: run.id,
+              roleId: challenger.id,
+              purpose: "cross_review",
+              stoppedAt: new Date().toISOString(),
+              reason: "cancel_signal"
+            }
+          );
+        }
+        // Anything this run wrote before the cancel is real history and stays
+        // attached; what it did not write is simply absent.
+        runs.push({
+          run: { ...run, status: "cancelled" },
+          challenges: mapped,
+          status: "cancelled",
+          failure: null
+        });
+        continue;
+      }
+
       if (failure || mapped.length === 0) {
         const reason =
           failure ??
           "The challenger finished without producing a challenge for this claim.";
-        await this.dependencies.runs.failCrossReviewRun({
+        const failed = await this.dependencies.runs.failCrossReviewRun({
           runId: run.id,
           error: reason
         });
+        if (!failed) {
+          // Lost the race to a cancel: record what actually happened.
+          runs.push({
+            run: { ...run, status: "cancelled" },
+            challenges: mapped,
+            status: "cancelled",
+            failure: null
+          });
+          continue;
+        }
         await this.emit(input.sessionId, run.id, "AGENT_RUN_FAILED", {
           roleId: challenger.id,
           agentRunId: run.id,
@@ -305,10 +425,21 @@ export class CrossReviewService {
           responseClaimId: challenge.responseClaimId ?? null
         }))
       };
-      await this.dependencies.runs.completeCrossReviewRun({
+      const completedNow = await this.dependencies.runs.completeCrossReviewRun({
         runId: run.id,
         output
       });
+      if (!completedNow) {
+        // A cancel committed first. Announcing completion here would contradict
+        // the row the operator is looking at.
+        runs.push({
+          run: { ...run, status: "cancelled" },
+          challenges: mapped,
+          status: "cancelled",
+          failure: null
+        });
+        continue;
+      }
       await this.emit(input.sessionId, run.id, "AGENT_RUN_COMPLETED", {
         roleId: challenger.id,
         agentRunId: run.id,
@@ -325,21 +456,37 @@ export class CrossReviewService {
     }
 
     const completed = runs.filter((entry) => entry.status === "completed").length;
+    const cancelled = runs.filter((entry) => entry.status === "cancelled").length;
+    this.releaseSignals(claims);
     return {
       sessionId: input.sessionId,
       claimId: input.claimId,
       status:
         completed === runs.length
           ? "completed"
-          : completed === 0
-            ? "failed"
-            : "partial",
+          : completed > 0
+            ? "partial"
+            : cancelled === runs.length
+              ? "cancelled"
+              : "failed",
       runs,
       challenges: collected,
       responseClaims,
       conflicts,
       failures
     };
+  }
+
+  /**
+   * Drops the signals for the runs this call owned. A finished run must not
+   * leave a controller behind: the registry is bounded by live runs, and a
+   * stale entry would make a later cancel look delivered when nothing is
+   * listening. Safe to call on every exit path, including the failure one.
+   */
+  private releaseSignals(claims: ReadonlyArray<{ run: AgentRun }>): void {
+    for (const { run } of claims) {
+      this.dependencies.cancellations.end(run.id);
+    }
   }
 
   private async emit(

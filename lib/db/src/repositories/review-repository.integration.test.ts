@@ -1,7 +1,9 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { sql } from "drizzle-orm";
 import {
   newId,
   type ClaimReview,
+  type Conflict,
   type Evidence,
   type Source
 } from "@nexus/shared";
@@ -12,12 +14,14 @@ import {
   agentRuns,
   claimReviews,
   claims,
+  conflicts,
   decisionSessions,
   evidence,
   projects,
   promptVersions,
   sources
 } from "../schema";
+import { ArenaRepository } from "./arena-repository";
 import {
   ReviewClaimNotFoundError,
   ReviewReferenceError,
@@ -28,6 +32,7 @@ import {
 // target has to be a dedicated test database.
 const database: Database = createTestDatabase();
 const repository = new ReviewRepository(database);
+const arena = new ArenaRepository(database);
 
 beforeEach(async () => {
   await database.execute(
@@ -133,12 +138,17 @@ async function seedAgentRoleAndPrompt(): Promise<{
   await database.insert(promptVersions).values({
     id: promptVersionId,
     name: "challenger",
-    version: "v1",
+    // `prompt_versions_name_version_idx` is UNIQUE(name, version), and a single
+    // test may need two roles; the version has to be unique per call too.
+    version: `v-${promptVersionId}`,
     content: "prompt"
   });
   await database.insert(agentRoles).values({
     id: roleId,
-    key: `role-${roleId.slice(0, 8)}`,
+    // UUIDv7 values minted in the same millisecond share their first characters,
+    // so the key must be the whole id for `agent_roles_key_idx` to stay unique
+    // when one test seeds two roles.
+    key: `role-${roleId}`,
     name: "Risk auditor",
     goal: "Challenge claims",
     perspective: "Skeptical",
@@ -466,5 +476,188 @@ describe("ReviewRepository · cross-review runs", () => {
     expect(
       await repository.findRunningCrossReview(sessionId, otherClaimId)
     ).toBeNull();
+  });
+});
+
+/**
+ * Cancellation, proven against PostgreSQL rather than asserted in a comment.
+ *
+ * Two mechanisms carry the guarantee:
+ *  - the terminal transitions are conditional (`WHERE status = 'running'`), so
+ *    a cancel and a completion cannot both win;
+ *  - artifact writes take a `FOR SHARE` lock on the run row inside the same
+ *    transaction, so a cancel cannot slip between "is it still running?" and
+ *    the insert.
+ *
+ * The ordering here never depends on sleeping: cases that need the two sides
+ * to interleave use an explicit row lock plus deferred gates, so the guard is
+ * provably waiting at the instant the cancel commits.
+ */
+describe("ReviewRepository · cancellation races", () => {
+  async function runningRun(): Promise<{
+    sessionId: string;
+    runId: string;
+  }> {
+    const sessionId = await seedSession();
+    const claimId = await seedClaim(sessionId);
+    const { roleId, promptVersionId } = await seedAgentRoleAndPrompt();
+    const runId = newId();
+    await repository.startCrossReviewRun({
+      id: runId,
+      sessionId,
+      roleId,
+      promptVersionId,
+      targetClaimId: claimId,
+      requestedBy: "Owner (owner)",
+      correlationId: newId()
+    });
+    return { sessionId, runId };
+  }
+
+  function conflictFixture(sessionId: string): Conflict {
+    const now = new Date().toISOString();
+    return {
+      id: newId(),
+      sessionId,
+      claimIds: [newId()],
+      challengeIds: [newId()],
+      type: "evidence",
+      summary: "Cancelled run tried to record a conflict",
+      severity: 4,
+      status: "detected",
+      humanDecisionRequired: true,
+      resolutionSuggestion: "Re-run the examination",
+      impactScope: { analysisAreas: ["risk"], stakeholders: [] },
+      createdAt: now,
+      updatedAt: now
+    };
+  }
+
+  it("cancels a running run and answers null for anything already settled", async () => {
+    const { sessionId, runId } = await runningRun();
+
+    const cancelled = await repository.cancelAgentRun(sessionId, runId);
+    expect(cancelled?.status).toBe("cancelled");
+    expect(cancelled?.errorCode).toBe("cancelled_by_user");
+    // The second attempt changed nothing, so it reports nothing.
+    expect(await repository.cancelAgentRun(sessionId, runId)).toBeNull();
+
+    const { sessionId: otherSession, runId: completedRun } = await runningRun();
+    await repository.completeCrossReviewRun({ runId: completedRun, output: {} });
+    expect(await repository.cancelAgentRun(otherSession, completedRun)).toBeNull();
+    expect(await repository.getRunStatus(completedRun)).toBe("completed");
+  });
+
+  it("lets exactly one of two simultaneous cancels move the row", async () => {
+    const { sessionId, runId } = await runningRun();
+
+    const [first, second] = await Promise.all([
+      repository.cancelAgentRun(sessionId, runId),
+      repository.cancelAgentRun(sessionId, runId)
+    ]);
+
+    const winners = [first, second].filter((value) => value !== null);
+    expect(winners).toHaveLength(1);
+    expect(await repository.getRunStatus(runId)).toBe("cancelled");
+  });
+
+  it("settles a cancel/completion race in one direction only", async () => {
+    const { sessionId, runId } = await runningRun();
+
+    const [completed, cancelled] = await Promise.all([
+      repository.completeCrossReviewRun({ runId, output: { ok: true } }),
+      repository.cancelAgentRun(sessionId, runId)
+    ]);
+
+    // Both are conditional updates on the same row, so they serialize: exactly
+    // one of them moved it, and the other saw a row that was no longer running.
+    expect(completed === (cancelled !== null)).toBe(false);
+
+    const finalStatus = await repository.getRunStatus(runId);
+    expect(finalStatus).toBe(completed ? "completed" : "cancelled");
+  });
+
+  it("refuses a late artifact write and leaves nothing behind", async () => {
+    const { sessionId, runId } = await runningRun();
+    await repository.cancelAgentRun(sessionId, runId);
+
+    expect(
+      await arena.saveConflictWhileRunActive(runId, conflictFixture(sessionId))
+    ).toBe(false);
+    expect(await database.select({ id: conflicts.id }).from(conflicts)).toHaveLength(
+      0
+    );
+  });
+
+  it("makes a guarded write wait for an in-flight cancel, then refuses it", async () => {
+    const { sessionId, runId } = await runningRun();
+
+    let releaseCancel!: () => void;
+    const cancelGate = new Promise<void>((resolve) => {
+      releaseCancel = resolve;
+    });
+    let rowLocked!: () => void;
+    const locked = new Promise<void>((resolve) => {
+      rowLocked = resolve;
+    });
+
+    // Stands in for the cancel's UPDATE: it owns the row exclusively until it
+    // commits, which is the window the guard must not slip through.
+    const cancelTransaction = database.transaction(async (tx) => {
+      await tx.execute(
+        sql`select id from agent_runs where id = ${runId} for update`
+      );
+      rowLocked();
+      await cancelGate;
+      await tx.execute(
+        sql`update agent_runs set status = 'cancelled', error_code = 'cancelled_by_user', completed_at = now() where id = ${runId}`
+      );
+    });
+
+    await locked;
+    // Started while the cancel is uncommitted: its `for share` blocks here.
+    const write = arena.saveConflictWhileRunActive(runId, conflictFixture(sessionId));
+    releaseCancel();
+    await cancelTransaction;
+
+    expect(await write).toBe(false);
+    expect(await database.select({ id: conflicts.id }).from(conflicts)).toHaveLength(
+      0
+    );
+  });
+
+  it("lets the same write through when that cancel rolls back", async () => {
+    const { sessionId, runId } = await runningRun();
+
+    let releaseCancel!: () => void;
+    const cancelGate = new Promise<void>((resolve) => {
+      releaseCancel = resolve;
+    });
+    let rowLocked!: () => void;
+    const locked = new Promise<void>((resolve) => {
+      rowLocked = resolve;
+    });
+
+    const abandoned = database.transaction(async (tx) => {
+      await tx.execute(
+        sql`select id from agent_runs where id = ${runId} for update`
+      );
+      rowLocked();
+      await cancelGate;
+      throw new Error("the cancel was abandoned");
+    });
+    const settled = abandoned.catch((error: unknown) => error);
+
+    await locked;
+    const write = arena.saveConflictWhileRunActive(runId, conflictFixture(sessionId));
+    releaseCancel();
+
+    // Same interleaving as the previous test; the only difference is that the
+    // cancel never committed — so the write must be accepted.
+    expect(await settled).toBeInstanceOf(Error);
+    expect(await write).toBe(true);
+    expect(await database.select({ id: conflicts.id }).from(conflicts)).toHaveLength(
+      1
+    );
   });
 });

@@ -51,6 +51,11 @@ type AgentRunInput = {
   completedAt?: string;
 };
 
+/** The transaction handle this repository's database hands to a callback. */
+type DatabaseTransaction = Parameters<
+  Parameters<Database["transaction"]>[0]
+>[0];
+
 function claimValues(claim: Claim): typeof claims.$inferInsert {
   return {
     id: claim.id,
@@ -326,6 +331,90 @@ export class ArenaRepository {
 
   async saveConflict(conflict: Conflict): Promise<void> {
     await this.database.insert(conflicts).values(conflict);
+  }
+
+  /**
+   * Writes one agent run's artifact only while that run is still `running`.
+   *
+   * A guard made of two statements — read the status, then insert — is not a
+   * guard: a cancel can land between them and the artifact is written anyway,
+   * which is precisely how a `cancelled` run ends up owning fresh challenges.
+   * This takes a shared row lock on the run (`SELECT … FOR SHARE`) inside the
+   * same transaction as the write, so `cancelAgentRun`'s `UPDATE`, which needs
+   * an exclusive lock on that same row, has exactly two possible orders:
+   *
+   *  - cancel commits first → the locked read sees `cancelled`, nothing is
+   *    written, and the caller learns the write was refused;
+   *  - the write commits first → cancel waits, and the artifact is written
+   *    while the run genuinely was running, which is honest history.
+   *
+   * Returns whether the artifact was written. `false` is not an error: it is
+   * the answer "this run may no longer produce results".
+   */
+  private async writeWhileRunActive(
+    runId: string,
+    write: (tx: DatabaseTransaction) => Promise<void>
+  ): Promise<boolean> {
+    return this.database.transaction(async (tx) => {
+      const [row] = await tx
+        .select({ status: agentRuns.status })
+        .from(agentRuns)
+        .where(eq(agentRuns.id, runId))
+        .for("share");
+      if (!row || row.status !== "running") {
+        return false;
+      }
+      await write(tx);
+      return true;
+    });
+  }
+
+  /** A challenge produced by a run, refused once that run is no longer running. */
+  async saveChallengeWhileRunActive(
+    runId: string,
+    challenge: Challenge
+  ): Promise<boolean> {
+    return this.writeWhileRunActive(runId, async (tx) => {
+      await tx.insert(challenges).values(challengeValues(challenge));
+    });
+  }
+
+  /** A response claim produced by a run, under the same guard. */
+  async saveClaimWhileRunActive(
+    runId: string,
+    claim: Claim
+  ): Promise<boolean> {
+    return this.writeWhileRunActive(runId, async (tx) => {
+      await tx.insert(claims).values(claimValues(claim));
+    });
+  }
+
+  /** A detected conflict, under the same guard. */
+  async saveConflictWhileRunActive(
+    runId: string,
+    conflict: Conflict
+  ): Promise<boolean> {
+    return this.writeWhileRunActive(runId, async (tx) => {
+      await tx.insert(conflicts).values(conflict);
+    });
+  }
+
+  /** A challenge status update, under the same guard. */
+  async updateChallengeWhileRunActive(
+    runId: string,
+    challenge: Challenge
+  ): Promise<boolean> {
+    return this.writeWhileRunActive(runId, async (tx) => {
+      const values = challengeValues(challenge);
+      await tx
+        .update(challenges)
+        .set({
+          status: values.status,
+          responseClaimId: values.responseClaimId,
+          updatedAt: values.updatedAt
+        })
+        .where(eq(challenges.id, challenge.id));
+    });
   }
 
   /**

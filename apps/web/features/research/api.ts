@@ -1730,21 +1730,48 @@ export function getAgentRun(
 }
 
 /**
+ * The server's answer to a cancel request. Three facts, deliberately not one:
+ * the row state (`run`, `statusChanged`), whether the answer repeated an earlier
+ * cancel (`alreadyCancelled`), and what this process did about the work in
+ * flight (`execution`). `execution` never means "the executor stopped" — that is
+ * reported separately by the executor as `AGENT_RUN_EXECUTION_STOPPED` in the
+ * run's own timeline.
+ */
+export type AgentRunCancelResult = {
+  run: AgentRunView;
+  alreadyCancelled: boolean;
+  statusChanged: boolean;
+  execution: "signal_delivered" | "not_running_here";
+  /** The status the row had when the cancel was accepted. */
+  previousStatus: AgentRunView["status"];
+  reason: string | null;
+};
+
+/**
  * Cancels a run.
  *
  * Safe: the server only cancels a run that is still `queued` or `running`; a
  * terminal run (other than one already cancelled) is refused with a 409, and a
  * run from another session is a 404. An already-cancelled run answers 200 again
  * instead of erroring, so a retry after a network blip does not look like a
- * failure.
+ * failure. The reason travels with the request and lands in the audit trail —
+ * the identity of the caller never comes from here, only from the session.
  */
 export function cancelAgentRun(
   sessionId: string,
-  runId: string
-): Promise<{ run: AgentRunView; alreadyCancelled: boolean }> {
-  return request<{ run: AgentRunView; alreadyCancelled: boolean }>(
+  runId: string,
+  options: { reason?: string } = {}
+): Promise<AgentRunCancelResult> {
+  const body = options.reason?.trim()
+    ? JSON.stringify({ reason: options.reason.trim().slice(0, 500) })
+    : undefined;
+  return request<AgentRunCancelResult>(
     `/api/sessions/${encodeURIComponent(sessionId)}/agent-runs/${encodeURIComponent(runId)}/cancel`,
-    { method: "POST", idempotencyKey: idempotencyKey("agent-run-cancel") }
+    {
+      method: "POST",
+      ...(body ? { body } : {}),
+      idempotencyKey: idempotencyKey("agent-run-cancel")
+    }
   );
 }
 

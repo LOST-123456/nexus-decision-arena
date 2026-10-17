@@ -22,6 +22,7 @@ import {
   CrossReviewNoChallengerError,
   CrossReviewService
 } from "./cross-review-service";
+import { RunCancellationRegistry } from "./run-cancellation";
 
 const SESSION_ID = newId();
 const CLAIM_ID = newId();
@@ -50,6 +51,19 @@ function claimFixture(overrides: Partial<Claim> = {}): Claim {
 
 type Harness = ReturnType<typeof harness>;
 
+/**
+ * The lever a test pulls to cancel a run at a chosen instant. It does what the
+ * cancel endpoint does — the durable status moves and the in-process signal
+ * fires — so the ordering under test is real rather than simulated.
+ */
+type HarnessControl = {
+  /** Every run this harness started, in start order. */
+  startedRunIds(): string[];
+  cancel(runId: string): void;
+  cancelAllRunning(): void;
+  signalFor(runId: string): AbortSignal | undefined;
+};
+
 function harness(options: {
   claims?: Claim[];
   roles?: readonly AgentRole[];
@@ -59,6 +73,12 @@ function harness(options: {
   crossExaminationOverride?: {
     run: (input: unknown) => Promise<CrossExaminationResult>;
   };
+  /** Runs inside the provider call, before any write can land. */
+  duringGeneration?: (control: HarnessControl) => void;
+  /** Runs while the challenge is being evaluated, before its update lands. */
+  duringEvaluation?: (control: HarnessControl) => void;
+  /** Runs immediately before the completion transition is attempted. */
+  beforeComplete?: (control: HarnessControl) => void;
 } = {}) {
   const startedRuns: Array<Record<string, unknown>> = [];
   const runStatus = new Map<string, string>();
@@ -67,10 +87,35 @@ function harness(options: {
   const savedChallenges: Challenge[] = [];
   const savedClaims: Claim[] = [];
   const savedConflicts: Conflict[] = [];
-  const events: Array<{ type: string; payload: unknown }> = [];
+  const events: Array<{
+    type: string;
+    payload: unknown;
+    correlationId: string;
+  }> = [];
+  const cancellations = new RunCancellationRegistry();
 
   let claims = options.claims ?? [claimFixture()];
   const roles = options.roles ?? DEFAULT_AGENT_ROLES;
+
+  const control: HarnessControl = {
+    startedRunIds: () => [...runStatus.keys()],
+    cancel(runId) {
+      runStatus.set(runId, "cancelled");
+      cancellations.cancel(runId);
+    },
+    cancelAllRunning() {
+      for (const [runId, status] of [...runStatus]) {
+        if (status === "running") control.cancel(runId);
+      }
+    },
+    signalFor: (runId) => cancellations.signal(runId)
+  };
+
+  /**
+   * The same predicate the database enforces with a row lock: a write is only
+   * accepted while the run is still `running`.
+   */
+  const stillRunning = (runId: string) => runStatus.get(runId) === "running";
 
   const defaultDraft = async () => ({
     type: "evidence_gap" as const,
@@ -84,10 +129,14 @@ function harness(options: {
     resolutionStrategy: "provide_evidence" as const
   });
 
+  const draft = options.generateChallenge ?? defaultDraft;
   const crossExamination =
     options.crossExaminationOverride ??
     new CrossExaminationService({
-      generateChallenge: (options.generateChallenge ?? defaultDraft) as never,
+      generateChallenge: (async (...args: unknown[]) => {
+        options.duringGeneration?.(control);
+        return draft(...(args as never[]));
+      }) as never,
       respondToChallenge: async (challenge, target) => {
         const now = new Date().toISOString();
         return ClaimSchema.parse({
@@ -103,7 +152,10 @@ function harness(options: {
           updatedAt: now
         });
       },
-      evaluateResponse: async () => options.evaluateStatus ?? "unresolved"
+      evaluateResponse: async () => {
+        options.duringEvaluation?.(control);
+        return options.evaluateStatus ?? "unresolved";
+      }
     });
 
   const appendEvent = async (input: {
@@ -112,7 +164,11 @@ function harness(options: {
     type: ExecutionEvent["type"];
     payload: unknown;
   }): Promise<ExecutionEvent> => {
-    events.push({ type: input.type, payload: input.payload });
+    events.push({
+      type: input.type,
+      payload: input.payload,
+      correlationId: input.correlationId
+    });
     return {
       id: newId(),
       sessionId: input.sessionId,
@@ -160,32 +216,47 @@ function harness(options: {
           startedAt: new Date().toISOString()
         };
       },
+      getRunStatus: async (runId) =>
+        (runStatus.get(runId) ?? null) as never,
       completeCrossReviewRun: async (input) => {
+        options.beforeComplete?.(control);
+        if (!stillRunning(input.runId)) return false;
         runStatus.set(input.runId, "completed");
         completedRuns.push(input);
+        return true;
       },
       failCrossReviewRun: async (input) => {
+        if (!stillRunning(input.runId)) return false;
         runStatus.set(input.runId, "failed");
         failedRuns.push(input);
+        return true;
       }
     },
     arena: {
-      saveChallenge: async (challenge) => {
+      saveChallengeWhileRunActive: async (runId, challenge) => {
+        if (!stillRunning(runId)) return false;
         savedChallenges.push(challenge);
-        await Promise.resolve();
+        return true;
       },
-      updateChallenge: async (challenge) => {
+      updateChallengeWhileRunActive: async (runId, challenge) => {
+        if (!stillRunning(runId)) return false;
         const index = savedChallenges.findIndex((item) => item.id === challenge.id);
         if (index >= 0) savedChallenges[index] = challenge;
+        return true;
       },
-      saveClaim: async (claim) => {
+      saveClaimWhileRunActive: async (runId, claim) => {
+        if (!stillRunning(runId)) return false;
         savedClaims.push(claim);
         claims = [...claims, claim];
+        return true;
       },
-      saveConflict: async (conflict) => {
+      saveConflictWhileRunActive: async (runId, conflict) => {
+        if (!stillRunning(runId)) return false;
         savedConflicts.push(conflict);
+        return true;
       }
     },
+    cancellations,
     getClaimValidationContext: async (claimId) => {
       const claim = claims.find((item) => item.id === claimId);
       return claim ? { claim, evidence: [], challenges: savedChallenges } : null;
@@ -197,6 +268,8 @@ function harness(options: {
 
   return {
     service,
+    control,
+    cancellations,
     startedRuns,
     runStatus,
     completedRuns,
@@ -226,6 +299,14 @@ describe("CrossReviewService · real work, real records", () => {
     expect(types.indexOf("AGENT_RUN_STARTED")).toBeLessThan(
       types.indexOf("CHALLENGE_CREATED")
     );
+    // …and it is filed under the run's own id, so the run detail timeline is
+    // complete rather than starting at the outcome.
+    expect(
+      h.events
+        .filter((event) => event.type === "AGENT_RUN_STARTED")
+        .map((event) => event.correlationId)
+        .sort()
+    ).toEqual(h.startedRuns.map((run) => run.id as string).sort());
     expect(result.runs.every((entry) => entry.status === "completed")).toBe(true);
   });
 
@@ -265,6 +346,8 @@ describe("CrossReviewService · real work, real records", () => {
 
     // The challenge status after evaluation is what lands in the run output.
     expect(h.savedChallenges[0]?.status).toBe("unresolved");
+    // A finished run leaves no abort controller behind.
+    expect(h.cancellations.activeCount).toBe(0);
   });
 
   it("marks the run failed with the challenger's own reason", async () => {
@@ -458,5 +541,170 @@ describe("CrossReviewService · real work, real records", () => {
         entry.challenges.every((item) => item.challengerRunId === entry.run.id)
       )
     ).toBe(true);
+  });
+});
+
+/**
+ * Cancellation, tested at the exact instants a race can happen. Every case
+ * pulls a deterministic lever (a hook inside the provider call, the evaluation
+ * step, or immediately before the completion transition) rather than sleeping
+ * and hoping. The invariants under test are:
+ *
+ *   1. a cancelled run writes nothing after the cancel,
+ *   2. it is never reported as completed and never as failed,
+ *   3. what it wrote before the cancel stays visible,
+ *   4. the executor — not the canceller — is the one that reports it stopped.
+ */
+describe("CrossReviewService · cancellation", () => {
+  it("writes nothing when the cancel lands during the provider call", async () => {
+    const h = harness({
+      duringGeneration: (control) => control.cancelAllRunning()
+    });
+    const result = await h.service.runForClaim({
+      sessionId: SESSION_ID,
+      claimId: CLAIM_ID,
+      actor: "Owner (owner)"
+    });
+
+    expect(result.status).toBe("cancelled");
+    expect(h.savedChallenges).toHaveLength(0);
+    expect(h.savedClaims).toHaveLength(0);
+    expect(h.savedConflicts).toHaveLength(0);
+    expect(h.completedRuns).toHaveLength(0);
+    // Cancelling is not failing: no failure row, no failure event.
+    expect(h.failedRuns).toHaveLength(0);
+    expect(result.failures).toHaveLength(0);
+    expect(h.events.some((event) => event.type === "CHALLENGE_FAILED")).toBe(false);
+    expect(h.events.some((event) => event.type === "AGENT_RUN_FAILED")).toBe(false);
+    expect(h.events.some((event) => event.type === "AGENT_RUN_COMPLETED")).toBe(
+      false
+    );
+    expect(result.runs.every((entry) => entry.status === "cancelled")).toBe(true);
+  });
+
+  it("reports the execution stop itself, once per run it owned", async () => {
+    const h = harness({
+      duringGeneration: (control) => control.cancelAllRunning()
+    });
+    const result = await h.service.runForClaim({
+      sessionId: SESSION_ID,
+      claimId: CLAIM_ID,
+      actor: "Owner (owner)"
+    });
+
+    const stopped = h.events.filter(
+      (event) => event.type === "AGENT_RUN_EXECUTION_STOPPED"
+    );
+    expect(stopped).toHaveLength(result.runs.length);
+    const payloads = stopped.map(
+      (event) => event.payload as { agentRunId: string; reason: string }
+    );
+    expect(payloads.map((payload) => payload.agentRunId).sort()).toEqual(
+      result.runs.map((entry) => entry.run.id).sort()
+    );
+    expect(payloads.every((payload) => payload.reason === "cancel_signal")).toBe(
+      true
+    );
+  });
+
+  it("keeps what was already written and stops at the next write", async () => {
+    const h = harness({
+      duringEvaluation: (control) => control.cancelAllRunning()
+    });
+    const result = await h.service.runForClaim({
+      sessionId: SESSION_ID,
+      claimId: CLAIM_ID,
+      actor: "Owner (owner)"
+    });
+
+    // The challenge and its response claim were genuinely persisted before the
+    // cancel: that is history, and it stays attached to the run.
+    expect(h.savedChallenges.length).toBeGreaterThan(0);
+    expect(h.savedClaims.length).toBeGreaterThan(0);
+    expect(result.challenges.length).toBeGreaterThan(0);
+    // But the evaluation result was never stored, and never announced.
+    expect(h.savedChallenges.every((challenge) => challenge.status === "open")).toBe(
+      true
+    );
+    expect(h.events.some((event) => event.type === "CHALLENGE_RESOLVED")).toBe(false);
+    expect(h.events.some((event) => event.type === "AGENT_RUN_COMPLETED")).toBe(
+      false
+    );
+    expect(result.status).toBe("cancelled");
+  });
+
+  it("records a cancel that wins the race against completion", async () => {
+    const h = harness({
+      beforeComplete: (control) => control.cancelAllRunning()
+    });
+    const result = await h.service.runForClaim({
+      sessionId: SESSION_ID,
+      claimId: CLAIM_ID,
+      actor: "Owner (owner)"
+    });
+
+    expect(result.status).toBe("cancelled");
+    expect(h.completedRuns).toHaveLength(0);
+    expect(h.events.some((event) => event.type === "AGENT_RUN_COMPLETED")).toBe(
+      false
+    );
+    expect(result.runs.every((entry) => entry.status === "cancelled")).toBe(true);
+    // The work itself happened; only the verdict is "cancelled".
+    expect(h.savedChallenges.length).toBeGreaterThan(0);
+  });
+
+  it("reports partial, not completed, when one challenger was cancelled", async () => {
+    let calls = 0;
+    const h = harness({
+      duringGeneration: (control) => {
+        calls += 1;
+        if (calls === 1) {
+          control.cancel(control.startedRunIds()[0]!);
+        }
+      }
+    });
+    const result = await h.service.runForClaim({
+      sessionId: SESSION_ID,
+      claimId: CLAIM_ID,
+      actor: "Owner (owner)"
+    });
+
+    expect(result.runs.length).toBeGreaterThan(1);
+    expect(result.status).toBe("partial");
+    expect(result.runs.filter((entry) => entry.status === "cancelled")).toHaveLength(
+      1
+    );
+    expect(
+      result.runs.filter((entry) => entry.status === "completed")
+    ).toHaveLength(result.runs.length - 1);
+    expect(h.failedRuns).toHaveLength(0);
+  });
+
+  it("releases every signal it registered, on both exits", async () => {
+    const halted = harness({
+      duringGeneration: (control) => control.cancelAllRunning()
+    });
+    await halted.service.runForClaim({
+      sessionId: SESSION_ID,
+      claimId: CLAIM_ID,
+      actor: "Owner (owner)"
+    });
+    expect(halted.cancellations.activeCount).toBe(0);
+
+    const exploded = harness({
+      crossExaminationOverride: {
+        run: async () => {
+          throw new Error("engine down");
+        }
+      }
+    });
+    await expect(
+      exploded.service.runForClaim({
+        sessionId: SESSION_ID,
+        claimId: CLAIM_ID,
+        actor: "Owner (owner)"
+      })
+    ).rejects.toThrow("engine down");
+    expect(exploded.cancellations.activeCount).toBe(0);
   });
 });

@@ -59,6 +59,28 @@ function runView(over: Record<string, unknown>) {
 
 const FAILED_RUN = runView({ id: RUN_FAILED, status: "failed", errorCode: "internal_error", error: "模型返回了无法解析的结果。" });
 const QUEUED_RUN = runView({ id: RUN_QUEUED, status: "queued" });
+const CANCELLED_RUN = runView({
+  id: RUN_QUEUED,
+  status: "cancelled",
+  errorCode: "cancelled_by_user"
+});
+
+function detailOf(run: Record<string, unknown>, events: Array<Record<string, unknown>>) {
+  return {
+    ...run,
+    events,
+    outcome: { challengeIds: [], conflictIds: [], responseClaimIds: [] }
+  };
+}
+
+function eventOf(type: string, sequence: number) {
+  return {
+    sequence,
+    type,
+    occurredAt: "2026-01-01T00:00:0" + sequence + ".000Z",
+    payload: {}
+  };
+}
 
 afterEach(() => {
   cleanup();
@@ -120,7 +142,113 @@ describe("AgentOpsPanel", () => {
     expect(cancelAgentRun).not.toHaveBeenCalled();
 
     fireEvent.click(within(dialog).getByRole("button", { name: "取消运行" }));
-    await waitFor(() => expect(cancelAgentRun).toHaveBeenCalledWith(SESSION_ID, RUN_QUEUED));
+    await waitFor(() =>
+      expect(cancelAgentRun).toHaveBeenCalledWith(SESSION_ID, RUN_QUEUED, {
+        reason: ""
+      })
+    );
+  });
+
+  it("sends the reason the operator typed, and nothing else", async () => {
+    listAgentRuns.mockResolvedValue({ runs: [QUEUED_RUN] });
+    getAgentRun.mockResolvedValue(detailOf(QUEUED_RUN, []));
+    cancelAgentRun.mockResolvedValue({
+      run: CANCELLED_RUN,
+      alreadyCancelled: false,
+      statusChanged: true,
+      execution: "not_running_here",
+      previousStatus: "queued",
+      reason: "任务已作废"
+    });
+    render(<AgentOpsPanel sessionId={SESSION_ID} canEdit={true} />);
+    const row = await screen.findByTestId("agent-run-row");
+    fireEvent.click(row.querySelector("button")!);
+    fireEvent.click(await screen.findByTestId("agent-run-cancel"));
+    const dialog = await screen.findByTestId("agent-run-cancel-dialog");
+    fireEvent.change(screen.getByTestId("agent-run-cancel-reason-input"), {
+      target: { value: "任务已作废" }
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "取消运行" }));
+
+    await waitFor(() =>
+      expect(cancelAgentRun).toHaveBeenCalledWith(SESSION_ID, RUN_QUEUED, {
+        reason: "任务已作废"
+      })
+    );
+  });
+
+  it("says the executor is still winding down, not that it stopped", async () => {
+    listAgentRuns
+      .mockResolvedValueOnce({ runs: [QUEUED_RUN] })
+      .mockResolvedValue({ runs: [CANCELLED_RUN] });
+    getAgentRun
+      .mockResolvedValueOnce(detailOf(QUEUED_RUN, []))
+      .mockResolvedValue(
+        detailOf(CANCELLED_RUN, [
+          eventOf("AGENT_RUN_STARTED", 1),
+          eventOf("AGENT_RUN_CANCEL_REQUESTED", 2),
+          eventOf("AGENT_RUN_CANCELLED", 3)
+        ])
+      );
+    cancelAgentRun.mockResolvedValue({
+      run: CANCELLED_RUN,
+      alreadyCancelled: false,
+      statusChanged: true,
+      execution: "signal_delivered",
+      previousStatus: "running",
+      reason: null
+    });
+    render(<AgentOpsPanel sessionId={SESSION_ID} canEdit={true} />);
+    const row = await screen.findByTestId("agent-run-row");
+    fireEvent.click(row.querySelector("button")!);
+    fireEvent.click(await screen.findByTestId("agent-run-cancel"));
+    const dialog = await screen.findByTestId("agent-run-cancel-dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "取消运行" }));
+
+    const state = await screen.findByTestId("agent-run-cancel-state");
+    // The row says cancelled, but the executor has not confirmed it stopped —
+    // and the panel refuses to pretend otherwise.
+    expect(state.dataset.cancelPhase).toBe("stopping");
+    expect(state.textContent).toContain("取消处理中");
+    expect(state.textContent).not.toContain("已确认停止");
+  });
+
+  it("upgrades to a confirmed stop only when the executor reports it", async () => {
+    listAgentRuns.mockResolvedValue({ runs: [CANCELLED_RUN] });
+    getAgentRun.mockResolvedValue(
+      detailOf(CANCELLED_RUN, [
+        eventOf("AGENT_RUN_STARTED", 1),
+        eventOf("AGENT_RUN_CANCEL_REQUESTED", 2),
+        eventOf("AGENT_RUN_CANCELLED", 3),
+        eventOf("AGENT_RUN_EXECUTION_STOPPED", 4)
+      ])
+    );
+    render(<AgentOpsPanel sessionId={SESSION_ID} canEdit={true} />);
+    const row = await screen.findByTestId("agent-run-row");
+    fireEvent.click(row.querySelector("button")!);
+
+    const state = await screen.findByTestId("agent-run-cancel-state");
+    expect(state.dataset.cancelPhase).toBe("stopped");
+    expect(state.textContent).toContain("执行器已确认停止");
+  });
+
+  it("reports a cancel that never reached the server, and shows no verdict", async () => {
+    listAgentRuns.mockResolvedValue({ runs: [QUEUED_RUN] });
+    getAgentRun.mockResolvedValue(detailOf(QUEUED_RUN, []));
+    cancelAgentRun.mockRejectedValue(
+      new Error("该运行已处于终态（completed），无法取消。")
+    );
+    render(<AgentOpsPanel sessionId={SESSION_ID} canEdit={true} />);
+    const row = await screen.findByTestId("agent-run-row");
+    fireEvent.click(row.querySelector("button")!);
+    fireEvent.click(await screen.findByTestId("agent-run-cancel"));
+    const dialog = await screen.findByTestId("agent-run-cancel-dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "取消运行" }));
+
+    expect(await screen.findByText(/取消失败/)).toBeTruthy();
+    // No acknowledgement means no cancellation claim at all.
+    expect(screen.queryByTestId("agent-run-cancel-state")).toBeNull();
+    expect(screen.getByTestId("agent-run-cancel").textContent).toBe("取消运行");
   });
 
   it("leaves the run running when the cancellation is dismissed", async () => {

@@ -65,6 +65,12 @@ function applyContiguousEvent(
     case "AGENT_RUN_COMPLETED":
     case "AGENT_RUN_FAILED":
     case "AGENT_RUN_CANCELLED":
+    // The cancel request and the executor's own stop report are bookkeeping
+    // about one run, not inputs to any claim, evidence item or verdict. They
+    // advance the replay cursor and nothing else — inventing a verdict from
+    // "someone asked it to stop" would be the exact confusion this app forbids.
+    case "AGENT_RUN_CANCEL_REQUESTED":
+    case "AGENT_RUN_EXECUTION_STOPPED":
     case "CHALLENGE_FAILED": {
       return { ...current, lastSequence: event.sequence };
     }

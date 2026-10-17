@@ -46,6 +46,16 @@ const ProviderEvaluationSchema = z.object({
   status: z.enum(["resolved", "unresolved"])
 });
 
+/**
+ * The signal used on paths that genuinely have nothing to cancel.
+ *
+ * A fresh `new AbortController().signal` per call looked like cancellation
+ * support while being impossible to trigger — the object is real, the abort
+ * never comes. This constant says the same thing out loud: on this path the
+ * absence of cancellation is a design decision, not an oversight.
+ */
+const NO_CANCELLATION = new AbortController().signal;
+
 type AgentExecutionContext = {
   sessionId: string;
   agentRunId: string;
@@ -86,7 +96,7 @@ export class ProviderAgentRunner implements AgentRunner {
         correlationId: runContext.agentRunId
       },
       ProviderAnalysisSchema,
-      new AbortController().signal
+      NO_CANCELLATION
     );
     const now = new Date().toISOString();
     const claims: Claim[] = [];
@@ -142,15 +152,18 @@ export class ProviderAgentRunner implements AgentRunner {
   createChallengeDependencies(): {
     generateChallenge: (
       challenger: AgentRole,
-      target: Claim
+      target: Claim,
+      signal?: AbortSignal
     ) => Promise<ChallengeDraft>;
     respondToChallenge: (
       challenge: Challenge,
-      target: Claim
+      target: Claim,
+      signal?: AbortSignal
     ) => Promise<Claim>;
     evaluateResponse: (
       challenge: Challenge,
-      responseClaim: Claim
+      responseClaim: Claim,
+      signal?: AbortSignal
     ) => Promise<"resolved" | "unresolved">;
   } {
     const fallbackChallenge = (
@@ -191,7 +204,7 @@ export class ProviderAgentRunner implements AgentRunner {
       });
 
     return {
-      generateChallenge: async (challenger, target) => {
+      generateChallenge: async (challenger, target, signal) => {
         try {
           const generated = await generateStructured(
             this.provider,
@@ -214,14 +227,19 @@ export class ProviderAgentRunner implements AgentRunner {
               severity: z.number().int().min(1).max(5),
               resolutionStrategy: ChallengeSchema.shape.resolutionStrategy
             }),
-            new AbortController().signal
+            signal ?? NO_CANCELLATION
           );
           return generated.data;
-        } catch {
+        } catch (error) {
+          // An abort is the operator stopping the run, not the provider
+          // failing. Falling back to a template here would keep the work going
+          // after the stop was asked for — exactly the behaviour this path is
+          // supposed to prevent.
+          if (signal?.aborted) throw error;
           return fallbackChallenge(challenger, target);
         }
       },
-      respondToChallenge: async (challenge, target) => {
+      respondToChallenge: async (challenge, target, signal) => {
         try {
           const generated = await generateStructured(
             this.provider,
@@ -232,7 +250,7 @@ export class ProviderAgentRunner implements AgentRunner {
               correlationId: challenge.correlationId
             },
             ProviderResponseSchema,
-            new AbortController().signal
+            signal ?? NO_CANCELLATION
           );
           return ClaimSchema.parse({
             ...target,
@@ -246,11 +264,12 @@ export class ProviderAgentRunner implements AgentRunner {
             status: "contested",
             updatedAt: new Date().toISOString()
           });
-        } catch {
+        } catch (error) {
+          if (signal?.aborted) throw error;
           return fallbackResponse(challenge, target);
         }
       },
-      evaluateResponse: async (challenge, responseClaim) => {
+      evaluateResponse: async (challenge, responseClaim, signal) => {
         if (challenge.severity >= 4) {
           return "unresolved";
         }
@@ -264,10 +283,11 @@ export class ProviderAgentRunner implements AgentRunner {
               correlationId: challenge.correlationId
             },
             ProviderEvaluationSchema,
-            new AbortController().signal
+            signal ?? NO_CANCELLATION
           );
           return generated.data.status;
-        } catch {
+        } catch (error) {
+          if (signal?.aborted) throw error;
           return responseClaim.status === "supported" ? "resolved" : "unresolved";
         }
       }

@@ -51,6 +51,19 @@ export const ExecutionEventTypeSchema = z.enum([
   "HUMAN_REVIEW_REQUIRED",
   "AGENT_RUN_FAILED",
   "AGENT_RUN_CANCELLED",
+  /**
+   * Cancel was accepted, authenticated and written to `agent_runs`. It says
+   * nothing about the executor: the run row can read `cancelled` while the
+   * process that was doing the work has not stopped yet. `AGENT_RUN_CANCELLED`
+   * is the durable verdict; this event is the request that produced it.
+   */
+  "AGENT_RUN_CANCEL_REQUESTED",
+  /**
+   * The executor itself reports that it stopped. Absent when the work was
+   * running in another process (or the provider ignored the signal), which is
+   * exactly the distinction a reader needs to judge the cancellation.
+   */
+  "AGENT_RUN_EXECUTION_STOPPED",
   "CHALLENGE_FAILED",
   "SESSION_COMPLETED",
   "MEMBER_INVITED",

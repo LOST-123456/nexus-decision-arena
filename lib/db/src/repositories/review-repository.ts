@@ -425,11 +425,16 @@ export class ReviewRepository {
     return toAgentRun(row!);
   }
 
+  /**
+   * Marks a running cross-review run completed. Returns whether the row
+   * actually moved: `false` means it was no longer `running` (cancelled or
+   * already settled), and the caller must not report success for it.
+   */
   async completeCrossReviewRun(input: {
     runId: string;
     output: unknown;
-  }): Promise<void> {
-    await this.database
+  }): Promise<boolean> {
+    const rows = await this.database
       .update(agentRuns)
       .set({
         status: "completed",
@@ -437,15 +442,18 @@ export class ReviewRepository {
         completedAt: new Date().toISOString(),
         durationMs: sql`EXTRACT(EPOCH FROM (now() - ${agentRuns.startedAt}))::integer * 1000`
       })
-      .where(and(eq(agentRuns.id, input.runId), eq(agentRuns.status, "running")));
+      .where(and(eq(agentRuns.id, input.runId), eq(agentRuns.status, "running")))
+      .returning({ id: agentRuns.id });
+    return rows.length > 0;
   }
 
+  /** Same conditional transition for failure; `false` means it was cancelled first. */
   async failCrossReviewRun(input: {
     runId: string;
     error: string;
     errorCode?: AgentRun["errorCode"];
-  }): Promise<void> {
-    await this.database
+  }): Promise<boolean> {
+    const rows = await this.database
       .update(agentRuns)
       .set({
         status: "failed",
@@ -454,6 +462,23 @@ export class ReviewRepository {
         completedAt: new Date().toISOString(),
         durationMs: sql`EXTRACT(EPOCH FROM (now() - ${agentRuns.startedAt}))::integer * 1000`
       })
-      .where(and(eq(agentRuns.id, input.runId), eq(agentRuns.status, "running")));
+      .where(and(eq(agentRuns.id, input.runId), eq(agentRuns.status, "running")))
+      .returning({ id: agentRuns.id });
+    return rows.length > 0;
+  }
+
+  /**
+   * The run's durable status, read on its own. Used by the executor to decide
+   * whether to keep going; correctness of writes never rests on this read —
+   * that is `writeWhileRunActive`'s job in the arena repository.
+   */
+  async getRunStatus(runId: string): Promise<AgentRun["status"] | null> {
+    const rows = await this.database
+      .select({ status: agentRuns.status })
+      .from(agentRuns)
+      .where(eq(agentRuns.id, runId))
+      .limit(1);
+    const row = rows[0];
+    return row ? (row.status as AgentRun["status"]) : null;
   }
 }
