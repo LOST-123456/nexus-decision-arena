@@ -43,6 +43,31 @@ export class CrossReviewNoChallengerError extends Error {
   }
 }
 
+/**
+ * A retry was refused while its generation was being opened.
+ *
+ * The three reasons are genuinely different answers, and the caller has to tell
+ * them apart to say anything useful: the run vanished (`not_found`), the chain
+ * already moved past this run (`already_retried`, with the child to look at),
+ * or the budget is spent (`limit_reached`). They are one class here only
+ * because this service is not the owner of that vocabulary — it reports the
+ * fact and `AgentRunService` turns it into an API-level refusal.
+ */
+export class CrossReviewRetryRefusedError extends Error {
+  constructor(
+    readonly reason: "not_found" | "already_retried" | "limit_reached",
+    readonly detail: {
+      attempt?: number;
+      ceiling?: number;
+      deepestAttempt?: number;
+      childRunId?: string | null;
+    } = {}
+  ) {
+    super(`Retry refused: ${reason}`);
+    this.name = "CrossReviewRetryRefusedError";
+  }
+}
+
 export type CrossReviewRunOutcome = {
   run: AgentRun;
   challenges: Challenge[];
@@ -72,7 +97,8 @@ export type CrossReviewDependencies = {
   readRoles(sessionId: string): Promise<AgentRole[]>;
   runs: Pick<
     ReviewRepository,
-    | "startCrossReviewRun"
+    | "startCrossReviewRuns"
+    | "startRetryGeneration"
     | "completeCrossReviewRun"
     | "failCrossReviewRun"
     | "findRunningCrossReview"
@@ -130,6 +156,13 @@ export class CrossReviewService {
     sessionId: string;
     claimId: string;
     actor: string;
+    /**
+     * Present when this call is a retry. The next generation is opened by
+     * `startRetryGeneration`, which decides `attempt` and `parent_run_id`
+     * inside its own transaction — before any provider is called, so a run can
+     * never execute while its lineage is unknown.
+     */
+    retryOf?: { runId: string; ceiling: number };
   }): Promise<CrossReviewResult> {
     const artifacts = await this.dependencies.readArtifacts(input.sessionId);
     if (!artifacts) {
@@ -161,11 +194,14 @@ export class CrossReviewService {
     // A real run row per challenger, before any model work happens. Each run
     // also gets a signal here, so a cancel that arrives during the very first
     // provider call still has something to abort.
-    const claims: Array<{ run: AgentRun; challenger: AgentRole }> = [];
-    const signals = new Map<string, AbortSignal>();
-    for (const challenger of challengers) {
+    //
+    // The rows are written in one transaction (or, for a retry, one locked
+    // transaction that also settles the attempt number), so a generation is
+    // never half-created: runs that no executor will finish would show up in
+    // the operations center as work in progress forever.
+    const draftRuns = challengers.map((challenger) => {
       const runId = newId();
-      const run = await this.dependencies.runs.startCrossReviewRun({
+      return {
         id: runId,
         sessionId: input.sessionId,
         roleId: challenger.id,
@@ -178,15 +214,69 @@ export class CrossReviewService {
         // be a second, unrelated id, so `AGENT_RUN_STARTED` was filed where no
         // run-scoped reader could ever find it.)
         correlationId: runId
+      };
+    });
+
+    let startedRuns: AgentRun[];
+    let attempt = 1;
+    if (input.retryOf) {
+      const generation = await this.dependencies.runs.startRetryGeneration({
+        sessionId: input.sessionId,
+        parentRunId: input.retryOf.runId,
+        ceiling: input.retryOf.ceiling,
+        runs: draftRuns
       });
-      signals.set(runId, this.dependencies.cancellations.begin(runId));
-      await this.emit(input.sessionId, runId, "AGENT_RUN_STARTED", {
+      if (generation.outcome === "not_found") {
+        throw new CrossReviewRetryRefusedError("not_found");
+      }
+      if (generation.outcome === "already_retried") {
+        throw new CrossReviewRetryRefusedError("already_retried", {
+          deepestAttempt: generation.deepestAttempt,
+          childRunId: generation.childRunId
+        });
+      }
+      if (generation.outcome === "limit_reached") {
+        throw new CrossReviewRetryRefusedError("limit_reached", {
+          attempt: generation.attempt,
+          ceiling: generation.ceiling
+        });
+      }
+      startedRuns = generation.runs;
+      attempt = generation.attempt;
+    } else {
+      startedRuns = await this.dependencies.runs.startCrossReviewRuns(draftRuns);
+    }
+
+    const claims: Array<{ run: AgentRun; challenger: AgentRole }> = [];
+    const signals = new Map<string, AbortSignal>();
+    const challengerByRoleId = new Map(
+      challengers.map((challenger) => [challenger.id, challenger])
+    );
+    for (const run of startedRuns) {
+      const challenger = challengerByRoleId.get(run.roleId);
+      if (!challenger) continue;
+      signals.set(run.id, this.dependencies.cancellations.begin(run.id));
+      await this.emit(input.sessionId, run.id, "AGENT_RUN_STARTED", {
         roleId: challenger.id,
-        agentRunId: runId,
+        agentRunId: run.id,
         purpose: "cross_review",
-        targetClaimId: input.claimId
+        targetClaimId: input.claimId,
+        attempt: run.attempt ?? attempt,
+        parentRunId: run.parentRunId ?? null
       });
       claims.push({ run, challenger });
+    }
+
+    // The lineage is durable at this point: `attempt` and `parent_run_id` were
+    // written with the rows, not patched in afterwards. The event records the
+    // link on the *retried* run's timeline so the chain reads in one place.
+    if (input.retryOf) {
+      await this.emit(input.sessionId, input.retryOf.runId, "AGENT_RUN_RETRY_CREATED", {
+        originalRunId: input.retryOf.runId,
+        attempt,
+        runIds: startedRuns.map((run) => run.id),
+        requestedBy: input.actor
+      });
     }
 
     const challengeById = new Map<string, Challenge>();

@@ -661,3 +661,288 @@ describe("ReviewRepository · cancellation races", () => {
     );
   });
 });
+
+/**
+ * Retry lineage, proven against the database rather than against a mock.
+ *
+ * Every case here is about a fact the operator would otherwise have to take on
+ * trust: which attempt a run belongs to, what its parent is, and whether the
+ * budget was respected when two retries arrived at once.
+ */
+describe("ReviewRepository · retry lineage", () => {
+  async function oneRole() {
+    const sessionId = await seedSession();
+    const claimId = await seedClaim(sessionId);
+    const role = await seedAgentRoleAndPrompt();
+    return { sessionId, claimId, ...role };
+  }
+
+  function runInput(input: {
+    sessionId: string;
+    claimId: string;
+    roleId: string;
+    promptVersionId: string;
+  }) {
+    return {
+      id: newId(),
+      sessionId: input.sessionId,
+      roleId: input.roleId,
+      promptVersionId: input.promptVersionId,
+      targetClaimId: input.claimId,
+      requestedBy: "Owner (owner)",
+      correlationId: newId()
+    };
+  }
+
+  /** A failed root run, i.e. exactly what a retry is allowed to start from. */
+  async function failedRoot() {
+    const seeded = await oneRole();
+    const [root] = await repository.startCrossReviewRuns([
+      runInput(seeded)
+    ]);
+    await repository.failCrossReviewRun({ runId: root!.id, error: "provider down" });
+    return { ...seeded, rootId: root!.id };
+  }
+
+  it("opens a generation in one transaction, all at attempt 1 with no parent", async () => {
+    const seeded = await oneRole();
+    const second = await seedAgentRoleAndPrompt();
+
+    const runs = await repository.startCrossReviewRuns([
+      runInput(seeded),
+      runInput({ ...seeded, roleId: second.roleId, promptVersionId: second.promptVersionId })
+    ]);
+
+    expect(runs).toHaveLength(2);
+    for (const run of runs) {
+      expect(run.status).toBe("running");
+      expect(run.attempt).toBe(1);
+      expect(run.parentRunId).toBeUndefined();
+    }
+    // Both rows exist: a generation is never half-written.
+    const stored = await repository.listAgentRuns(seeded.sessionId);
+    expect(stored).toHaveLength(2);
+  });
+
+  it("writes attempt and parent with the rows, before anything executes", async () => {
+    const seeded = await failedRoot();
+
+    const generation = await repository.startRetryGeneration({
+      sessionId: seeded.sessionId,
+      parentRunId: seeded.rootId,
+      ceiling: 3,
+      runs: [runInput(seeded)]
+    });
+
+    expect(generation.outcome).toBe("started");
+    if (generation.outcome !== "started") return;
+    expect(generation.attempt).toBe(2);
+
+    // Read from the database, not from the returned object: the point is that
+    // the row itself carries the lineage, without a second write.
+    const [row] = await database
+      .select()
+      .from(agentRuns)
+      .where(sql`${agentRuns.id} = ${generation.runs[0]!.id}`);
+    expect(row?.attempt).toBe(2);
+    expect(row?.parentRunId).toBe(seeded.rootId);
+  });
+
+  it("does not open a second child under the same parent", async () => {
+    const seeded = await failedRoot();
+    const first = await repository.startRetryGeneration({
+      sessionId: seeded.sessionId,
+      parentRunId: seeded.rootId,
+      ceiling: 3,
+      runs: [runInput(seeded)]
+    });
+    expect(first.outcome).toBe("started");
+
+    const second = await repository.startRetryGeneration({
+      sessionId: seeded.sessionId,
+      parentRunId: seeded.rootId,
+      ceiling: 3,
+      runs: [runInput(seeded)]
+    });
+
+    expect(second.outcome).toBe("already_retried");
+    if (second.outcome !== "already_retried") return;
+    expect(second.deepestAttempt).toBe(2);
+    // The child that already exists is named, so the refusal is actionable.
+    expect(second.childRunId).toBe(
+      first.outcome === "started" ? first.runs[0]!.id : null
+    );
+    const rows = await repository.listAgentRuns(seeded.sessionId);
+    expect(rows).toHaveLength(2);
+  });
+
+  it("grows the chain one generation at a time and stops at the ceiling", async () => {
+    const seeded = await failedRoot();
+
+    const second = await repository.startRetryGeneration({
+      sessionId: seeded.sessionId,
+      parentRunId: seeded.rootId,
+      ceiling: 3,
+      runs: [runInput(seeded)]
+    });
+    expect(second.outcome).toBe("started");
+    if (second.outcome !== "started") return;
+
+    await repository.failCrossReviewRun({
+      runId: second.runs[0]!.id,
+      error: "provider down again"
+    });
+    const third = await repository.startRetryGeneration({
+      sessionId: seeded.sessionId,
+      parentRunId: second.runs[0]!.id,
+      ceiling: 3,
+      runs: [runInput(seeded)]
+    });
+    expect(third.outcome).toBe("started");
+    if (third.outcome !== "started") return;
+    expect(third.attempt).toBe(3);
+    expect(third.runs[0]!.parentRunId).toBe(second.runs[0]!.id);
+
+    await repository.failCrossReviewRun({
+      runId: third.runs[0]!.id,
+      error: "provider down a third time"
+    });
+    const fourth = await repository.startRetryGeneration({
+      sessionId: seeded.sessionId,
+      parentRunId: third.runs[0]!.id,
+      ceiling: 3,
+      runs: [runInput(seeded)]
+    });
+
+    expect(fourth.outcome).toBe("limit_reached");
+    if (fourth.outcome !== "limit_reached") return;
+    expect(fourth.attempt).toBe(4);
+    // The budget refuses before it inserts: no fourth generation on disk.
+    const rows = await repository.listAgentRuns(seeded.sessionId);
+    expect(rows).toHaveLength(3);
+  });
+
+  it("takes one winner when two retries of the same run arrive at once", async () => {
+    const seeded = await failedRoot();
+
+    const [a, b] = await Promise.all([
+      repository.startRetryGeneration({
+        sessionId: seeded.sessionId,
+        parentRunId: seeded.rootId,
+        ceiling: 3,
+        runs: [runInput(seeded)]
+      }),
+      repository.startRetryGeneration({
+        sessionId: seeded.sessionId,
+        parentRunId: seeded.rootId,
+        ceiling: 3,
+        runs: [runInput(seeded)]
+      })
+    ]);
+
+    const outcomes = [a.outcome, b.outcome].sort();
+    // The root lock serialises them: the second one sees the depth the first
+    // committed, so the chain never forks.
+    expect(outcomes).toEqual(["already_retried", "started"]);
+    const rows = await repository.listAgentRuns(seeded.sessionId);
+    expect(rows).toHaveLength(2);
+    expect(rows.filter((run) => run.attempt === 2)).toHaveLength(1);
+  });
+
+  it("refuses a parent from another session without leaking it", async () => {
+    const seeded = await oneRole();
+    const other = await seedSession();
+    const [foreign] = await repository.startCrossReviewRuns([
+      runInput({ ...seeded, sessionId: other })
+    ]);
+
+    const generation = await repository.startRetryGeneration({
+      sessionId: seeded.sessionId,
+      parentRunId: foreign!.id,
+      ceiling: 3,
+      runs: [runInput(seeded)]
+    });
+
+    expect(generation.outcome).toBe("not_found");
+    expect(await repository.listAgentRuns(seeded.sessionId)).toHaveLength(0);
+  });
+
+  it("refuses a cross-session parent at the storage layer too", async () => {
+    const seeded = await oneRole();
+    const other = await seedSession();
+    const [foreign] = await repository.startCrossReviewRuns([
+      runInput({ ...seeded, sessionId: other })
+    ]);
+
+    // Bypassing the repository entirely: this is the guarantee that survives a
+    // future caller, a repair script, or a manual fix-up.
+    await expect(
+      database.insert(agentRuns).values({
+        id: newId(),
+        sessionId: seeded.sessionId,
+        roleId: seeded.roleId,
+        promptVersionId: seeded.promptVersionId,
+        status: "running",
+        correlationId: newId(),
+        input: { kind: "cross_review", targetClaimId: seeded.claimId },
+        taskType: "cross_review",
+        attempt: 2,
+        parentRunId: foreign!.id,
+        startedAt: new Date().toISOString()
+      })
+    ).rejects.toThrow();
+  });
+
+  it("abandons only a stale running run, and never a settled one", async () => {
+    const seeded = await oneRole();
+    const stale = runInput(seeded);
+    await repository.startCrossReviewRuns([stale]);
+    const fresh = runInput(seeded);
+    await repository.startCrossReviewRuns([fresh]);
+
+    // Only the stale row is old enough to be given up on.
+    await database
+      .update(agentRuns)
+      .set({ startedAt: new Date(Date.now() - 2 * 60 * 60_000).toISOString() })
+      .where(sql`${agentRuns.id} = ${stale.id}`);
+    const cutoff = new Date(Date.now() - 60 * 60_000).toISOString();
+
+    expect(
+      await repository.abandonStaleRun({
+        sessionId: seeded.sessionId,
+        runId: fresh.id,
+        startedBefore: cutoff,
+        error: "abandoned",
+        errorCode: "internal_error"
+      })
+    ).toBe(false);
+    expect(
+      await repository.abandonStaleRun({
+        sessionId: seeded.sessionId,
+        runId: stale.id,
+        startedBefore: cutoff,
+        error: "abandoned",
+        errorCode: "internal_error"
+      })
+    ).toBe(true);
+
+    const rows = await repository.listAgentRuns(seeded.sessionId);
+    const byId = new Map(rows.map((run) => [run.id, run]));
+    expect(byId.get(stale.id)?.status).toBe("failed");
+    expect(byId.get(stale.id)?.errorCode).toBe("internal_error");
+    // It is marked failed, never completed: we do not know that anything ran.
+    expect(byId.get(stale.id)?.status).not.toBe("completed");
+    expect(byId.get(fresh.id)?.status).toBe("running");
+
+    // A second call matches nothing, because the row is no longer running.
+    expect(
+      await repository.abandonStaleRun({
+        sessionId: seeded.sessionId,
+        runId: stale.id,
+        startedBefore: cutoff,
+        error: "abandoned",
+        errorCode: "internal_error"
+      })
+    ).toBe(false);
+  });
+});

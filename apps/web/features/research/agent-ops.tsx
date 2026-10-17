@@ -5,16 +5,19 @@ import {
   agentRunFailureCodeLabel,
   agentRunStatusLabel,
   canCancelRun,
+  isRetrySupportedPurpose,
   isRetryableRun,
   type AgentRunDetail,
   type AgentRunView
 } from "@nexus/shared";
 import {
+  AgentRunRetryRefusedError,
   cancelAgentRun,
   getAgentRun,
   listAgentRuns,
   retryAgentRun,
-  type AgentRunCancelResult
+  type AgentRunCancelResult,
+  type AgentRunRetryResult
 } from "./api";
 import { formatDate, runStatusTone } from "./labels";
 import { StatusPill } from "./components";
@@ -134,6 +137,22 @@ export function AgentOpsPanel({
   const [cancelAcks, setCancelAcks] = useState<
     Record<string, AgentRunCancelResult>
   >({});
+  // The run whose retry request is on the wire, tracked separately from `busy`
+  // so "asking for a retry" never reads as "a cancel is in progress".
+  const [retrying, setRetrying] = useState<string | null>(null);
+  // What the server said a retry produced: the lineage it wrote before
+  // executing. This is the only source for "a new attempt exists".
+  const [retryAcks, setRetryAcks] = useState<
+    Record<string, AgentRunRetryResult>
+  >({});
+  // A refusal with a machine-readable reason, kept apart from `actionError` so
+  // "the chain already moved on" can link to the run that exists.
+  const [retryRefusal, setRetryRefusal] = useState<{
+    runId: string;
+    message: string;
+    code: string | undefined;
+    childRunId: string | null;
+  } | null>(null);
 
   const reload = useCallback(async () => {
     try {
@@ -216,14 +235,36 @@ export function AgentOpsPanel({
 
   async function doRetry(runId: string) {
     setBusy(true);
+    setRetrying(runId);
     setActionError(null);
+    setRetryRefusal(null);
     try {
-      await retryAgentRun(sessionId, runId);
+      // The response carries the lineage the server wrote *before* executing,
+      // so the new run can be named even when its provider call then failed.
+      const result = await retryAgentRun(sessionId, runId);
+      setRetryAcks((previous) => ({ ...previous, [runId]: result }));
       await reload();
       if (selectedRunId) await openRun(selectedRunId);
     } catch (cause) {
-      setActionError(cause instanceof Error ? cause.message : "重试失败");
+      // The panel is refreshed first, then the answer is written down:
+      // `openRun` clears the action error as part of selecting a run, so a
+      // message set before it would be wiped by our own refresh.
+      const refusal =
+        cause instanceof AgentRunRetryRefusedError
+          ? {
+              runId,
+              message: cause.message,
+              code: cause.code,
+              childRunId: cause.childRunId
+            }
+          : null;
+      const message = cause instanceof Error ? cause.message : "重试失败";
+      await reload();
+      if (selectedRunId) await openRun(selectedRunId);
+      if (refusal) setRetryRefusal(refusal);
+      else setActionError(message);
     } finally {
+      setRetrying(null);
       setBusy(false);
     }
   }
@@ -367,6 +408,15 @@ export function AgentOpsPanel({
               cancelling={cancelling === shownRun.id}
               cancelAck={cancelAcks[shownRun.id] ?? null}
               actionError={actionError}
+              retrying={retrying === shownRun.id}
+              retryAck={retryAcks[shownRun.id] ?? null}
+              retryRefusal={
+                retryRefusal && retryRefusal.runId === shownRun.id
+                  ? retryRefusal
+                  : null
+              }
+              siblingRuns={runs}
+              onOpenRun={(id) => void openRun(id)}
               onCancel={() => setCancelTarget(shownRun.id)}
               onRetry={() => void doRetry(shownRun.id)}
             />
@@ -423,6 +473,11 @@ function AgentRunDetailView({
   cancelling,
   cancelAck,
   actionError,
+  retrying,
+  retryAck,
+  retryRefusal,
+  siblingRuns,
+  onOpenRun,
   onCancel,
   onRetry
 }: {
@@ -433,11 +488,44 @@ function AgentRunDetailView({
   cancelling: boolean;
   cancelAck: AgentRunCancelResult | null;
   actionError: string | null;
+  retrying: boolean;
+  retryAck: AgentRunRetryResult | null;
+  retryRefusal: {
+    message: string;
+    code: string | undefined;
+    childRunId: string | null;
+  } | null;
+  /** Every run of the session, so the chain is read from the server's rows. */
+  siblingRuns: AgentRunView[];
+  onOpenRun: (runId: string) => void;
   onCancel: () => void;
   onRetry: () => void;
 }) {
   const canCancel = canCancelRun(run.status);
-  const canRetry = isRetryableRun(run.status);
+  /**
+   * Runs written before `attempt` existed read back as 1 (the domain defaults
+   * it), but the field is optional on the wire, so the panel keeps one number
+   * and shows that rather than printing "第 undefined 次".
+   */
+  const attempt = run.attempt ?? 1;
+  // Two different reasons a Retry button can be unavailable, and they must not
+  // read as one. A finished run cannot be retried; a task type with no retry
+  // executor cannot be retried *no matter its state*.
+  const retryDisabledReason = !canEdit
+    ? "观众不可重试运行"
+    : !isRetrySupportedPurpose(run.purpose)
+      ? "当前任务类型暂不支持重试（目前仅交叉审查运行可以重试）"
+      : !isRetryableRun(run.status)
+        ? "该运行已结束，只有失败或超时的运行可以重试"
+        : null;
+  const canRetry = retryDisabledReason === null;
+  // The chain is read from the server's own rows on every render: the child of
+  // a run is whatever points back at it. Nothing here counts retries in
+  // component memory, so a refresh cannot change the answer.
+  const children = siblingRuns.filter((candidate) => candidate.parentRunId === run.id);
+  const parent = run.parentRunId
+    ? siblingRuns.find((candidate) => candidate.id === run.parentRunId) ?? null
+    : null;
   const stopConfirmed =
     detail?.events.some((event) => event.type === "AGENT_RUN_EXECUTION_STOPPED") ??
     false;
@@ -456,12 +544,6 @@ function AgentRunDetailView({
       ? "观众不可取消运行"
       : !canCancel
         ? "该运行已结束，无法取消"
-        : null;
-  const retryDisabledReason =
-    !canEdit
-      ? "观众不可重试运行"
-      : !canRetry
-        ? "该运行不可重试"
         : null;
 
   return (
@@ -485,13 +567,21 @@ function AgentRunDetailView({
         </div>
         <div>
           <dt>尝试</dt>
-          <dd>第 {run.attempt} 次</dd>
+          <dd data-testid="agent-run-attempt">第 {attempt} 次</dd>
         </div>
         {run.parentRunId ? (
           <div>
             <dt>重试自</dt>
             <dd className="research-muted">
-              <code>{run.parentRunId.slice(0, 8)}</code>
+              <button
+                type="button"
+                className="research-button research-button-secondary"
+                onClick={() => onOpenRun(run.parentRunId!)}
+                data-testid="agent-run-open-parent"
+              >
+                第 {parent?.attempt ?? Math.max(1, attempt - 1)} 次 ·{" "}
+                {run.parentRunId.slice(0, 8)}
+              </button>
             </dd>
           </div>
         ) : null}
@@ -529,6 +619,46 @@ function AgentRunDetailView({
           </div>
         ) : null}
       </dl>
+
+      {/* The chain, from the server's rows only. A retry writes its attempt and
+          parent before executing, so this list is true even when the new run
+          failed — and it survives a page refresh because nothing here is
+          remembered locally. */}
+      {run.parentRunId || children.length > 0 ? (
+        <div className="research-panel" style={{ marginTop: 8 }}>
+          <div className="research-panel-head">
+            <span className="research-panel-title">重试链</span>
+          </div>
+          <p className="research-muted" data-testid="agent-run-chain-summary">
+            本次为第 {attempt} 次尝试
+            {run.parentRunId ? "（由更早的尝试重试而来）" : "（这条链的起点）"}
+            {children.length > 0
+              ? `；已产生 ${children.length} 个重试运行`
+              : "；尚无重试运行"}
+            。
+          </p>
+          {children.length > 0 ? (
+            <ul className="research-timeline" data-testid="agent-run-retry-children">
+              {children.map((child) => (
+                <li key={child.id}>
+                  <StatusPill tone={runStatusTone(child.status)}>
+                    {agentRunStatusLabel(child.status)}
+                  </StatusPill>{" "}
+                  第 {child.attempt} 次 · <code>{child.id.slice(0, 8)}</code>{" "}
+                  <button
+                    type="button"
+                    className="research-button research-button-secondary"
+                    onClick={() => onOpenRun(child.id)}
+                    data-testid="agent-run-open-child"
+                  >
+                    查看
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
 
       {run.status === "failed" || run.status === "timed_out" ? (
         <div className="research-panel" style={{ marginTop: 8 }}>
@@ -635,17 +765,55 @@ function AgentRunDetailView({
         <button
           type="button"
           className="research-button"
-          disabled={busy || retryDisabledReason !== null}
+          disabled={busy || !canRetry}
           title={retryDisabledReason ?? undefined}
           onClick={onRetry}
           data-testid="agent-run-retry"
         >
-          重试运行
+          {retrying ? "正在创建重试运行…" : "重试运行"}
         </button>
         {retryDisabledReason ? (
           <span className="research-muted" data-testid="agent-run-retry-reason">
             {retryDisabledReason}
           </span>
+        ) : null}
+        {/* What the server actually produced. The run ids are named even when
+            every one of them then failed, because the lineage is written before
+            the executor runs — and "created" is never dressed up as "finished". */}
+        {retryAck ? (
+          <p
+            className="research-muted"
+            role="status"
+            data-testid="agent-run-retry-state"
+            data-retry-attempt={retryAck.retry.attempt}
+          >
+            已创建第 {retryAck.retry.attempt} 次尝试：{retryAck.retry.runIds.length}{" "}
+            个新运行（
+            {retryAck.retry.runIds.map((id) => id.slice(0, 8)).join("、")}）。
+            执行结果以各运行的当前状态为准。
+          </p>
+        ) : null}
+        {retryRefusal ? (
+          <p
+            className="research-error"
+            role="alert"
+            data-testid="agent-run-retry-refusal"
+            data-retry-code={retryRefusal.code ?? "unknown"}
+          >
+            {retryRefusal.message}
+            {retryRefusal.childRunId ? (
+              <>
+                {" "}
+                <button
+                  type="button"
+                  className="research-button research-button-secondary"
+                  onClick={() => onOpenRun(retryRefusal.childRunId!)}
+                >
+                  查看已有的重试
+                </button>
+              </>
+            ) : null}
+          </p>
         ) : null}
       </div>
     </div>

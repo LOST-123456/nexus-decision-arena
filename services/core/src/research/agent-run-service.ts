@@ -1,16 +1,50 @@
 import {
   canCancelRun,
+  isRetrySupportedPurpose,
   isRetryableRun,
   type AgentRunDetail,
   type AgentRunView
 } from "@nexus/shared";
 import type { ArenaRepository, EventRepository, ReviewRepository } from "@nexus/db";
 import type { CrossReviewResult, CrossReviewService } from "./cross-review-service";
+import { CrossReviewRetryRefusedError } from "./cross-review-service";
 import type { RunCancellationRegistry } from "./run-cancellation";
 
 /** Hard ceiling on retry attempts per run. The run being retried has its own
  * `attempt`, and a retry opens `attempt + 1`; we stop once it would exceed this. */
 export const MAX_AGENT_RUN_RETRIES = 3;
+
+/**
+ * How long a `running` run may sit unsettled before a retry treats it as
+ * abandoned.
+ *
+ * A run row is written before the executor starts, so a process that dies in
+ * between leaves a row nobody will ever finish. That row cannot be retried
+ * (retry needs a failed run) and cannot be completed (we do not know what ran),
+ * so without a way out the whole retry chain is blocked for good.
+ *
+ * Deliberately generous: a cross-review with a real provider can legitimately
+ * take minutes, and marking a live run failed would refuse the writes it is
+ * still making. Half an hour is long enough that a live run is implausible and
+ * short enough that an operator is not stuck for a day.
+ */
+export const RETRY_STALE_RUN_MS = 30 * 60_000;
+
+/**
+ * Pure companion to `RETRY_STALE_RUN_MS`: is this run old enough to be treated
+ * as abandoned? Kept separate from the write so retry eligibility can be fully
+ * decided — and refused — without settling anything first. A run whose start
+ * time cannot be read is never stale: we cannot tell a dead run from a live
+ * one, and refusing is the answer that cannot be wrong.
+ */
+export function isStaleRun(
+  startedAt: string | undefined,
+  now: number = Date.now()
+): boolean {
+  const started = startedAt ? Date.parse(startedAt) : Number.NaN;
+  if (!Number.isFinite(started)) return false;
+  return now - started >= RETRY_STALE_RUN_MS;
+}
 
 export class AgentRunNotFoundError extends Error {
   constructor(readonly runId: string) {
@@ -84,6 +118,44 @@ export class AgentRunRetryLimitError extends Error {
   }
 }
 
+/**
+ * The chain already moved past this run: a sibling run of the same generation
+ * opened the next attempt first.
+ *
+ * This is not a failure to retry *the work* — it is a refusal to branch the
+ * chain. The child's id is carried so the operator can look at the retry that
+ * actually happened instead of pressing a button that can never succeed.
+ */
+export class AgentRunAlreadyRetriedError extends Error {
+  constructor(
+    readonly childRunId: string | null,
+    readonly deepestAttempt: number
+  ) {
+    super(
+      childRunId
+        ? `该运行所属的尝试（第 ${deepestAttempt} 次）已经产生过重试，请改从最新的重试运行发起。`
+        : `该运行所属的尝试（第 ${deepestAttempt} 次）已经有过重试记录，不能重复开启。`
+    );
+    this.name = "AgentRunAlreadyRetriedError";
+  }
+}
+
+/**
+ * What a retry produced, in the terms the operator needs: the same
+ * cross-review result the panel already renders, plus the lineage facts that
+ * were written **before** execution started.
+ */
+export type AgentRunRetryResult = CrossReviewResult & {
+  retry: {
+    /** The run whose Retry button was pressed. */
+    originalRunId: string;
+    /** The attempt this generation carries (1-based). */
+    attempt: number;
+    /** The run ids created for it — known even when every one of them failed. */
+    runIds: string[];
+  };
+};
+
 export type AgentRunServiceDependencies = {
   reviews: Pick<
     ReviewRepository,
@@ -91,7 +163,7 @@ export type AgentRunServiceDependencies = {
     | "listAgentRunsDetailed"
     | "listAgentRunEvents"
     | "cancelAgentRun"
-    | "setRunRetryMeta"
+    | "abandonStaleRun"
   >;
   arena: Pick<ArenaRepository, "getSessionArtifacts">;
   /** Append-only execution log; used to record who cancelled a run. */
@@ -298,20 +370,30 @@ export class AgentRunService {
   }
 
   /**
-   * Safe retry of a cross-review run. Opens a *new* run (new id, higher
+   * Safe retry of a cross-review run. Opens a *new* generation (new ids, higher
    * attempt, `parentRunId` pointing back), re-using the same claim target and
-   * the same cross-examination engine. The original run is left untouched; the
-   * new attempt's parent is recorded so the timeline reads as a retry chain.
+   * the same cross-examination engine. The original run is left untouched.
    *
-   * Concurrency is guarded by `CrossReviewService` itself (it refuses to start a
-   * second run for a claim that already has one in progress), and the route
-   * wraps this in an idempotency lease so a double-submit replays one retry.
+   * The lineage is written **before** anything executes. That ordering is the
+   * whole repair: a retry used to run the examination first and patch
+   * `attempt`/`parentRunId` onto the fresh rows afterwards, so a provider that
+   * failed — or a process that died — left runs that were real, had produced
+   * real artifacts, and claimed to be first attempts with no parent. The chain
+   * could not be reconstructed from the database, and the retry budget could
+   * not be trusted either.
+   *
+   * Now `startRetryGeneration` locks the chain root, reads the deepest attempt
+   * under that lock, refuses a run the chain has already moved past, checks the
+   * ceiling, and inserts the rows with their lineage already set — all in one
+   * transaction that ends before the first provider call. The budget is
+   * therefore the database's, not a number read from whichever row was on
+   * screen.
    */
   async retryRun(
     sessionId: string,
     runId: string,
     actor: string
-  ): Promise<CrossReviewResult> {
+  ): Promise<AgentRunRetryResult> {
     const run = await this.dependencies.reviews.getAgentRunById(
       sessionId,
       runId
@@ -319,36 +401,132 @@ export class AgentRunService {
     if (!run) {
       throw new AgentRunNotFoundError(runId);
     }
-    if (!isRetryableRun(run.status)) {
-      throw new AgentRunNotRetryableError(run.status);
-    }
-    if (run.purpose !== "cross_review") {
+    if (!isRetrySupportedPurpose(run.purpose)) {
       throw new AgentRunRetryUnsupportedError(run.purpose);
     }
     if (!run.targetClaimId) {
       throw new AgentRunNotRetryableError("missing target claim");
     }
+
+    // Eligibility is decided entirely before anything is written. The three
+    // gates below are facts about *this run* — its state, whether it is old
+    // enough to be given up on, and whether the chain root belongs to this
+    // session — and they are answered without touching the row. Only a request
+    // that will actually be served may settle a stale run: a refusal must not
+    // leave a run failed on its way to saying no.
+    const stale = run.status === "running" && isStaleRun(run.startedAt);
+    if (run.status === "running" ? !stale : !isRetryableRun(run.status)) {
+      throw new AgentRunNotRetryableError(run.status);
+    }
     if (!this.dependencies.crossReview) {
       throw new AgentRunRetryUnsupportedError("crossReview unavailable");
     }
-    if ((run.attempt ?? 1) >= MAX_AGENT_RUN_RETRIES) {
-      throw new AgentRunRetryLimitError(run.attempt ?? 1, MAX_AGENT_RUN_RETRIES);
+    if (stale) {
+      await this.abandonIfStale(sessionId, run);
     }
 
-    const result = await this.dependencies.crossReview.runForClaim({
+    // Recorded before the attempt is opened: if creating the generation fails,
+    // the operator still has evidence that a retry was asked for and produced
+    // nothing. It never claims a run exists.
+    await this.dependencies.events.append({
       sessionId,
-      claimId: run.targetClaimId,
-      actor
+      correlationId: runId,
+      type: "AGENT_RUN_RETRY_REQUESTED",
+      payload: {
+        originalRunId: runId,
+        requestedBy: actor,
+        requestedAt: new Date().toISOString(),
+        previousStatus: run.status
+      }
     });
 
-    const attempt = (run.attempt ?? 1) + 1;
-    for (const outcome of result.runs) {
-      await this.dependencies.reviews.setRunRetryMeta(outcome.run.id, {
-        attempt,
-        parentRunId: runId
+    let result: CrossReviewResult;
+    try {
+      result = await this.dependencies.crossReview.runForClaim({
+        sessionId,
+        claimId: run.targetClaimId,
+        actor,
+        retryOf: { runId, ceiling: MAX_AGENT_RUN_RETRIES }
       });
+    } catch (error) {
+      throw this.toRetryError(error, runId);
     }
-    return result;
+
+    return {
+      ...result,
+      retry: {
+        originalRunId: runId,
+        attempt: result.runs[0]?.run.attempt ?? 1,
+        runIds: result.runs.map((outcome) => outcome.run.id)
+      }
+    };
+  }
+
+  /**
+   * Gives up on a run that was opened but never settled, so the chain can move
+   * again. Only a run older than `RETRY_STALE_RUN_MS` is eligible, and the
+   * transition is conditional on it still being `running` — a run that settled
+   * while we looked is left exactly as its executor left it.
+   */
+  private async abandonIfStale(
+    sessionId: string,
+    run: AgentRunView
+  ): Promise<void> {
+    // Re-checked here rather than trusted from the caller: the write is the
+    // point of no return, so it carries its own gate.
+    if (!isStaleRun(run.startedAt)) {
+      throw new AgentRunNotRetryableError(run.status);
+    }
+
+    const reason =
+      "该运行在创建后长时间未推进，判定为已放弃（进程中断）；不代表已产生结果。";
+    const abandoned = await this.dependencies.reviews.abandonStaleRun({
+      sessionId,
+      runId: run.id,
+      startedBefore: new Date(Date.now() - RETRY_STALE_RUN_MS).toISOString(),
+      error: reason,
+      errorCode: "internal_error"
+    });
+    if (!abandoned) {
+      throw new AgentRunNotRetryableError(run.status);
+    }
+
+    // The run now has a terminal state. Saying why is part of the record: this
+    // was not a provider failure and not a user cancel.
+    await this.dependencies.events.append({
+      sessionId,
+      correlationId: run.id,
+      type: "AGENT_RUN_FAILED",
+      payload: {
+        agentRunId: run.id,
+        roleId: run.roleId,
+        purpose: run.purpose,
+        ...(run.targetClaimId ? { targetClaimId: run.targetClaimId } : {}),
+        message: reason,
+        abandonedAfterMs: RETRY_STALE_RUN_MS
+      }
+    });
+  }
+
+  /** Translates the generation-opening refusals into this service's vocabulary. */
+  private toRetryError(error: unknown, runId: string): unknown {
+    if (error instanceof CrossReviewRetryRefusedError) {
+      switch (error.reason) {
+        case "not_found":
+          return new AgentRunNotFoundError(runId);
+        case "already_retried":
+          return new AgentRunAlreadyRetriedError(
+            error.detail.childRunId ?? null,
+            error.detail.deepestAttempt ?? 1
+          );
+        case "limit_reached":
+          return new AgentRunRetryLimitError(
+            error.detail.attempt ?? MAX_AGENT_RUN_RETRIES,
+            error.detail.ceiling ?? MAX_AGENT_RUN_RETRIES
+          );
+      }
+    }
+    return error;
   }
 }
 

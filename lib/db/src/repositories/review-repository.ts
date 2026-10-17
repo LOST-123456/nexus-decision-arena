@@ -42,6 +42,72 @@ export class ReviewReferenceError extends Error {
 
 type AgentRunRow = typeof agentRuns.$inferSelect;
 
+/** The transaction handle drizzle hands to `database.transaction`. */
+type DatabaseTransaction = Parameters<
+  Parameters<Database["transaction"]>[0]
+>[0];
+
+/** Everything a cross-review run row needs at insert time. */
+export type StartCrossReviewRunInput = {
+  id: string;
+  sessionId: string;
+  roleId: string;
+  promptVersionId: string;
+  targetClaimId: string;
+  requestedBy: string;
+  correlationId: string;
+  /**
+   * Retries carry the attempt number and the run they re-attempted. Both are
+   * decided by `startRetryGeneration`; a run opened directly is attempt 1 with
+   * no parent.
+   */
+  attempt?: number;
+  parentRunId?: string;
+  /** Optional failure category recorded up front (e.g. for retries). */
+  errorCode?: AgentRun["errorCode"];
+  provider?: string;
+  model?: string;
+};
+
+/**
+ * Why a retry generation did or did not open. A discriminated result rather
+ * than exceptions: "the budget is spent" and "someone already retried this" are
+ * answers about a real chain, and the caller has to tell them apart to say
+ * anything useful to the operator.
+ */
+export type RetryGenerationResult =
+  | { outcome: "started"; attempt: number; runs: AgentRun[] }
+  | {
+      outcome: "already_retried";
+      deepestAttempt: number;
+      childRunId: string | null;
+    }
+  | { outcome: "limit_reached"; attempt: number; ceiling: number }
+  | { outcome: "not_found" };
+
+function toInsertRow(input: StartCrossReviewRunInput) {
+  return {
+    id: input.id,
+    sessionId: input.sessionId,
+    roleId: input.roleId,
+    promptVersionId: input.promptVersionId,
+    status: "running" as const,
+    correlationId: input.correlationId,
+    input: {
+      kind: "cross_review",
+      targetClaimId: input.targetClaimId,
+      requestedBy: input.requestedBy
+    },
+    taskType: "cross_review",
+    attempt: input.attempt ?? 1,
+    ...(input.parentRunId ? { parentRunId: input.parentRunId } : {}),
+    ...(input.errorCode ? { errorCode: input.errorCode } : {}),
+    ...(input.provider ? { provider: input.provider } : {}),
+    ...(input.model ? { model: input.model } : {}),
+    startedAt: new Date().toISOString()
+  };
+}
+
 /**
  * Reads the run's purpose/target back out of its `input` payload, which is
  * where cross-review runs record what they were aimed at. Keeping this here
@@ -327,39 +393,6 @@ export class ReviewRepository {
     return toAgentRunView(row, role[0]?.name ?? "未知角色");
   }
 
-  /** Records retry metadata on a freshly started run (attempt + parent). */
-  async setRunRetryMeta(
-    runId: string,
-    meta: { attempt: number; parentRunId: string }
-  ): Promise<void> {
-    await this.database
-      .update(agentRuns)
-      .set({ attempt: meta.attempt, parentRunId: meta.parentRunId })
-      .where(eq(agentRuns.id, runId));
-  }
-
-  /**
-   * How many runs already target this claim, for the retry cap. Counts every
-   * run whose `input` names this claim as its cross-review target.
-   */
-  async countRunsForTarget(
-    sessionId: string,
-    targetClaimId: string,
-    executor: ReadExecutor = this.database
-  ): Promise<number> {
-    const rows = await executor
-      .select({ id: agentRuns.id })
-      .from(agentRuns)
-      .where(
-        and(
-          eq(agentRuns.sessionId, sessionId),
-          sql`${agentRuns.input} ->> 'kind' = 'cross_review'`,
-          sql`${agentRuns.input} ->> 'targetClaimId' = ${targetClaimId}`
-        )
-      );
-    return rows.length;
-  }
-
   /**
    * A cross-review run that is still going for this claim. Two reviewers
    * pressing "run" at once must not spawn two competing examinations.
@@ -383,46 +416,210 @@ export class ReviewRepository {
     return rows.length > 0 ? toAgentRun(rows[0]!) : null;
   }
 
-  async startCrossReviewRun(input: {
-    id: string;
+  /**
+   * Opens one cross-review generation: every challenger's run row, written in
+   * a single transaction.
+   *
+   * Inserting them together rather than one by one is not a micro-optimisation.
+   * A generation is either fully opened or not opened at all — a half-written
+   * generation would leave runs that no executor will ever settle, and the
+   * operator would see "运行中" rows for work nobody is doing.
+   */
+  async startCrossReviewRuns(
+    inputs: ReadonlyArray<StartCrossReviewRunInput>
+  ): Promise<AgentRun[]> {
+    if (inputs.length === 0) return [];
+    return this.database.transaction(async (transaction) => {
+      const rows = await transaction
+        .insert(agentRuns)
+        .values(inputs.map((input) => toInsertRow(input)))
+        .returning();
+      return rows.map((row) => toAgentRun(row));
+    });
+  }
+
+  /** One run on its own. Kept for callers that open a single row. */
+  async startCrossReviewRun(input: StartCrossReviewRunInput): Promise<AgentRun> {
+    const [run] = await this.startCrossReviewRuns([input]);
+    return run!;
+  }
+
+  /**
+   * Opens the next generation of a retry chain, with the budget and the
+   * parent pointer decided **inside** one transaction.
+   *
+   * The order matters, and it is the whole point of this method:
+   *
+   * 1. The chain's root row is locked `FOR UPDATE`. Every retry of this lineage
+   *    therefore serialises against every other retry of it — including ones
+   *    aimed at a sibling run of the same generation.
+   * 2. Under that lock the deepest attempt in the chain is read, and the new
+   *    attempt is that plus one. A request can no longer base its budget on
+   *    "the run I was looking at", which is what allowed the same failed run to
+   *    be retried repeatedly and produce siblings that all claimed attempt 2.
+   * 3. A run that is not the deepest is refused: the chain grows one
+   *    generation at a time, so `parent_run_id` always names a real, immediate
+   *    ancestor and no generation is ever skipped or duplicated.
+   * 4. The rows are inserted with `attempt` and `parent_run_id` already set.
+   *    They are never written after the fact, so a crash mid-execution cannot
+   *    leave a run whose lineage is unknown.
+   *
+   * Nothing here calls a provider: the transaction ends before any execution
+   * starts, so no row lock is held across a network call.
+   */
+  async startRetryGeneration(input: {
     sessionId: string;
-    roleId: string;
-    promptVersionId: string;
-    targetClaimId: string;
-    requestedBy: string;
-    correlationId: string;
-    /** Retries carry the attempt number and the run they re-attempted. */
-    attempt?: number;
-    parentRunId?: string;
-    /** Optional failure category recorded up front (e.g. for retries). */
-    errorCode?: AgentRun["errorCode"];
-    provider?: string;
-    model?: string;
-  }): Promise<AgentRun> {
-    const [row] = await this.database
-      .insert(agentRuns)
-      .values({
-        id: input.id,
-        sessionId: input.sessionId,
-        roleId: input.roleId,
-        promptVersionId: input.promptVersionId,
-        status: "running",
-        correlationId: input.correlationId,
-        input: {
-          kind: "cross_review",
-          targetClaimId: input.targetClaimId,
-          requestedBy: input.requestedBy
-        },
-        taskType: "cross_review",
-        attempt: input.attempt ?? 1,
-        ...(input.parentRunId ? { parentRunId: input.parentRunId } : {}),
-        ...(input.errorCode ? { errorCode: input.errorCode } : {}),
-        ...(input.provider ? { provider: input.provider } : {}),
-        ...(input.model ? { model: input.model } : {}),
-        startedAt: new Date().toISOString()
-      })
-      .returning();
-    return toAgentRun(row!);
+    /** The run the operator chose to retry. Becomes the children's parent. */
+    parentRunId: string;
+    /** Highest attempt this chain may reach. */
+    ceiling: number;
+    runs: ReadonlyArray<Omit<StartCrossReviewRunInput, "attempt" | "parentRunId">>;
+  }): Promise<RetryGenerationResult> {
+    return this.database.transaction(async (transaction) => {
+      const rootId = await this.findLineageRoot(
+        transaction,
+        input.sessionId,
+        input.parentRunId
+      );
+      if (!rootId) return { outcome: "not_found" };
+
+      // Serialises every retry of this chain. The lock is on the root, not on
+      // the chosen parent, because two operators may retry two different
+      // challenger runs of the same generation.
+      const [root] = await transaction
+        .select({ id: agentRuns.id, attempt: agentRuns.attempt })
+        .from(agentRuns)
+        .where(
+          and(
+            eq(agentRuns.sessionId, input.sessionId),
+            eq(agentRuns.id, rootId)
+          )
+        )
+        .for("update");
+      if (!root) return { outcome: "not_found" };
+
+      const [parent] = await transaction
+        .select({ attempt: agentRuns.attempt })
+        .from(agentRuns)
+        .where(
+          and(
+            eq(agentRuns.sessionId, input.sessionId),
+            eq(agentRuns.id, input.parentRunId)
+          )
+        )
+        .limit(1);
+      if (!parent) return { outcome: "not_found" };
+
+      const deepestAttempt = await this.deepestAttempt(
+        transaction,
+        input.sessionId,
+        root.id,
+        root.attempt ?? 1
+      );
+
+      const parentAttempt = parent.attempt ?? 1;
+      if (parentAttempt < deepestAttempt) {
+        // A sibling of this generation already opened the next one. Returning
+        // the child makes the refusal actionable instead of a dead end.
+        const [child] = await transaction
+          .select({ id: agentRuns.id })
+          .from(agentRuns)
+          .where(
+            and(
+              eq(agentRuns.sessionId, input.sessionId),
+              eq(agentRuns.parentRunId, input.parentRunId)
+            )
+          )
+          .limit(1);
+        return {
+          outcome: "already_retried",
+          deepestAttempt,
+          childRunId: child?.id ?? null
+        };
+      }
+
+      const attempt = deepestAttempt + 1;
+      if (attempt > input.ceiling) {
+        return { outcome: "limit_reached", attempt, ceiling: input.ceiling };
+      }
+
+      const rows = await transaction
+        .insert(agentRuns)
+        .values(
+          input.runs.map((run) =>
+            toInsertRow({ ...run, attempt, parentRunId: input.parentRunId })
+          )
+        )
+        .returning();
+
+      return { outcome: "started", attempt, runs: rows.map(toAgentRun) };
+    });
+  }
+
+  /**
+   * Walks up to the run that started this chain, or null when the run is not
+   * in this session. Bounded rather than recursive: a chain that deep is not a
+   * retry chain any more, and an unbounded walk is how a cycle becomes a hang.
+   */
+  private async findLineageRoot(
+    transaction: DatabaseTransaction,
+    sessionId: string,
+    runId: string,
+    maxHops = 64
+  ): Promise<string | null> {
+    let current: string | null = runId;
+    for (let hop = 0; hop < maxHops; hop += 1) {
+      if (!current) return null;
+      const [row] = await transaction
+        .select({ id: agentRuns.id, parentRunId: agentRuns.parentRunId })
+        .from(agentRuns)
+        .where(
+          and(eq(agentRuns.sessionId, sessionId), eq(agentRuns.id, current))
+        )
+        .limit(1);
+      if (!row) return hop === 0 ? null : current;
+      if (!row.parentRunId) return row.id;
+      current = row.parentRunId;
+    }
+    return current;
+  }
+
+  /**
+   * The deepest attempt reachable from `rootId` by following `parent_run_id`
+   * downwards, level by level. Bounded breadth-first rather than one raw
+   * recursive query so the walk is portable and cannot loop on bad data.
+   */
+  private async deepestAttempt(
+    transaction: DatabaseTransaction,
+    sessionId: string,
+    rootId: string,
+    rootAttempt: number,
+    maxDepth = 64
+  ): Promise<number> {
+    let deepest = rootAttempt;
+    let level: string[] = [rootId];
+    const seen = new Set<string>(level);
+    for (let depth = 0; depth < maxDepth; depth += 1) {
+      const rows = await transaction
+        .select({ id: agentRuns.id, attempt: agentRuns.attempt })
+        .from(agentRuns)
+        .where(
+          and(
+            eq(agentRuns.sessionId, sessionId),
+            inArray(agentRuns.parentRunId, level)
+          )
+        );
+      const next: string[] = [];
+      for (const row of rows) {
+        if (seen.has(row.id)) continue;
+        seen.add(row.id);
+        next.push(row.id);
+        deepest = Math.max(deepest, row.attempt ?? 1);
+      }
+      if (next.length === 0) break;
+      level = next;
+    }
+    return deepest;
   }
 
   /**
@@ -463,6 +660,48 @@ export class ReviewRepository {
         durationMs: sql`EXTRACT(EPOCH FROM (now() - ${agentRuns.startedAt}))::integer * 1000`
       })
       .where(and(eq(agentRuns.id, input.runId), eq(agentRuns.status, "running")))
+      .returning({ id: agentRuns.id });
+    return rows.length > 0;
+  }
+
+  /**
+   * Gives up on a run that was opened but never settled.
+   *
+   * A process that dies between "the run row exists" and "the executor settles
+   * it" leaves a `running` row nobody will ever finish. It cannot be marked
+   * completed — we do not know whether any work happened — and it must not stay
+   * `running` forever, because a retry chain whose tip never ends is a chain
+   * that can never be retried again.
+   *
+   * So it is marked failed with an honest reason, and only when it is genuinely
+   * old: the cutoff is passed in, the transition is conditional, and `false`
+   * means the run settled on its own in the meantime (which is the good case).
+   */
+  async abandonStaleRun(input: {
+    sessionId: string;
+    runId: string;
+    /** Only a run that started before this instant is abandoned. */
+    startedBefore: string;
+    error: string;
+    errorCode?: AgentRun["errorCode"];
+  }): Promise<boolean> {
+    const rows = await this.database
+      .update(agentRuns)
+      .set({
+        status: "failed",
+        error: input.error,
+        ...(input.errorCode ? { errorCode: input.errorCode } : {}),
+        completedAt: new Date().toISOString(),
+        durationMs: sql`EXTRACT(EPOCH FROM (now() - ${agentRuns.startedAt}))::integer * 1000`
+      })
+      .where(
+        and(
+          eq(agentRuns.sessionId, input.sessionId),
+          eq(agentRuns.id, input.runId),
+          eq(agentRuns.status, "running"),
+          sql`${agentRuns.startedAt} < ${input.startedBefore}::timestamptz`
+        )
+      )
       .returning({ id: agentRuns.id });
     return rows.length > 0;
   }

@@ -195,6 +195,23 @@ export function isRetryableRun(status: AgentRunStatus): boolean {
   return status === "failed" || status === "timed_out";
 }
 
+/**
+ * Retry re-runs a piece of agent work end to end. Only cross-review has an
+ * executor that can be invoked again from a run record; an `analysis` run has
+ * no such entry point, so offering a retry button for it would promise work
+ * that cannot happen. The status is retryable and the purpose is not — which is
+ * a different message from "this run has ended", and the UI has to say it
+ * differently.
+ */
+export function isRetrySupportedPurpose(purpose: AgentRunPurpose): boolean {
+  return purpose === "cross_review";
+}
+
+/** A run that can be retried: right state, and a purpose retry is wired for. */
+export function canRetryRun(run: Pick<AgentRun, "status" | "purpose">): boolean {
+  return isRetryableRun(run.status) && isRetrySupportedPurpose(run.purpose);
+}
+
 /** Runs that have reached a permanent end and cannot be cancelled. */
 export function isTerminalRun(status: AgentRunStatus): boolean {
   return (

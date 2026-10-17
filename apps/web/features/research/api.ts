@@ -128,14 +128,19 @@ export type ResearchWorkspace = {
 export type CrossReviewRunOutcome = {
   run: AgentRun;
   challenges: Challenge[];
-  status: "completed" | "failed";
+  /**
+   * `cancelled` means the run was stopped on purpose before it finished. It is
+   * neither success nor failure, and counting it as either would misreport the
+   * examination.
+   */
+  status: "completed" | "failed" | "cancelled";
   failure: string | null;
 };
 
 export type CrossReviewResult = {
   sessionId: string;
   claimId: string;
-  status: "completed" | "partial" | "failed";
+  status: "completed" | "partial" | "failed" | "cancelled";
   runs: CrossReviewRunOutcome[];
   challenges: Challenge[];
   responseClaims: Claim[];
@@ -1776,20 +1781,69 @@ export function cancelAgentRun(
 }
 
 /**
+ * What a retry produced.
+ *
+ * `retry` is the lineage the server wrote before executing anything: the
+ * attempt number and the new run ids. It does not depend on the provider, so it
+ * is present even when every run it opened ended up failing — which is what
+ * lets the panel link to the new runs without guessing or reloading.
+ */
+export type AgentRunRetryResult = CrossReviewResult & {
+  retry: {
+    originalRunId: string;
+    attempt: number;
+    runIds: string[];
+  };
+};
+
+/**
+ * A retry the server refused, with the reason kept machine-readable.
+ *
+ * The three refusals have different next steps — fix the state, go to the run
+ * that already exists, or stop trying — so a bare message would leave the
+ * operator guessing. `childRunId` is what makes "the chain already moved on"
+ * actionable instead of a dead end.
+ */
+export class AgentRunRetryRefusedError extends Error {
+  constructor(
+    message: string,
+    readonly code: string | undefined,
+    readonly childRunId: string | null
+  ) {
+    super(message);
+    this.name = "AgentRunRetryRefusedError";
+  }
+}
+
+/**
  * Retries a failed cross-review run.
  *
- * The server opens a *new* run (a new id, a higher attempt, a pointer back at
- * the run being retried) and reuses the same cross-examination engine. The
- * response is the same `CrossReviewResult` the panel already knows how to show.
+ * The server opens a *new* generation (new ids, a higher attempt, a pointer back
+ * at the run being retried) and reuses the same cross-examination engine. A
+ * refusal is a real answer, not a blank error: `code` says whether the state was
+ * wrong (`run_not_retryable`), the chain already moved on (`already_retried`,
+ * carrying `childRunId`), or the budget is spent (`retry_limit`).
  */
-export function retryAgentRun(
+export async function retryAgentRun(
   sessionId: string,
   runId: string
-): Promise<CrossReviewResult> {
-  return request<CrossReviewResult>(
-    `/api/sessions/${encodeURIComponent(sessionId)}/agent-runs/${encodeURIComponent(runId)}/retry`,
-    { method: "POST", idempotencyKey: idempotencyKey("agent-run-retry") }
-  );
+): Promise<AgentRunRetryResult> {
+  try {
+    return await request<AgentRunRetryResult>(
+      `/api/sessions/${encodeURIComponent(sessionId)}/agent-runs/${encodeURIComponent(runId)}/retry`,
+      { method: "POST", idempotencyKey: idempotencyKey("agent-run-retry") }
+    );
+  } catch (error) {
+    if (error instanceof ApiTransportError && error.kind === "http") {
+      const payload = error.payload ?? {};
+      throw new AgentRunRetryRefusedError(
+        error.message,
+        typeof payload.code === "string" ? payload.code : undefined,
+        typeof payload.childRunId === "string" ? payload.childRunId : null
+      );
+    }
+    throw error;
+  }
 }
 
 export type {

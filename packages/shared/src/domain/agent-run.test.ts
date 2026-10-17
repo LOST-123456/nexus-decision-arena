@@ -3,6 +3,8 @@ import {
   agentRunFailureCodeLabel,
   agentRunStatusLabel,
   canCancelRun,
+  canRetryRun,
+  isRetrySupportedPurpose,
   isRetryableRun,
   isTerminalRun
 } from "./agent-run";
@@ -48,5 +50,23 @@ describe("agent-run domain helpers", () => {
     expect(canCancelRun("failed")).toBe(false);
     expect(canCancelRun("cancelled")).toBe(false);
     expect(canCancelRun("timed_out")).toBe(false);
+  });
+
+  it("retry is wired for cross-review only", () => {
+    expect(isRetrySupportedPurpose("cross_review")).toBe(true);
+    expect(isRetrySupportedPurpose("analysis")).toBe(false);
+  });
+
+  it("a run can be retried only when both the state and the purpose allow it", () => {
+    expect(canRetryRun({ status: "failed", purpose: "cross_review" })).toBe(true);
+    expect(canRetryRun({ status: "timed_out", purpose: "cross_review" })).toBe(true);
+    // The state is fine, the task type is not: a different answer, and the UI
+    // has to say it differently from "this run has ended".
+    expect(canRetryRun({ status: "failed", purpose: "analysis" })).toBe(false);
+    // The purpose is fine, the state is not.
+    expect(canRetryRun({ status: "completed", purpose: "cross_review" })).toBe(false);
+    expect(canRetryRun({ status: "cancelled", purpose: "cross_review" })).toBe(false);
+    expect(canRetryRun({ status: "running", purpose: "cross_review" })).toBe(false);
+    expect(canRetryRun({ status: "queued", purpose: "cross_review" })).toBe(false);
   });
 });

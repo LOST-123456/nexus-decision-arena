@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { AppDependencies } from "../../app";
 import {
+  AgentRunAlreadyRetriedError,
   AgentRunNotFoundError,
   AgentRunNotRetryableError,
   AgentRunRetryLimitError,
@@ -185,10 +186,22 @@ export function registerAgentRunRoutes(
   );
 
   /**
-   * Retries a failed cross-review run. Opens a new run (new id, higher attempt,
-   * parent pointer) rather than mutating the failed one, and reuses the same
-   * cross-examination engine. Bounded by `MAX_AGENT_RUN_RETRIES`; concurrency
-   * is guarded by the cross-review service itself.
+   * Retries a failed cross-review run. Opens a new generation (new ids, higher
+   * attempt, parent pointer) rather than mutating the failed one, and reuses
+   * the same cross-examination engine.
+   *
+   * The response separates the two facts a retry actually produces:
+   *
+   * - `retry` is the lineage that was written **before** execution — the attempt
+   *   number and the new run ids. It is present even when every new run failed,
+   *   because the chain exists either way.
+   * - `runs[].status` is what the executor then did with each of them.
+   *
+   * A refusal is never a 2xx: `409` with a `code` says whether the state was
+   * wrong (`run_not_retryable`), the chain moved on (`already_retried`, with the
+   * child to look at), or the budget is spent (`retry_limit`), and `501` says
+   * the task type has no retry path at all. Nothing here creates a run it cannot
+   * account for.
    */
   app.post<{ Params: { id: string; runId: string } }>(
     "/api/sessions/:id/agent-runs/:runId/retry",
@@ -219,17 +232,42 @@ export function registerAgentRunRoutes(
           error instanceof IdempotencyConflictError ||
           error instanceof IdempotencyTimeoutError ||
           error instanceof IdempotencyLeaseLostError ||
-          error instanceof CrossReviewInProgressError ||
-          error instanceof AgentRunNotRetryableError ||
-          error instanceof AgentRunRetryLimitError
+          error instanceof CrossReviewInProgressError
         ) {
           return reply.code(409).send({ error: error.message });
+        }
+        if (error instanceof AgentRunNotRetryableError) {
+          return reply.code(409).send({
+            error: error.message,
+            code: "run_not_retryable",
+            status: error.status
+          });
+        }
+        if (error instanceof AgentRunAlreadyRetriedError) {
+          return reply.code(409).send({
+            error: error.message,
+            code: "already_retried",
+            childRunId: error.childRunId,
+            deepestAttempt: error.deepestAttempt
+          });
+        }
+        if (error instanceof AgentRunRetryLimitError) {
+          return reply.code(409).send({
+            error: error.message,
+            code: "retry_limit",
+            attempt: error.attempt,
+            limit: error.limit
+          });
         }
         if (error instanceof AgentRunNotFoundError) {
           return reply.code(404).send({ error: error.message });
         }
         if (error instanceof AgentRunRetryUnsupportedError) {
-          return reply.code(501).send({ error: error.message });
+          return reply.code(501).send({
+            error: error.message,
+            code: "retry_unsupported",
+            purpose: error.purpose
+          });
         }
         throw error;
       }

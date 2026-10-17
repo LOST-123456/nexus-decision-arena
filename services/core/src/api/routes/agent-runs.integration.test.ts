@@ -4,6 +4,7 @@ import {
   agentRuns,
   agentRoles,
   ArenaRepository,
+  claims,
   createTestDatabase,
   DecisionSessionRepository,
   EventRepository,
@@ -16,6 +17,9 @@ import { newId } from "@nexus/shared";
 import type { Conflict } from "@nexus/shared";
 import { createApp } from "../../app";
 import { AgentRunService } from "../../research/agent-run-service";
+import { CrossReviewService } from "../../research/cross-review-service";
+import { RunCancellationRegistry } from "../../research/run-cancellation";
+import { EventBus } from "../../execution/event-bus";
 
 /**
  * DB-backed integration test for the Agent Operations Center routes.
@@ -531,5 +535,347 @@ describe("agent operations center routes integration", () => {
       url: `/api/sessions/${SESSION_ID}/agent-runs/${runId}/cancel`
     });
     expect(response.statusCode).toBe(401);
+  });
+});
+
+/**
+ * Retry against a real generation, a real database and a real idempotency
+ * lease.
+ *
+ * The cross-examination engine is replaced by one that produces nothing: what
+ * is under test here is the *run ledger* — that the lineage is written before
+ * execution, that the budget is the database's, and that a replay cannot open a
+ * second generation. The provider path is a different question, covered by the
+ * unit tests of the engine and by E2E.
+ */
+describe("agent retry · lineage through the API", () => {
+  async function seedClaimRow(sessionId: string): Promise<string> {
+    const claimId = newId();
+    const now = new Date().toISOString();
+    await database.insert(claims).values({
+      id: claimId,
+      sessionId,
+      // Human-authored: no role, which is also why this claim can be challenged
+      // by every seeded role.
+      lens: "research",
+      statement: "Shipments grew 12% year over year.",
+      type: "fact",
+      stance: "support",
+      importance: 4,
+      confidence: 0.5,
+      evidenceIds: [],
+      status: "proposed",
+      rootClaimId: claimId,
+      revision: 1,
+      relations: [],
+      createdAt: now,
+      updatedAt: now
+    } as never);
+    return claimId;
+  }
+
+  /**
+   * The challenger roster for the retry path.
+   *
+   * Deliberately structural rather than read back through `getRunContext`: the
+   * fixture roles this file seeds carry per-test keys (the key column is
+   * unique), which the domain schema rightly refuses. Challenger selection only
+   * needs id, key and prompt version, so that is all this supplies.
+   */
+  /**
+   * Evaluated per call, never captured once: `ROLE_ID` / `PROMPT_VERSION_ID`
+   * are reseeded in every `beforeEach`, so a constant here would point at a
+   * role and prompt version that no longer exist (foreign key 23503).
+   */
+  function challengerRole() {
+    return {
+      id: ROLE_ID,
+      key: "risk_auditor",
+      name: "质疑者",
+      goal: "找出主张的薄弱环节",
+      perspective: "怀疑",
+      evaluationCriteria: ["证据是否充分"],
+      evidenceRequired: ["可定位的引用"],
+      conflictPreference: ["优先暴露冲突"],
+      lenses: ["风险"],
+      promptVersionId: PROMPT_VERSION_ID
+    };
+  }
+
+  function retryApp(role: "reviewer" | "viewer" = "reviewer") {
+    const cancellations = new RunCancellationRegistry();
+    const crossReview = new CrossReviewService({
+      readArtifacts: (sessionId) => arena.getSessionArtifacts(sessionId),
+      readRoles: async () => [challengerRole() as never],
+      runs: reviewRepository,
+      arena,
+      cancellations,
+      getClaimValidationContext: (claimId) =>
+        arena.getClaimValidationContext(claimId),
+      // No provider call: this path is about the ledger, not the model.
+      crossExamination: () => ({
+        run: async () => ({ challenges: [], responseClaims: [], conflicts: [] })
+      }),
+      appendEvent: (input) => events.append(input),
+      eventBus: new EventBus(),
+      maxChallengers: 1
+    });
+    const agentRunService = new AgentRunService({
+      reviews: reviewRepository,
+      arena,
+      events,
+      cancellations,
+      crossReview
+    });
+    const app = createApp({
+      auth: fakeAuth(role) as never,
+      sessions,
+      inspector: {} as never,
+      events,
+      runSession: { start: async () => undefined },
+      reviews: reviewRepository,
+      arena,
+      crossReview,
+      agentRuns: agentRunService
+    });
+    return { app, crossReview, cancellations };
+  }
+
+  /** A failed cross-review run aimed at a claim that really exists. */
+  async function failedRunOnRealClaim(): Promise<{
+    runId: string;
+    claimId: string;
+  }> {
+    const claimId = await seedClaimRow(SESSION_ID);
+    const [run] = await reviewRepository.startCrossReviewRuns([
+      {
+        id: newId(),
+        sessionId: SESSION_ID,
+        roleId: ROLE_ID,
+        promptVersionId: PROMPT_VERSION_ID,
+        targetClaimId: claimId,
+        requestedBy: "Researcher One (researcher)",
+        correlationId: newId()
+      }
+    ]);
+    await reviewRepository.failCrossReviewRun({
+      runId: run!.id,
+      error: "provider down"
+    });
+    return { runId: run!.id, claimId };
+  }
+
+  it("opens the next generation with its lineage already written", async () => {
+    const { runId, claimId } = await failedRunOnRealClaim();
+    const { app } = retryApp();
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/sessions/${SESSION_ID}/agent-runs/${runId}/retry`,
+      headers: { "idempotency-key": "retry-lineage" }
+    });
+
+    expect(response.statusCode).toBe(201);
+    const body = response.json() as {
+      retry: { originalRunId: string; attempt: number; runIds: string[] };
+      runs: Array<{ status: string }>;
+    };
+    expect(body.retry.originalRunId).toBe(runId);
+    expect(body.retry.attempt).toBe(2);
+    expect(body.retry.runIds).toHaveLength(1);
+
+    const [child] = await database
+      .select()
+      .from(agentRuns)
+      .where(eq(agentRuns.id, body.retry.runIds[0]!));
+    expect(child?.attempt).toBe(2);
+    expect(child?.parentRunId).toBe(runId);
+    expect(child?.input).toMatchObject({ targetClaimId: claimId });
+
+    // The original run is untouched: a retry never rewrites history.
+    const [original] = await database
+      .select()
+      .from(agentRuns)
+      .where(eq(agentRuns.id, runId));
+    expect(original?.status).toBe("failed");
+    expect(original?.attempt).toBe(1);
+    expect(original?.parentRunId).toBeNull();
+  });
+
+  it("records request and creation on the retried run's timeline", async () => {
+    const { runId } = await failedRunOnRealClaim();
+    const { app } = retryApp();
+
+    await app.inject({
+      method: "POST",
+      url: `/api/sessions/${SESSION_ID}/agent-runs/${runId}/retry`,
+      headers: { "idempotency-key": "retry-audit" }
+    });
+
+    const timeline = await reviewRepository.listAgentRunEvents(SESSION_ID, runId);
+    const types = timeline.map((event) => event.type);
+    expect(types).toContain("AGENT_RUN_RETRY_REQUESTED");
+    expect(types).toContain("AGENT_RUN_RETRY_CREATED");
+    // Order is the fact: the request exists before the run does.
+    expect(types.indexOf("AGENT_RUN_RETRY_REQUESTED")).toBeLessThan(
+      types.indexOf("AGENT_RUN_RETRY_CREATED")
+    );
+    const created = timeline.find(
+      (event) => event.type === "AGENT_RUN_RETRY_CREATED"
+    );
+    expect(created?.payload).toMatchObject({ originalRunId: runId, attempt: 2 });
+  });
+
+  it("replays the same idempotency key without opening a second generation", async () => {
+    const { runId } = await failedRunOnRealClaim();
+    const { app } = retryApp();
+    const send = () =>
+      app.inject({
+        method: "POST",
+        url: `/api/sessions/${SESSION_ID}/agent-runs/${runId}/retry`,
+        headers: { "idempotency-key": "retry-replay" }
+      });
+
+    const first = await send();
+    const second = await send();
+
+    expect(first.statusCode).toBe(201);
+    expect(second.statusCode).toBe(201);
+    expect(second.json()).toEqual(first.json());
+
+    const runs = await database
+      .select()
+      .from(agentRuns)
+      .where(eq(agentRuns.sessionId, SESSION_ID));
+    expect(runs).toHaveLength(2); // the failed root + exactly one replacement
+    const timeline = await reviewRepository.listAgentRunEvents(SESSION_ID, runId);
+    expect(
+      timeline.filter((event) => event.type === "AGENT_RUN_RETRY_CREATED")
+    ).toHaveLength(1);
+  });
+
+  it("refuses the same key with a different request", async () => {
+    const first = await failedRunOnRealClaim();
+    const second = await failedRunOnRealClaim();
+    const { app } = retryApp();
+
+    await app.inject({
+      method: "POST",
+      url: `/api/sessions/${SESSION_ID}/agent-runs/${first.runId}/retry`,
+      headers: { "idempotency-key": "retry-collide" }
+    });
+    const conflict = await app.inject({
+      method: "POST",
+      url: `/api/sessions/${SESSION_ID}/agent-runs/${second.runId}/retry`,
+      headers: { "idempotency-key": "retry-collide" }
+    });
+
+    expect(conflict.statusCode).toBe(409);
+    // The second run was never retried.
+    const runs = await database
+      .select()
+      .from(agentRuns)
+      .where(eq(agentRuns.parentRunId, second.runId));
+    expect(runs).toHaveLength(0);
+  });
+
+  it("takes one winner when two retries of the same run race", async () => {
+    const { runId } = await failedRunOnRealClaim();
+    const { app } = retryApp();
+    const send = (key: string) =>
+      app.inject({
+        method: "POST",
+        url: `/api/sessions/${SESSION_ID}/agent-runs/${runId}/retry`,
+        headers: { "idempotency-key": key }
+      });
+
+    const [a, b] = await Promise.all([send("retry-race-a"), send("retry-race-b")]);
+    const codes = [a.statusCode, b.statusCode].sort();
+
+    // One opens the generation; the other is refused — either because a run for
+    // the claim is still in progress or because the chain already moved on.
+    // Neither case may produce a second child.
+    expect(codes).toEqual([201, 409]);
+    const children = await database
+      .select()
+      .from(agentRuns)
+      .where(eq(agentRuns.parentRunId, runId));
+    expect(children).toHaveLength(1);
+  });
+
+  it("refuses a retry of a run the chain has already moved past", async () => {
+    const { runId } = await failedRunOnRealClaim();
+    const { app } = retryApp();
+
+    // First retry succeeds; its child is then failed too, so the chain's deepest
+    // attempt is 2 while the root still reads "failed, attempt 1".
+    const first = await app.inject({
+      method: "POST",
+      url: `/api/sessions/${SESSION_ID}/agent-runs/${runId}/retry`,
+      headers: { "idempotency-key": "retry-tip-1" }
+    });
+    expect(first.statusCode).toBe(201);
+
+    const again = await app.inject({
+      method: "POST",
+      url: `/api/sessions/${SESSION_ID}/agent-runs/${runId}/retry`,
+      headers: { "idempotency-key": "retry-tip-2" }
+    });
+
+    expect(again.statusCode).toBe(409);
+    const body = again.json() as { code: string; childRunId: string | null };
+    expect(body.code).toBe("already_retried");
+    expect(typeof body.childRunId).toBe("string");
+  });
+
+  it("refuses a retry aimed at another session's run (404)", async () => {
+    const foreignClaim = await seedClaimRow(OTHER_SESSION_ID);
+    const [foreign] = await reviewRepository.startCrossReviewRuns([
+      {
+        id: newId(),
+        sessionId: OTHER_SESSION_ID,
+        roleId: ROLE_ID,
+        promptVersionId: PROMPT_VERSION_ID,
+        targetClaimId: foreignClaim,
+        requestedBy: "Researcher One (researcher)",
+        correlationId: newId()
+      }
+    ]);
+    await reviewRepository.failCrossReviewRun({
+      runId: foreign!.id,
+      error: "provider down"
+    });
+
+    const { app } = retryApp();
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/sessions/${SESSION_ID}/agent-runs/${foreign!.id}/retry`,
+      headers: { "idempotency-key": "retry-foreign" }
+    });
+
+    expect(response.statusCode).toBe(404);
+    const children = await database
+      .select()
+      .from(agentRuns)
+      .where(eq(agentRuns.parentRunId, foreign!.id));
+    expect(children).toHaveLength(0);
+  });
+
+  it("refuses a retry of a completed run with a machine-readable code", async () => {
+    const { runId } = await failedRunOnRealClaim();
+    await database
+      .update(agentRuns)
+      .set({ status: "completed" })
+      .where(eq(agentRuns.id, runId));
+
+    const { app } = retryApp();
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/sessions/${SESSION_ID}/agent-runs/${runId}/retry`,
+      headers: { "idempotency-key": "retry-completed" }
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ code: "run_not_retryable" });
   });
 });

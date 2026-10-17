@@ -71,6 +71,11 @@ function applyContiguousEvent(
     // "someone asked it to stop" would be the exact confusion this app forbids.
     case "AGENT_RUN_CANCEL_REQUESTED":
     case "AGENT_RUN_EXECUTION_STOPPED":
+    // A retry request, and the lineage it produced, are facts about runs. They
+    // add no artifact to the arena: no claim, evidence or verdict follows from
+    // "an attempt was opened", only from what the executor actually writes.
+    case "AGENT_RUN_RETRY_REQUESTED":
+    case "AGENT_RUN_RETRY_CREATED":
     case "CHALLENGE_FAILED": {
       return { ...current, lastSequence: event.sequence };
     }

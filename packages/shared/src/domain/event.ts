@@ -64,6 +64,18 @@ export const ExecutionEventTypeSchema = z.enum([
    * exactly the distinction a reader needs to judge the cancellation.
    */
   "AGENT_RUN_EXECUTION_STOPPED",
+  /**
+   * A retry was asked for on this run. Filed under the run being retried, so
+   * the request is visible even when creating the replacement run fails —
+   * a request that produced nothing is still a fact worth keeping.
+   */
+  "AGENT_RUN_RETRY_REQUESTED",
+  /**
+   * The replacement run(s) exist in `agent_runs`, with their `attempt` and
+   * `parent_run_id` already written. This says the lineage is durable; it does
+   * not say the executor has started, which is `AGENT_RUN_STARTED`.
+   */
+  "AGENT_RUN_RETRY_CREATED",
   "CHALLENGE_FAILED",
   "SESSION_COMPLETED",
   "MEMBER_INVITED",

@@ -20,6 +20,7 @@ import {
   CrossReviewClaimNotFoundError,
   CrossReviewInProgressError,
   CrossReviewNoChallengerError,
+  CrossReviewRetryRefusedError,
   CrossReviewService
 } from "./cross-review-service";
 import { RunCancellationRegistry } from "./run-cancellation";
@@ -82,6 +83,7 @@ function harness(options: {
 } = {}) {
   const startedRuns: Array<Record<string, unknown>> = [];
   const runStatus = new Map<string, string>();
+  const attemptByRunId = new Map<string, number>();
   const completedRuns: Array<{ runId: string; output: unknown }> = [];
   const failedRuns: Array<{ runId: string; error: string }> = [];
   const savedChallenges: Challenge[] = [];
@@ -180,6 +182,42 @@ function harness(options: {
     };
   };
 
+  /**
+   * Registers a run the way the repository would: the row exists before the
+   * executor sees it, with its attempt and parent already part of the record.
+   */
+  function registerRun(
+    input: {
+      id: string;
+      sessionId: string;
+      roleId: string;
+      promptVersionId: string;
+      targetClaimId: string;
+      requestedBy: string;
+      correlationId: string;
+    },
+    attempt: number,
+    parentRunId: string | null
+  ) {
+    startedRuns.push({ ...input, attempt, parentRunId });
+    attemptByRunId.set(input.id, attempt);
+    runStatus.set(input.id, "running");
+    return {
+      id: input.id,
+      sessionId: input.sessionId,
+      roleId: input.roleId,
+      promptVersionId: input.promptVersionId,
+      status: "running" as const,
+      purpose: "cross_review" as const,
+      taskType: "cross_review",
+      targetClaimId: input.targetClaimId,
+      attempt,
+      ...(parentRunId ? { parentRunId } : {}),
+      tokenUsage: null,
+      startedAt: new Date().toISOString()
+    };
+  }
+
   const service = new CrossReviewService({
     readArtifacts: async () => ({
       claims,
@@ -202,18 +240,38 @@ function harness(options: {
               startedAt: new Date().toISOString()
             }
           : null,
-      startCrossReviewRun: async (input) => {
-        startedRuns.push({ ...input });
-        runStatus.set(input.id, "running");
+      startCrossReviewRuns: async (inputs) => {
+        return inputs.map((input) => registerRun(input, 1, null));
+      },
+      /**
+       * Mirrors the repository's contract: the chain grows one generation at a
+       * time, the attempt comes from the deepest row (not from the run on
+       * screen), and the ceiling is checked before anything is inserted.
+       */
+      startRetryGeneration: async (input) => {
+        const deepest = Math.max(1, ...attemptByRunId.values());
+        const parentAttempt = attemptByRunId.get(input.parentRunId) ?? 1;
+        if (parentAttempt < deepest) {
+          return {
+            outcome: "already_retried" as const,
+            deepestAttempt: deepest,
+            childRunId: null
+          };
+        }
+        const attempt = deepest + 1;
+        if (attempt > input.ceiling) {
+          return {
+            outcome: "limit_reached" as const,
+            attempt,
+            ceiling: input.ceiling
+          };
+        }
         return {
-          id: input.id,
-          sessionId: input.sessionId,
-          roleId: input.roleId,
-          promptVersionId: input.promptVersionId,
-          status: "running" as const,
-          purpose: "cross_review" as const,
-          targetClaimId: input.targetClaimId,
-          startedAt: new Date().toISOString()
+          outcome: "started" as const,
+          attempt,
+          runs: input.runs.map((run) =>
+            registerRun(run, attempt, input.parentRunId)
+          )
         };
       },
       getRunStatus: async (runId) =>
@@ -272,12 +330,23 @@ function harness(options: {
     cancellations,
     startedRuns,
     runStatus,
+    attemptByRunId,
     completedRuns,
     failedRuns,
     savedChallenges,
     savedClaims,
     savedConflicts,
-    events
+    events,
+    /**
+     * Pretends an earlier generation already exists, so a retry has something
+     * to descend from. The chain is the harness's own state, exactly as the
+     * repository's rows are the real chain's state.
+     */
+    seedPriorRun(attempt: number): string {
+      const id = newId();
+      attemptByRunId.set(id, attempt);
+      return id;
+    }
   };
 }
 
@@ -706,5 +775,81 @@ describe("CrossReviewService · cancellation", () => {
       })
     ).rejects.toThrow("engine down");
     expect(exploded.cancellations.activeCount).toBe(0);
+  });
+});
+
+/**
+ * Retry lineage as the service opens it.
+ *
+ * The repository decides the attempt number under a lock; what this service must
+ * guarantee is that it asks for the next generation *before* any provider call,
+ * and that the link it writes is visible on the retried run.
+ */
+describe("CrossReviewService · retry generation", () => {
+  it("opens the next attempt through the lineage path, not as a first run", async () => {
+    const h = harness();
+    const parentRunId = h.seedPriorRun(1);
+
+    const result = await h.service.runForClaim({
+      sessionId: SESSION_ID,
+      claimId: CLAIM_ID,
+      actor: "Owner (owner)",
+      retryOf: { runId: parentRunId, ceiling: 3 }
+    });
+
+    expect(result.runs.length).toBeGreaterThan(0);
+    for (const outcome of result.runs) {
+      expect(outcome.run.attempt).toBe(2);
+      expect(outcome.run.parentRunId).toBe(parentRunId);
+    }
+    // The lineage is part of the started record too: each new run's timeline
+    // says which attempt it is.
+    const started = h.events.find((event) => event.type === "AGENT_RUN_STARTED");
+    expect(started?.payload).toMatchObject({ attempt: 2, parentRunId });
+    // And it is announced on the retried run, so the chain reads in one place.
+    const created = h.events.find(
+      (event) => event.type === "AGENT_RUN_RETRY_CREATED"
+    );
+    expect(created?.correlationId).toBe(parentRunId);
+    expect(created?.payload).toMatchObject({
+      originalRunId: parentRunId,
+      attempt: 2
+    });
+  });
+
+  it("refuses to branch a chain that already moved on", async () => {
+    const h = harness();
+    const parentRunId = h.seedPriorRun(1);
+    await h.service.runForClaim({
+      sessionId: SESSION_ID,
+      claimId: CLAIM_ID,
+      actor: "Owner (owner)",
+      retryOf: { runId: parentRunId, ceiling: 3 }
+    });
+
+    // Same parent again: its generation already has a child.
+    await expect(
+      h.service.runForClaim({
+        sessionId: SESSION_ID,
+        claimId: CLAIM_ID,
+        actor: "Owner (owner)",
+        retryOf: { runId: parentRunId, ceiling: 3 }
+      })
+    ).rejects.toBeInstanceOf(CrossReviewRetryRefusedError);
+  });
+
+  it("refuses to open an attempt past the ceiling, creating nothing", async () => {
+    const h = harness();
+    const parentRunId = h.seedPriorRun(3);
+
+    await expect(
+      h.service.runForClaim({
+        sessionId: SESSION_ID,
+        claimId: CLAIM_ID,
+        actor: "Owner (owner)",
+        retryOf: { runId: parentRunId, ceiling: 3 }
+      })
+    ).rejects.toMatchObject({ reason: "limit_reached" });
+    expect(h.startedRuns).toHaveLength(0);
   });
 });
