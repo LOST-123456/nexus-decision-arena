@@ -1537,6 +1537,13 @@ function ActivityView({ activity }: { activity: CollaborationActivity[] }) {
             <span className="research-source-title">
               {ACTIVITY_TYPE_LABELS[item.type] ?? item.type}
             </span>
+            {/*
+              The audit key stays on screen next to the human label. An audit
+              trail has to remain greppable against the event log, and the
+              label alone would make "邀请成员" ambiguous between this event
+              and any future one with the same wording.
+            */}
+            <code className="research-audit-key">{item.type}</code>
             <span className="research-muted">
               #{item.sequence} · 发生于 {formatDateTime(item.occurredAt)}
             </span>

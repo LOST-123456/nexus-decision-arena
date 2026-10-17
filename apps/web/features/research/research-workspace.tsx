@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   isEvidenceExpired,
@@ -141,7 +140,6 @@ export function ResearchWorkspace({
     evidenceIds: string[];
   } | null;
 }) {
-  const router = useRouter();
   const [workspace, setWorkspace] = useState<ResearchWorkspace | null>(null);
   const [user, setUser] = useState<AuthUser | null>(null);
   const [selectedClaimId, setSelectedClaimId] = useState<string | null>(null);
@@ -173,6 +171,15 @@ export function ResearchWorkspace({
    * account owns or was granted — not a second, differently-scoped list.
    */
   const [switchable, setSwitchable] = useState<LibrarySessionSummary[]>([]);
+  /**
+   * The switcher's list is a disclosure, not a select: it renders its options
+   * only while open. Two reasons. A native select holding every research this
+   * account can open turns into a three-hundred-option menu, and its options
+   * duplicate the current question in the page's text — which is both noise
+   * for a screen reader and, in practice, a page whose title can no longer be
+   * addressed uniquely. A closed disclosure adds nothing to the page's text.
+   */
+  const [switcherOpen, setSwitcherOpen] = useState(false);
   /**
    * Why the research never arrived, with its status kept.
    *
@@ -1090,9 +1097,12 @@ export function ResearchWorkspace({
           <h1 className="research-workspace-title">
             {workspace.session.title ?? "未命名研究"}
           </h1>
-          <p className="research-workspace-question">
-            {workspace.session.researchQuestion ?? "（未填写研究问题）"}
-          </p>
+          {/*
+            The research question is not repeated here. The claim rail already
+            carries it as the thing every claim is read against, and printing
+            it twice on one screen made the page say the same sentence in two
+            voices — the reader then has to work out which one is authoritative.
+          */}
           <div className="research-workspace-head-status">
             <StatusPill tone="research-pill-neutral">
               {workflowLabel(workspace.session.phase)}
@@ -1131,47 +1141,73 @@ export function ResearchWorkspace({
         <div className="research-workspace-head-actions">
           {/*
             The switcher only exists when there is something to switch to: a
-            select holding one option is a control that cannot do anything,
-            and offering it anyway is the kind of fake affordance this app
-            refuses elsewhere.
+            control holding one destination cannot do anything, and offering
+            it anyway is the kind of fake affordance this app refuses
+            elsewhere. It shows the most recent eight and a way to the full
+            list, so the menu stays a menu rather than the whole library.
           */}
           {switchable.length > 1 ? (
-            <div className="research-field research-workspace-switch">
-              <label className="research-label" htmlFor="research-session-switch">
-                切换研究
-              </label>
-              <select
-                id="research-session-switch"
-                className="research-input"
-                data-testid="research-session-switch"
-                value={sessionId}
-                onChange={(event) =>
-                  router.push(`/research/${event.target.value}`)
-                }
+            <div
+              className="research-field research-workspace-switch"
+              onKeyDown={(event) => {
+                if (event.key === "Escape") setSwitcherOpen(false);
+              }}
+            >
+              <button
+                type="button"
+                className="research-button research-button-secondary"
+                aria-expanded={switcherOpen}
+                aria-controls="research-switcher-list"
+                onClick={() => setSwitcherOpen((open) => !open)}
               >
-                {switchable.map((row) => (
-                  <option key={row.sessionId} value={row.sessionId}>
-                    {row.access === "own" ? "自有" : "被授权"} ·{" "}
-                    {row.researchQuestion ?? row.sessionId.slice(0, 8)}
-                  </option>
-                ))}
-              </select>
+                切换研究（{switchable.length}）
+              </button>
+              {switcherOpen ? (
+                <ul
+                  id="research-switcher-list"
+                  className="research-switcher-list"
+                  data-testid="research-session-switch"
+                >
+                  {switchable.slice(0, 8).map((row) => (
+                    <li key={row.sessionId}>
+                      <Link
+                        href={`/research/${row.sessionId}`}
+                        aria-current={
+                          row.sessionId === sessionId ? "page" : undefined
+                        }
+                        onClick={() => setSwitcherOpen(false)}
+                      >
+                        <span className="research-switcher-access">
+                          {row.access === "own" ? "自有" : "被授权"}
+                        </span>
+                        {row.researchQuestion ?? row.sessionId.slice(0, 8)}
+                      </Link>
+                    </li>
+                  ))}
+                  <li>
+                    <Link href="/research" onClick={() => setSwitcherOpen(false)}>
+                      查看全部研究
+                    </Link>
+                  </li>
+                </ul>
+              ) : null}
             </div>
           ) : null}
-          <button
-            type="button"
+          {/*
+            The header carries only page-level destinations. "添加主张" and
+            "导入网页" already live on the panels that own those forms — where
+            they also carry the open/close state — and a second button for the
+            same action in the header would be two controls doing one job, the
+            kind of duplicate affordance that makes a reader guess which one is
+            the real one. The evidence map, by contrast, is a page of its own and
+            has no in-panel entry.
+          */}
+          <Link
             className="research-button research-button-secondary"
-            onClick={() => setOpenForm(openForm === "claim" ? "none" : "claim")}
+            href={`/research/${sessionId}/evidence`}
           >
-            添加主张
-          </button>
-          <button
-            type="button"
-            className="research-button research-button-secondary"
-            onClick={() => setOpenForm(openForm === "import" ? "none" : "import")}
-          >
-            导入来源
-          </button>
+            证据地图
+          </Link>
           <Link
             className="research-button"
             href={`/research/${sessionId}/report`}

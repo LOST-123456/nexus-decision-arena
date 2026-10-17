@@ -200,14 +200,6 @@
   overflow-wrap: anywhere;
 }
 
-.research-workspace-question {
-  margin-top: 3px;
-  color: var(--rw-muted);
-  font-size: 12.5px;
-  line-height: 1.5;
-  max-width: 60ch;
-}
-
 .research-workspace-head-status {
   display: flex;
   gap: 6px;
@@ -258,15 +250,66 @@
   flex-wrap: wrap;
 }
 
-/* The switcher is a labelled field, not a bare select: without the label it
-   reads as a filter for the page rather than a way to leave it. */
+/* The switcher is a labelled disclosure, not a bare select: it opens a short
+   list of recent researches and a way to the full library. Its list is only
+   in the DOM while open, so it never repeats the page's own question in the
+   text a screen reader reads out. */
 .research-workspace-switch {
+  position: relative;
   min-width: 12rem;
   max-width: 18rem;
 }
 
-.research-workspace-switch .research-input {
-  width: 100%;
+.research-switcher-list {
+  position: absolute;
+  right: 0;
+  z-index: var(--z-popover, 40);
+  display: grid;
+  gap: 2px;
+  width: max(18rem, 100%);
+  max-height: 22rem;
+  overflow-y: auto;
+  margin: 0.35rem 0 0;
+  padding: 0.35rem;
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-md);
+  background: var(--surface-panel);
+  box-shadow: var(--shadow-2);
+  list-style: none;
+}
+
+.research-switcher-list a {
+  display: flex;
+  gap: 0.45rem;
+  align-items: baseline;
+  padding: 0.45rem 0.55rem;
+  border-radius: var(--radius-sm);
+  color: var(--content-primary);
+  font-size: var(--text-sm);
+  text-decoration: none;
+}
+
+.research-switcher-list a:hover {
+  background: var(--surface-hover);
+}
+
+.research-switcher-list a[aria-current="page"] {
+  color: var(--accent);
+  font-weight: 620;
+}
+
+.research-switcher-access {
+  flex: none;
+  color: var(--content-muted);
+  font-size: var(--text-xs);
+}
+
+/* An audit key has to stay greppable against the event log; it sits next to
+   the human label rather than replacing it. */
+.research-audit-key {
+  color: var(--content-muted);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
+  font-size: var(--text-xs);
 }
 
 @media (max-width: 1180px) {

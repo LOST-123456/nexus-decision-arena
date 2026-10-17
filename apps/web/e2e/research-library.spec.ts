@@ -391,7 +391,15 @@ test("keeps an unauthorized research out of the library, and answers a guessed i
     await expect(viewerPage.getByTestId("library-grants")).toHaveCount(0);
 
     // --- revoking takes the visibility back, and nothing else ----------------
+    // Since P29 a revoke asks first: it is an outward-facing action whose
+    // consequence (the viewer loses access to every copy made from this
+    // research) is not recoverable by re-clicking. The dialog is part of the
+    // contract now, so the test goes through it rather than around it.
     await page.getByTestId("library-grant-revoke").click();
+    const revokeDialog = page.getByTestId("library-grant-revoke-dialog");
+    await expect(revokeDialog).toBeVisible();
+    await expect(revokeDialog).toContainText("无法再从原研究读取");
+    await revokeDialog.getByRole("button", { name: "撤销" }).click();
     await expect(page.getByTestId("library-message")).toContainText(
       "副本与审计记录保留"
     );

@@ -1,3 +1,4 @@
+import { AppBreadcrumbs } from "../../../components/app-breadcrumbs";
 import { SourceLibraryPanel } from "../../../features/research/source-library";
 
 /**
@@ -8,6 +9,10 @@ import { SourceLibraryPanel } from "../../../features/research/source-library";
  * answers 404, and copying material never copies a human verification with it.
  * The page exists so sharing can be administered without opening a research
  * first; when a session is passed in, it is preselected as the copy target.
+ *
+ * It carries the same breadcrumb trail as every other page below a family
+ * root: this is reachable straight from the global bar, and without a trail
+ * the only way back to /research is the bar itself.
  */
 export default async function ResearchLibraryPage({
   searchParams
@@ -21,14 +26,17 @@ export default async function ResearchLibraryPage({
       : undefined;
 
   return (
-    <main
-      id="main"
-      tabIndex={-1}
-      className="research-body"
-      data-testid="research-body"
-      data-mode="analyze"
-    >
-      <SourceLibraryPanel {...(sessionId ? { currentSessionId: sessionId } : {})} />
-    </main>
+    <>
+      <AppBreadcrumbs />
+      <main
+        id="main"
+        tabIndex={-1}
+        className="research-body"
+        data-testid="research-body"
+        data-mode="analyze"
+      >
+        <SourceLibraryPanel {...(sessionId ? { currentSessionId: sessionId } : {})} />
+      </main>
+    </>
   );
 }
