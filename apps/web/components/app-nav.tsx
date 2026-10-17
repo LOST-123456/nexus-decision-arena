@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { AppNavHeightObserver } from "./app-nav-height";
+import { AppNavDrawer } from "./app-nav-drawer";
 import { AuthUserBadge } from "./auth-user-badge";
 import { ThemeToggle } from "./theme-toggle";
 
@@ -46,6 +47,7 @@ export function activeHref(
 export function AppNav({ context }: { context?: ReactNode }) {
   const pathname = usePathname() ?? "/";
   const current = activeHref(pathname, PRIMARY_LINKS);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   return (
     <header className="app-nav" data-testid="app-nav">
@@ -60,6 +62,23 @@ export function AppNav({ context }: { context?: ReactNode }) {
           <small>决策质询与事实核查工作台</small>
         </span>
       </Link>
+
+      {/*
+        Below 768px this strip is display:none and the drawer carries the same
+        links instead; the button is the other way round. Both stay in the DOM
+        so the active-destination logic has one source and neither variant has
+        to re-derive it.
+      */}
+      <button
+        type="button"
+        className="app-nav-menu-button"
+        aria-expanded={drawerOpen}
+        aria-haspopup="dialog"
+        data-testid="app-nav-menu-button"
+        onClick={() => setDrawerOpen(true)}
+      >
+        菜单
+      </button>
 
       <nav className="app-nav-links" aria-label="主导航">
         {PRIMARY_LINKS.map((link) => (
@@ -79,6 +98,13 @@ export function AppNav({ context }: { context?: ReactNode }) {
         <ThemeToggle />
         <AuthUserBadge />
       </div>
+
+      <AppNavDrawer
+        open={drawerOpen}
+        pathname={pathname}
+        links={PRIMARY_LINKS}
+        onClose={() => setDrawerOpen(false)}
+      />
     </header>
   );
 }

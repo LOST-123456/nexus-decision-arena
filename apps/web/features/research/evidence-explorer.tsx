@@ -20,6 +20,7 @@ import {
   verificationLabel,
   verdictLabel
 } from "./labels";
+import { AppBreadcrumbs } from "../../components/app-breadcrumbs";
 
 type Filters = {
   claimId: string;
@@ -205,6 +206,12 @@ export function EvidenceExplorer({ sessionId }: { sessionId: string }) {
     <>
       {tabs}
 
+      <AppBreadcrumbs
+        labels={{
+          [sessionId]: workspace.session.title ?? "未命名研究"
+        }}
+      />
+
       <div className="research-body" data-mode="explore">
         <div
           className="research-column"
@@ -307,63 +314,65 @@ export function EvidenceExplorer({ sessionId }: { sessionId: string }) {
             {workspace.sources.length === 0 ? (
               <p className="research-muted">还没有登记来源。</p>
             ) : (
-              <table className="research-table">
-                <thead>
-                  <tr>
-                    <th scope="col">标题</th>
-                    <th scope="col">类型</th>
-                    <th scope="col">发布机构</th>
-                    <th scope="col">发布日期</th>
-                    <th scope="col">检索</th>
-                    <th scope="col">原文</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {workspace.sources.map((source) => (
-                    <tr key={source.id}>
-                      <td>
-                        {source.url ? (
-                          <a href={source.url} target="_blank" rel="noreferrer">
-                            {source.title}
-                          </a>
-                        ) : (
-                          source.title
-                        )}
-                      </td>
-                      <td>
-                        <StatusPill tone="research-pill-neutral">
-                          {sourceKindLabel(source.kind)}
-                        </StatusPill>
-                      </td>
-                      <td className="research-muted">{source.publisher ?? "—"}</td>
-                      <td className="research-muted">
-                        {formatDate(source.publishedAt)}
-                      </td>
-                      <td>
-                        <StatusPill tone={sourceRetrievalTone(source.retrievalStatus)}>
-                          {sourceRetrievalLabel(source.retrievalStatus)}
-                        </StatusPill>
-                      </td>
-                      <td>
-                        {source.retrievalStatus === "fetched" ? (
-                          <button
-                            type="button"
-                            className="research-button research-button-secondary"
-                            onClick={() => {
-                              setReaderSourceId(source.id);
-                              setActiveColumn("reader");
-                            }}
-                          >
-                            阅读原文
-                          </button>
-                        ) : (
-                          <span className="research-muted">—</span>
-                        )}
-                      </td>
+              <div className="research-table-scroll">
+                <table className="research-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">标题</th>
+                      <th scope="col">类型</th>
+                      <th scope="col">发布机构</th>
+                      <th scope="col">发布日期</th>
+                      <th scope="col">检索</th>
+                      <th scope="col">原文</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {workspace.sources.map((source) => (
+                      <tr key={source.id}>
+                        <td>
+                          {source.url ? (
+                            <a href={source.url} target="_blank" rel="noreferrer">
+                              {source.title}
+                            </a>
+                          ) : (
+                            source.title
+                          )}
+                        </td>
+                        <td>
+                          <StatusPill tone="research-pill-neutral">
+                            {sourceKindLabel(source.kind)}
+                          </StatusPill>
+                        </td>
+                        <td className="research-muted">{source.publisher ?? "—"}</td>
+                        <td className="research-muted">
+                          {formatDate(source.publishedAt)}
+                        </td>
+                        <td>
+                          <StatusPill tone={sourceRetrievalTone(source.retrievalStatus)}>
+                            {sourceRetrievalLabel(source.retrievalStatus)}
+                          </StatusPill>
+                        </td>
+                        <td>
+                          {source.retrievalStatus === "fetched" ? (
+                            <button
+                              type="button"
+                              className="research-button research-button-secondary"
+                              onClick={() => {
+                                setReaderSourceId(source.id);
+                                setActiveColumn("reader");
+                              }}
+                            >
+                              阅读原文
+                            </button>
+                          ) : (
+                            <span className="research-muted">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </section>
 
@@ -371,42 +380,44 @@ export function EvidenceExplorer({ sessionId }: { sessionId: string }) {
             <div className="research-panel-head">
               <span className="research-panel-title">各主张的结论</span>
             </div>
-            <table className="research-table">
-              <thead>
-                <tr>
-                  <th scope="col">主张</th>
-                  <th scope="col">业务状态</th>
-                  <th scope="col">事实核查结论</th>
-                </tr>
-              </thead>
-              <tbody>
-                {workspace.claims.map((claim) => {
-                  const verdict = workspace.verdicts.find(
-                    (item) => item.claimId === claim.id
-                  );
-                  return (
-                    <tr key={claim.id}>
-                      <td>{claim.statement}</td>
-                      <td className="research-muted">
-                        {claimStatusLabel(claim.status)}
-                      </td>
-                      <td>
-                        {verdict ? (
-                          <>
-                            {verdictLabel(verdict.status)}
-                            <div className="research-muted">
-                              {verdict.rationale}
-                            </div>
-                          </>
-                        ) : (
-                          "—"
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            <div className="research-table-scroll">
+              <table className="research-table">
+                <thead>
+                  <tr>
+                    <th scope="col">主张</th>
+                    <th scope="col">业务状态</th>
+                    <th scope="col">事实核查结论</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {workspace.claims.map((claim) => {
+                    const verdict = workspace.verdicts.find(
+                      (item) => item.claimId === claim.id
+                    );
+                    return (
+                      <tr key={claim.id}>
+                        <td>{claim.statement}</td>
+                        <td className="research-muted">
+                          {claimStatusLabel(claim.status)}
+                        </td>
+                        <td>
+                          {verdict ? (
+                            <>
+                              {verdictLabel(verdict.status)}
+                              <div className="research-muted">
+                                {verdict.rationale}
+                              </div>
+                            </>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </section>
         </div>
 

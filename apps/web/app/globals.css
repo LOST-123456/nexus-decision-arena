@@ -3265,6 +3265,179 @@ main:focus-visible {
   color: var(--content-on-nav-muted);
 }
 
+/* -------------------------------------------------------------------------
+   Phone navigation: the strip becomes a drawer
+   -------------------------------------------------------------------------
+   The trigger and the strip are exact opposites: one is hidden where the
+   other shows. Both stay in the DOM (rather than one being rendered
+   conditionally in JS) so the active-destination logic keeps a single source
+   and neither variant has to re-derive it; `display: none` takes the hidden
+   one out of the tab order and the accessibility tree either way.
+   ------------------------------------------------------------------------- */
+.app-nav-menu-button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  margin-left: auto;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-panel);
+  padding: 0.42rem 0.7rem;
+  color: var(--content-on-nav);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.app-nav-menu-button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+@media (min-width: 768px) {
+  .app-nav-menu-button {
+    display: none;
+  }
+}
+
+@media (max-width: 767px) {
+  .app-nav-links {
+    display: none;
+  }
+}
+
+.app-nav-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-dialog);
+  display: block;
+  background: var(--surface-scrim);
+  animation: dialog-fade var(--duration-fast) var(--ease-standard);
+}
+
+.app-nav-drawer {
+  display: grid;
+  gap: var(--space-3);
+  width: min(18rem, 86vw);
+  height: 100%;
+  margin-left: auto;
+  border-left: 1px solid var(--border-base);
+  background: var(--surface-panel);
+  padding: var(--space-4);
+  box-shadow: var(--shadow-3);
+  overflow-y: auto;
+  animation: dialog-pop var(--duration-fast) var(--ease-standard);
+}
+
+.app-nav-drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border-base);
+}
+
+.app-nav-drawer-title {
+  color: var(--content-primary);
+  font-size: var(--text-sm);
+  font-weight: 680;
+  letter-spacing: 0.04em;
+}
+
+.app-nav-drawer-close {
+  min-height: 24px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-panel-soft);
+  padding: 0.3rem 0.6rem;
+  color: var(--content-primary);
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+
+.app-nav-drawer-list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.app-nav-drawer-link {
+  display: block;
+  min-height: 44px;
+  padding: 0.7rem 0.75rem;
+  border-radius: var(--radius-md);
+  color: var(--content-subtle);
+  font-size: var(--text-base);
+  text-decoration: none;
+}
+
+.app-nav-drawer-link:hover {
+  background: var(--surface-hover);
+  color: var(--content-primary);
+}
+
+.app-nav-drawer-link[aria-current="page"] {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 620;
+}
+
+/* -------------------------------------------------------------------------
+   Breadcrumbs
+   -------------------------------------------------------------------------
+   Where the reader is, above the page. Small and quiet on purpose: the trail
+   is orientation, not content, and it must never compete with the page's own
+   heading for attention.
+   ------------------------------------------------------------------------- */
+.app-breadcrumbs {
+  padding: 0.45rem 1.25rem;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface-canvas);
+}
+
+.app-breadcrumbs ol {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.app-breadcrumbs li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.app-breadcrumbs a {
+  color: var(--content-muted);
+  font-size: var(--text-xs);
+  text-decoration: none;
+}
+
+.app-breadcrumbs a:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.app-breadcrumbs [aria-current="page"] {
+  color: var(--content-primary);
+  font-size: var(--text-xs);
+  font-weight: 620;
+  overflow-wrap: anywhere;
+}
+
+.app-breadcrumbs-sep {
+  color: var(--content-faint);
+  font-size: var(--text-xs);
+}
+
 .theme-toggle {
   display: inline-flex;
   align-items: center;

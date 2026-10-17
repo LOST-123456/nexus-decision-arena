@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { getFactCheckReport, type FactCheckReport } from "./api";
 import { FactCheckReportBody } from "./fact-check-report-body";
 import { ReportComparePanel, ReportVersionsPanel } from "./report-versions";
+import { AppBreadcrumbs } from "../../components/app-breadcrumbs";
 
 type ReportTab = "current" | "history" | "compare";
 
@@ -83,6 +84,11 @@ export function FactCheckReportView({ sessionId }: { sessionId: string }) {
 
   return (
     <div className="research-report-shell">
+      <AppBreadcrumbs
+        labels={{
+          [sessionId]: report.researchQuestion ?? "未命名研究"
+        }}
+      />
       {/*
         Three views of one report: the live one, the versions that were saved,
         and the difference between two of them. The live report stays the

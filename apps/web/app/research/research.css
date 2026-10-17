@@ -258,6 +258,17 @@
   flex-wrap: wrap;
 }
 
+/* The switcher is a labelled field, not a bare select: without the label it
+   reads as a filter for the page rather than a way to leave it. */
+.research-workspace-switch {
+  min-width: 12rem;
+  max-width: 18rem;
+}
+
+.research-workspace-switch .research-input {
+  width: 100%;
+}
+
 @media (max-width: 1180px) {
   .research-workspace-head {
     grid-template-columns: minmax(0, 1fr);

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   isEvidenceExpired,
@@ -8,9 +9,10 @@ import {
   type ClaimReview,
   type EvidenceGap,
   type EvidenceGapAction,
+  type LibrarySessionSummary,
   type SourceCopyRecord
 } from "@nexus/shared";
-import { getEvents } from "./api";
+import { getEvents, listLibrarySessions } from "./api";
 import {
   createEvidence,
   createResearchClaim,
@@ -66,6 +68,7 @@ import {
 } from "./labels";
 import { WorkspaceTabBar } from "./workspace-tab-bar";
 import { type Panel } from "./workspace-nav";
+import { AppBreadcrumbs } from "../../components/app-breadcrumbs";
 
 /**
  * One address inside a multi-url import. The state is the workspace's own
@@ -138,6 +141,7 @@ export function ResearchWorkspace({
     evidenceIds: string[];
   } | null;
 }) {
+  const router = useRouter();
   const [workspace, setWorkspace] = useState<ResearchWorkspace | null>(null);
   const [user, setUser] = useState<AuthUser | null>(null);
   const [selectedClaimId, setSelectedClaimId] = useState<string | null>(null);
@@ -161,6 +165,14 @@ export function ResearchWorkspace({
   const [importError, setImportError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * The researches this account can open, for the header's switcher.
+   *
+   * It is read once from the same endpoint the library uses, because the
+   * answer to "what else can I open?" is exactly the set of researches the
+   * account owns or was granted — not a second, differently-scoped list.
+   */
+  const [switchable, setSwitchable] = useState<LibrarySessionSummary[]>([]);
   /**
    * Why the research never arrived, with its status kept.
    *
@@ -215,6 +227,24 @@ export function ResearchWorkspace({
     setWorkspace(next);
     return next;
   }, [sessionId]);
+
+  // The switcher's options, read once. A failure here is deliberately silent:
+  // the workspace has its own load state, and a missing switcher is a smaller
+  // problem than a second error panel competing with the first.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await listLibrarySessions();
+        if (!cancelled) setSwitchable(response.sessions);
+      } catch {
+        if (!cancelled) setSwitchable([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   /**
    * The activity trail is read back from the event log, never assembled from
@@ -1033,6 +1063,17 @@ export function ResearchWorkspace({
       {tabs}
 
       {/*
+       * Where this research sits in the app, above the workspace header. The
+       * session segment is labelled with the real name rather than the id,
+       * because only this component has loaded it.
+       */}
+      <AppBreadcrumbs
+        labels={{
+          [sessionId]: workspace.session.title ?? "未命名研究"
+        }}
+      />
+
+      {/*
        * The workspace header: which research this is, where it stands, and the
        * actions that must not disappear when a panel takes over the screen.
        *
@@ -1088,6 +1129,35 @@ export function ResearchWorkspace({
         </dl>
 
         <div className="research-workspace-head-actions">
+          {/*
+            The switcher only exists when there is something to switch to: a
+            select holding one option is a control that cannot do anything,
+            and offering it anyway is the kind of fake affordance this app
+            refuses elsewhere.
+          */}
+          {switchable.length > 1 ? (
+            <div className="research-field research-workspace-switch">
+              <label className="research-label" htmlFor="research-session-switch">
+                切换研究
+              </label>
+              <select
+                id="research-session-switch"
+                className="research-input"
+                data-testid="research-session-switch"
+                value={sessionId}
+                onChange={(event) =>
+                  router.push(`/research/${event.target.value}`)
+                }
+              >
+                {switchable.map((row) => (
+                  <option key={row.sessionId} value={row.sessionId}>
+                    {row.access === "own" ? "自有" : "被授权"} ·{" "}
+                    {row.researchQuestion ?? row.sessionId.slice(0, 8)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
           <button
             type="button"
             className="research-button research-button-secondary"

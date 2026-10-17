@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 
@@ -82,6 +82,33 @@ describe("AppNav", () => {
   it("exposes the theme switch", () => {
     render(<AppNav />);
     expect(screen.getByTestId("theme-toggle")).toBeTruthy();
+  });
+
+  it("moves the destinations into a modal drawer for a phone-sized screen", () => {
+    mocks.usePathname.mockReturnValue("/research/library");
+    render(<AppNav />);
+    const trigger = screen.getByTestId("app-nav-menu-button");
+
+    // The trigger is a disclosure of a dialog, and says so before it is used.
+    expect(trigger.getAttribute("aria-haspopup")).toBe("dialog");
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    fireEvent.click(trigger);
+
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    const drawer = screen.getByRole("dialog", { name: "导航" });
+    expect(drawer.getAttribute("aria-modal")).toBe("true");
+    // The same destinations, marked the same way: the drawer is not a second
+    // navigation model with its own idea of where the reader is.
+    expect(
+      within(drawer).getByRole("link", { name: "资料库" }).getAttribute("aria-current")
+    ).toBe("page");
+
+    fireEvent.keyDown(drawer, { key: "Escape" });
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
   });
 });
 
