@@ -1,6 +1,7 @@
 import type { ExecutionEvent } from "@nexus/shared";
 import type { FastifyInstance } from "fastify";
 import type { AppDependencies } from "../../app";
+import { normalizeOrigin } from "../security/origin-policy";
 import type { EventBus } from "../../execution/event-bus";
 
 export const SSE_HEARTBEAT_MS = 15_000;
@@ -170,11 +171,16 @@ export function registerEventRoutes(
       reply.raw.once("error", cleanup);
 
       reply.hijack();
-      const origin = request.headers.origin;
+      const origin = normalizeOrigin(
+        typeof request.headers.origin === "string"
+          ? request.headers.origin
+          : undefined
+      );
       reply.raw.writeHead(200, {
         ...(origin && allowedOrigins.has(origin)
           ? {
               "access-control-allow-origin": origin,
+              "access-control-allow-credentials": "true",
               vary: "Origin"
             }
           : {}),

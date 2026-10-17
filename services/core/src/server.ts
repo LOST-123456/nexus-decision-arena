@@ -62,6 +62,10 @@ import {
 import { ResearchWorkspaceService } from "./research/workspace-service";
 import { DiskFileStorage } from "./research/file-storage";
 import { resolveAuthConfig } from "./auth-config";
+import {
+  resolveOriginPolicy,
+  type OriginPolicy
+} from "./api/security/origin-policy";
 import { createConsoleAuditSink } from "./auth-audit";
 import { LoginThrottle } from "./login-rate-limit";
 import { AuthService } from "./auth";
@@ -137,6 +141,27 @@ if (!authConfig.secretFromEnvironment) {
 if (authConfig.mode === "public" && !authConfig.secureCookies) {
   process.stderr.write(
     "[auth] This deployment is public but its session cookie is not marked Secure. Point WEB_ORIGIN at an https:// origin, or set AUTH_COOKIE_SECURE=true.\n"
+  );
+}
+
+/**
+ * Which browser origins may change state here, resolved before anything
+ * listens — a public deployment with no configured origin refuses to start
+ * rather than serving writes it cannot attribute to a page it trusts. See
+ * `api/security/origin-policy.ts`.
+ */
+const originPolicy: OriginPolicy = resolveOriginPolicy(process.env);
+if (originPolicy.source === "local-default") {
+  process.stderr.write(
+    `[security] WEB_ORIGIN is not set, so this local run trusts ${[...originPolicy.allowed].join(", ")}. Set WEB_ORIGIN (or WEB_ORIGINS) to name the web origin explicitly.\n`
+  );
+}
+const insecureOrigins = [...originPolicy.allowed].filter((origin) =>
+  origin.startsWith("http://")
+);
+if (authConfig.mode === "public" && insecureOrigins.length > 0) {
+  process.stderr.write(
+    `[security] This deployment is public but trusts plain-http origin(s): ${insecureOrigins.join(", ")}. Any page served over http on that host can change state here. Serve the UI over https.\n`
   );
 }
 
@@ -480,6 +505,7 @@ const app = createApp(
     ...(process.env.WEB_ORIGIN
       ? { webOrigin: process.env.WEB_ORIGIN }
       : {}),
+    originPolicy,
     authRuntime: {
       secureCookies: authConfig.secureCookies,
       loginThrottle: new LoginThrottle(),

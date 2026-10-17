@@ -43,6 +43,13 @@ import { registerResearchLibraryRoutes } from "./api/routes/research-library";
 import { registerTeamCollaborationRoutes } from "./api/routes/research-collaboration";
 import { registerAgentRunRoutes } from "./api/routes/agent-runs";
 import { EventBus } from "./execution/event-bus";
+import {
+  registerBrowserSecurity
+} from "./api/security/browser-security";
+import {
+  resolveOriginPolicy,
+  type OriginPolicy
+} from "./api/security/origin-policy";
 import type { CrossReviewService } from "./research/cross-review-service";
 import type { AgentRunService } from "./research/agent-run-service";
 import type { ClaimExtractionService } from "./research/claim-extraction-service";
@@ -228,7 +235,20 @@ export type AppDependencies = {
 
 export type AppOptions = {
   eventBus?: EventBus;
+  /**
+   * The web origin this deployment serves. Kept for the single-origin case;
+   * it seeds the trusted-origin policy. Every write request is checked against
+   * that policy — see `api/security/origin-policy.ts`.
+   */
   webOrigin?: string;
+  /**
+   * The trusted-origin policy, resolved once by the process that owns the
+   * deployment (`server.ts`). Left unset, it is resolved from the environment
+   * here, which is what a test app wants: the same rules, without a process.
+   */
+  originPolicy?: OriginPolicy;
+  /** Turn the CSRF guard off for a non-browser process. Never used in service. */
+  enforceOriginGuard?: boolean;
   runtimeInfo?: {
     mode: "mock" | "openai-compatible";
     provider: string;
@@ -253,34 +273,21 @@ export function createApp(
 ): FastifyInstance {
   const app = Fastify();
   const eventBus = options.eventBus ?? new EventBus();
-  const webOrigin =
-    options.webOrigin ??
-    process.env.WEB_ORIGIN ??
-    "http://localhost:3000";
-  const allowedOrigins = new Set([
-    webOrigin,
-    "http://localhost:3000",
-    "http://127.0.0.1:3000"
-  ]);
+  const originPolicy =
+    options.originPolicy ??
+    resolveOriginPolicy(process.env, {
+      webOriginOverride: options.webOrigin ?? ""
+    });
 
-  app.addHook("onRequest", async (request, reply) => {
-    const origin = request.headers.origin;
-    if (origin && allowedOrigins.has(origin)) {
-      reply.header("access-control-allow-origin", origin);
-      reply.header("vary", "Origin");
-      reply.header(
-        "access-control-allow-headers",
-        "content-type, idempotency-key, last-event-id"
-      );
-      reply.header(
-        "access-control-allow-methods",
-        "GET, POST, DELETE, OPTIONS"
-      );
-    }
-    if (request.method === "OPTIONS") {
-      return reply.code(204).send();
-    }
+  /**
+   * CORS and CSRF share this one policy. Installing them before any route
+   * means both run ahead of every handler, and that a refusal happens before a
+   * body is parsed or a lease is taken.
+   */
+  registerBrowserSecurity(app, originPolicy, {
+    enforce: options.enforceOriginGuard !== false
   });
+  const allowedOrigins = originPolicy.allowed;
 
   app.get("/health", async () => ({ status: "ok" }));
 

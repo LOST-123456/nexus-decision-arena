@@ -7,7 +7,7 @@ import {
   createConsoleAuditSink
 } from "../../auth-audit";
 import { LoginThrottle } from "../../login-rate-limit";
-import { AuthService, type AuthRole } from "../../auth";
+import { AuthService, SESSION_COOKIE_NAME, type AuthRole } from "../../auth";
 
 const LoginSchema = z.object({
   username: z.string().min(1),
@@ -30,10 +30,19 @@ export type AuthRouteOptions = {
   auditSink?: AuthAuditSink;
 };
 
-/** How the session cookie is described, in one place. */
+/**
+ * How the session cookie is described, in one place.
+ *
+ * `HttpOnly` keeps it away from scripts (an XSS cannot read it); `Path=/` with
+ * no `Domain` means exactly this host, so a sibling subdomain cannot receive it;
+ * `SameSite=Lax` keeps it off cross-site subresource requests. `Lax` is a
+ * browser-side default and is *not* the CSRF defence — the server-side origin
+ * guard in `api/security/` is, and it holds even when a deployment needs
+ * `SameSite=None` (which would additionally require `Secure`).
+ */
 function setSessionCookie(token: string, secure: boolean): string {
   const parts = [
-    `nexus_session=${token}`,
+    `${SESSION_COOKIE_NAME}=${token}`,
     "HttpOnly",
     "Path=/",
     "SameSite=Lax",
@@ -48,8 +57,11 @@ function setSessionCookie(token: string, secure: boolean): string {
 }
 
 function clearSessionCookie(secure: boolean): string {
+  // Every attribute of the cookie being removed must be repeated here, or the
+  // browser keeps a cookie it was told to drop: a mismatched `Path` alone is
+  // enough to leave the old value in place.
   const parts = [
-    "nexus_session=",
+    `${SESSION_COOKIE_NAME}=`,
     "HttpOnly",
     "Path=/",
     "SameSite=Lax",

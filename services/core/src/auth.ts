@@ -11,6 +11,15 @@ import type { FastifyRequest } from "fastify";
 
 export type AuthRole = "owner" | "reviewer" | "viewer";
 
+/**
+ * The one cookie this service authenticates with.
+ *
+ * Exported because three places must agree on it: the login route writes it,
+ * `userFromRequest` reads it, and the CSRF guard has to know whether a request
+ * is carrying ambient credentials at all.
+ */
+export const SESSION_COOKIE_NAME = "nexus_session";
+
 export type AuthUser = {
   id: string;
   username: string;
@@ -198,8 +207,8 @@ export class AuthService {
     const token = cookie
       .split(";")
       .map((part) => part.trim())
-      .find((part) => part.startsWith("nexus_session="))
-      ?.slice("nexus_session=".length);
+      .find((part) => part.startsWith(`${SESSION_COOKIE_NAME}=`))
+      ?.slice(`${SESSION_COOKIE_NAME}=`.length);
     if (!token) return null;
     const [payload, signature] = token.split(".");
     if (!payload || !signature) return null;
