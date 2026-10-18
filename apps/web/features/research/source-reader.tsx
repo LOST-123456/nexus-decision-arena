@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Claim, Evidence, SourceSnapshot } from "@nexus/shared";
 import {
   createEvidence,
@@ -12,14 +12,168 @@ import {
 import { StatusPill } from "./components";
 import { MultilingualResearchPanel } from "./multilingual-research";
 import {
+  directionLabel,
+  directionTone,
   formatDate,
+  formatDateTime,
   locatorStatusLabel,
   locatorStatusTone,
+  sourceKindLabel,
   sourceRetrievalLabel,
   sourceRetrievalTone,
   verificationLabel,
   verificationTone
 } from "./labels";
+
+/* ------------------------------------------------------------------ *
+ * Reading helpers
+ *
+ * These mirror what the server does in `html-extract.ts` so the reader can
+ * point at the same place the server pointed at. They are display-only: they
+ * decide which words get highlighted, never whether an excerpt is verified or
+ * whether it was located. The server's answer is the record; this only makes
+ * that record easier to see.
+ * ------------------------------------------------------------------ */
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Locates an excerpt in the stored capture.
+ *
+ * Exact match first, then a whitespace-tolerant pass — a page can reflow
+ * without losing a single word, and a researcher should not be told their
+ * quote vanished when it only moved a line. Returns an empty array when the
+ * text is not there, which the caller renders as "not in this version"
+ * rather than silently highlighting nothing.
+ */
+function locateExcerpt(
+  text: string,
+  phrase: string | null | undefined
+): Array<{ start: number; end: number }> {
+  const needle = phrase?.trim();
+  if (!needle) return [];
+
+  const exact = text.indexOf(needle);
+  if (exact !== -1) return [{ start: exact, end: exact + needle.length }];
+
+  const pattern = escapeRegExp(needle).replace(/\s+/g, "\\s+");
+  const regex = new RegExp(pattern, "gi");
+  const ranges: Array<{ start: number; end: number }> = [];
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(text)) !== null) {
+    ranges.push({ start: match.index, end: match.index + match[0].length });
+    if (match.index === regex.lastIndex) regex.lastIndex += 1;
+  }
+  return ranges;
+}
+
+/** Merge overlaps so adjacent phrases do not produce nested marks. */
+function mergeRanges(
+  ranges: Array<{ start: number; end: number }>
+): Array<{ start: number; end: number }> {
+  if (ranges.length === 0) return [];
+  const sorted = [...ranges].sort((a, b) => a.start - b.start || b.end - a.end);
+  const merged: Array<{ start: number; end: number }> = [];
+  for (const range of sorted) {
+    const last = merged[merged.length - 1];
+    if (last && range.start <= last.end) {
+      last.end = Math.max(last.end, range.end);
+    } else {
+      merged.push({ ...range });
+    }
+  }
+  return merged;
+}
+
+/**
+ * Renders stored text as text nodes with `<mark>` around the located ranges.
+ *
+ * The captured page is untrusted input. It is rendered by slicing a string
+ * into React children — never as HTML — so nothing in it can be interpreted,
+ * and this is also why a highlight cannot smuggle markup in.
+ */
+function ReaderText({
+  text,
+  phrases,
+  focusRange,
+  ref,
+  ...rest
+}: {
+  text: string;
+  phrases: readonly (string | null | undefined)[];
+  /** The range to scroll into view and mark as the current target. */
+  focusRange?: { start: number; end: number } | null | undefined;
+  ref?: React.Ref<HTMLPreElement> | undefined;
+} & Omit<React.HTMLAttributes<HTMLPreElement>, "children">) {
+  const ranges = useMemo(() => {
+    const all: Array<{ start: number; end: number }> = [];
+    for (const phrase of phrases) all.push(...locateExcerpt(text, phrase));
+    return mergeRanges(all);
+  }, [text, phrases]);
+
+  const nodes = useMemo(() => {
+    if (ranges.length === 0) return text;
+    const parts: React.ReactNode[] = [];
+    let cursor = 0;
+    ranges.forEach((range, index) => {
+      if (range.start > cursor) parts.push(text.slice(cursor, range.start));
+      const isFocus =
+        focusRange !== null &&
+        focusRange !== undefined &&
+        range.start === focusRange.start &&
+        range.end === focusRange.end;
+      parts.push(
+        <mark
+          key={`${range.start}-${index}`}
+          data-reader-focus={isFocus ? "true" : undefined}
+        >
+          {text.slice(range.start, range.end)}
+        </mark>
+      );
+      cursor = range.end;
+    });
+    if (cursor < text.length) parts.push(text.slice(cursor));
+    return parts;
+  }, [text, ranges, focusRange]);
+
+  return <pre {...rest} ref={ref}>{nodes}</pre>;
+}
+
+/**
+ * Whether a stored url can be opened as a link.
+ *
+ * The server validates urls as urls, which still admits schemes a browser
+ * would happily execute. Anything that is not plain http(s) is therefore shown
+ * as text — a researcher can always read and copy the address.
+ */
+function safeExternalUrl(value: string | null | undefined): string | null {
+  if (!value) return null;
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Who entered an excerpt, as a fact about the record.
+ *
+ * `createdBy` and `agentRunId` are stored per excerpt, so the distinction
+ * between "an agent proposed this" and "a person wrote this down" is read
+ * from the record rather than inferred from the wording of a free-text
+ * description. Neither value is a verification: an excerpt a person typed is
+ * still `unverified` until someone stands behind it.
+ */
+function excerptOriginLabel(evidence: Evidence): string | null {
+  if (evidence.createdBy === "agent") return "AI 抽取建议";
+  if (evidence.createdBy === "human") return "人工录入";
+  if (evidence.createdBy === "system") return "系统登记";
+  return null;
+}
 
 /**
  * The source reader: read the stored page text, pick the sentence that matters,
@@ -73,6 +227,13 @@ export function SourceReader({
   const [recheck, setRecheck] = useState<RecheckResult | null>(null);
   const [recheckError, setRecheckError] = useState<string | null>(null);
 
+  /* Which stored excerpt the text panel is currently pointing at. Changing the
+   * snapshot clears it: the same words may not be in a different capture, and
+   * highlighting a range from another version would be a false claim. */
+  const [focusedExcerptId, setFocusedExcerptId] = useState<string | null>(null);
+  const [selectionError, setSelectionError] = useState<string | null>(null);
+  const textRef = useRef<HTMLPreElement | null>(null);
+
   const load = useCallback(async () => {
     try {
       const next = await getSourceDetail(sessionId, sourceId);
@@ -97,6 +258,13 @@ export function SourceReader({
   useEffect(() => {
     setClaimId(defaultClaimId ?? "");
   }, [defaultClaimId]);
+
+  /* Switching version invalidates any located range: the excerpt was matched
+   * against a specific capture, and a different capture is a different text. */
+  useEffect(() => {
+    setFocusedExcerptId(null);
+    setSelectionError(null);
+  }, [selectedSnapshotId]);
 
   if (loadError) {
     return (
@@ -124,6 +292,78 @@ export function SourceReader({
   const currentHash = snapshots.find(
     (item) => item.id === detail.currentSnapshotId
   )?.contentHash;
+
+  /* Only http(s) addresses become links. A url that fails the check is still
+   * displayed as text so the researcher can read and copy it. */
+  const openableUrl = safeExternalUrl(source.canonicalUrl ?? source.url);
+
+  /* The excerpt the text panel is pointing at, and the range it occupies in the
+   * capture on screen. Null when nothing is focused, when the excerpt has no
+   * anchor text, or when its words are not in the version being read — the last
+   * case is a real answer (the quote is gone from this capture) and is reported
+   * as such rather than shown as an empty highlight. */
+  const focusedExcerpt: Evidence | null =
+    excerpts.find((item) => item.id === focusedExcerptId) ?? null;
+  const focusRange: { start: number; end: number } | null =
+    shown && focusedExcerpt
+      ? (locateExcerpt(shown.content, focusedExcerpt.anchorText ?? focusedExcerpt.content)[0] ??
+        null)
+      : null;
+
+  /* Every stored excerpt's anchor text, so the capture can show where each one
+   * came from. Excerpts without an anchor cannot be pointed at and are left
+   * out rather than matched against their own body text. */
+  const highlightPhrases = excerpts
+    .map((item) => item.anchorText)
+    .filter(
+      (value): value is string =>
+        typeof value === "string" && value.trim() !== ""
+    );
+
+  /**
+   * Copies the researcher's current text selection into the excerpt field.
+   *
+   * Reading a long capture and typing a sentence back out of it is the slowest
+   * step in this flow; selecting it instead keeps the excerpt byte-identical to
+   * what is on screen, which is what the server will try to locate. Selection is
+   * still available as text — this only saves retyping it.
+   */
+  function useSelectedText() {
+    const selection =
+      typeof window === "undefined" ? null : window.getSelection();
+    const selected = selection?.toString() ?? "";
+    if (selected.trim() === "") {
+      setSelectionError("请先在原文区域选中一段文字，再点击此处填入。");
+      return;
+    }
+    /* Only accept a selection made inside the capture on screen: text picked
+     * from elsewhere on the page would not be locatable in this source. */
+    const container = textRef.current;
+    const anchorNode = selection?.anchorNode ?? null;
+    const fromReader =
+      container !== null &&
+      anchorNode !== null &&
+      container.contains(anchorNode);
+    if (!fromReader) {
+      setSelectionError("选中的文字不在原文区域内，请在上方正文中选择。");
+      return;
+    }
+    setAnchorText(selected.trim());
+    setSelectionError(null);
+    setError(null);
+  }
+
+  /** Points the text panel at one stored excerpt and scrolls it into view. */
+  function focusExcerpt(evidence: Evidence) {
+    setFocusedExcerptId(evidence.id);
+    /* Let the highlight render before scrolling to it. */
+    window.requestAnimationFrame(() => {
+      const mark = textRef.current?.querySelector<HTMLElement>(
+        'mark[data-reader-focus="true"]'
+      );
+      mark?.scrollIntoView({ block: "center", behavior: "smooth" });
+    });
+  }
 
   async function confirmExcerpt() {
     const excerpt = anchorText.trim();
@@ -209,12 +449,43 @@ export function SourceReader({
         </div>
         <p className="research-question">{source.title}</p>
         <dl className="research-facts" style={{ marginTop: 8 }}>
+          <dt>来源类型</dt>
+          <dd>{sourceKindLabel(source.kind)}</dd>
           <dt>规范化地址</dt>
-          <dd style={{ overflowWrap: "anywhere" }}>
-            {source.canonicalUrl ?? source.url ?? "—"}
+          <dd>
+            {openableUrl ? (
+              <a
+                className="research-reader-link"
+                href={openableUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {source.canonicalUrl ?? source.url}
+              </a>
+            ) : (
+              /* No url, or a scheme that must not become a link. The address is
+               * still shown and copyable — only the navigation is withheld. */
+              (source.canonicalUrl ?? source.url ?? "—")
+            )}
           </dd>
+          {source.author || source.publisher || source.publishedAt ? (
+            <>
+              <dt>发布信息</dt>
+              <dd>
+                {[
+                  source.author,
+                  source.publisher,
+                  source.publishedAt
+                    ? `发布于 ${formatDate(source.publishedAt)}`
+                    : null
+                ]
+                  .filter((value): value is string => Boolean(value))
+                  .join(" · ")}
+              </dd>
+            </>
+          ) : null}
           <dt>抓取时间</dt>
-          <dd>{formatDate(source.retrievedAt)}</dd>
+          <dd>{formatDateTime(source.retrievedAt)}</dd>
           <dt>当前版本哈希</dt>
           <dd style={{ overflowWrap: "anywhere" }}>
             {source.contentHash ?? "—"}
@@ -294,27 +565,39 @@ export function SourceReader({
               </span>
             </div>
             <p className="research-muted">
-              以下是服务器抓取并保存的正文纯文本（不执行任何脚本）。复制其中连续的
-              一句话到下方填写框，即可作为引用确认。
+              以下是服务器抓取并保存的正文纯文本（不执行任何脚本）。选中其中连续的
+              一句话，点下方「填入选中文字」即可作为引用确认。已登记引用在原文中高亮显示。
             </p>
-            <pre
+            {/* Focusable and named so a keyboard user can scroll the capture:
+                a plain <pre> is not in the tab order at all. */}
+            <ReaderText
+              ref={textRef}
+              className="research-reader-text"
               data-testid="snapshot-content"
-              style={{
-                whiteSpace: "pre-wrap",
-                overflowWrap: "anywhere",
-                maxHeight: 320,
-                overflowY: "auto",
-                margin: "8px 0 0",
-                padding: 10,
-                borderRadius: 8,
-                background: "var(--wb-surface-subtle, rgba(0,0,0,0.03))",
-                font: "inherit",
-                fontSize: 13,
-                lineHeight: 1.6
-              }}
-            >
-              {shown?.content ?? ""}
-            </pre>
+              tabIndex={0}
+              role="region"
+              aria-label={
+                shown ? `来源原文，${shown.charCount} 字，可滚动` : "来源原文"
+              }
+              text={shown?.content ?? ""}
+              phrases={highlightPhrases}
+              focusRange={focusRange}
+            />
+            {/*
+              * Saying "the quote is not in this version" is a finding. A
+              * silently unhighlighted excerpt would read as a rendering fault.
+              */}
+            {focusedExcerpt && focusRange === null && shown ? (
+              <p
+                className="research-reader-note"
+                data-testid="reader-excerpt-not-in-version"
+              >
+                这段引用不在当前显示的版本里
+                {shown.contentHash === currentHash
+                  ? "，且它是最新版本——该摘录已无法在此原文中定位，需要重新确认。"
+                  : "。可切换到它被登记时的版本再核对。"}
+              </p>
+            ) : null}
           </section>
 
           {/* The multilingual reading aid: original stays the anchor, any
@@ -350,8 +633,27 @@ export function SourceReader({
                     className="research-textarea"
                     rows={3}
                     value={anchorText}
-                    onChange={(event) => setAnchorText(event.target.value)}
+                    onChange={(event) => {
+                      setAnchorText(event.target.value);
+                      setSelectionError(null);
+                    }}
                   />
+                  {/* Selecting the excerpt keeps it identical to the words on
+                      screen, which is what the server will try to locate. */}
+                  <div className="research-actions" style={{ marginTop: 6 }}>
+                    <button
+                      type="button"
+                      className="research-button research-button-secondary"
+                      onClick={useSelectedText}
+                    >
+                      填入选中文字
+                    </button>
+                  </div>
+                  {selectionError ? (
+                    <p className="research-error" role="alert">
+                      {selectionError}
+                    </p>
+                  ) : null}
                 </div>
                 <div className="research-field">
                   <label className="research-label" htmlFor="excerpt-title">
@@ -499,34 +801,106 @@ export function SourceReader({
               <p className="research-muted">还没有从这个来源登记的引用。</p>
             ) : (
               <ul className="research-plain-list" data-testid="source-excerpts">
-                {excerpts.map((item) => (
-                  <li key={item.id} className="research-challenge">
-                    <div className="research-claim-meta">
-                      <StatusPill tone={locatorStatusTone(item.locatorStatus)}>
-                        {locatorStatusLabel(item.locatorStatus)}
-                      </StatusPill>
-                      <StatusPill tone={verificationTone(item.verificationStatus)}>
-                        {verificationLabel(item.verificationStatus)}
-                      </StatusPill>
-                      <span className="research-muted">
-                        {item.locator ?? "—"}
-                      </span>
-                    </div>
-                    <div>
-                      <strong>{item.title}</strong>
-                    </div>
-                    <div className="research-excerpt">{item.content}</div>
-                    {onOpenEvidence ? (
-                      <button
-                        type="button"
-                        className="research-button research-button-secondary"
-                        onClick={() => onOpenEvidence(item.id)}
-                      >
-                        打开原始详情
-                      </button>
-                    ) : null}
-                  </li>
-                ))}
+                {excerpts.map((item) => {
+                  const origin = excerptOriginLabel(item);
+                  const canLocate =
+                    shown !== undefined &&
+                    (item.anchorText ?? item.content).trim() !== "" &&
+                    locateExcerpt(shown.content, item.anchorText ?? item.content)
+                      .length > 0;
+                  return (
+                    <li key={item.id} className="research-challenge">
+                      <div className="research-claim-meta">
+                        <StatusPill tone={locatorStatusTone(item.locatorStatus)}>
+                          {locatorStatusLabel(item.locatorStatus)}
+                        </StatusPill>
+                        <StatusPill tone={verificationTone(item.verificationStatus)}>
+                          {verificationLabel(item.verificationStatus)}
+                        </StatusPill>
+                        {/* How the excerpt bears on its claim(s). Read from the
+                            stored `direction`, never derived from wording. */}
+                        <StatusPill tone={directionTone(item.direction)}>
+                          {directionLabel(item.direction)}
+                        </StatusPill>
+                        {/*
+                          * Who entered it. `createdBy` is stored per excerpt, so
+                          * this is a fact about the record — not a claim about
+                          * whether its contents are any good.
+                          */}
+                        {origin ? (
+                          <StatusPill
+                            tone={
+                              item.createdBy === "agent"
+                                ? "research-pill-unverified"
+                                : "research-pill-neutral"
+                            }
+                          >
+                            {origin}
+                          </StatusPill>
+                        ) : null}
+                        <span className="research-muted">
+                          {item.locator ?? "未提供定位信息"}
+                        </span>
+                      </div>
+                      <div>
+                        <strong>{item.title}</strong>
+                      </div>
+                      <div className="research-excerpt">{item.content}</div>
+                      {/*
+                        * Verification context. Present only when the record has
+                        * it: an unverified excerpt has no reviewer, and printing
+                        * an empty one would imply a check that never happened.
+                        */}
+                      <div className="research-reader-attribution">
+                        {item.verificationStatus === "unverified" ? (
+                          <span>尚未由人工核实</span>
+                        ) : (
+                          <>
+                            <span>
+                              核验人：{item.verifiedBy ?? "未记录"}
+                            </span>
+                            <span>核验时间：{formatDateTime(item.verifiedAt)}</span>
+                          </>
+                        )}
+                        {item.verificationNote ? (
+                          <span>核验备注：{item.verificationNote}</span>
+                        ) : null}
+                      </div>
+                      {item.claimIds.length > 0 ? (
+                        <p className="research-reader-note">
+                          关联主张：
+                          {item.claimIds
+                            .map((id) =>
+                              claims.find((claim) => claim.id === id)?.statement ??
+                              "（主张已不在当前研究）"
+                            )
+                            .join("；")}
+                        </p>
+                      ) : null}
+                      <div className="research-actions" style={{ marginTop: 6 }}>
+                        {canLocate ? (
+                          <button
+                            type="button"
+                            className="research-button research-button-secondary"
+                            onClick={() => focusExcerpt(item)}
+                            aria-pressed={focusedExcerptId === item.id}
+                          >
+                            在原文中定位
+                          </button>
+                        ) : null}
+                        {onOpenEvidence ? (
+                          <button
+                            type="button"
+                            className="research-button research-button-secondary"
+                            onClick={() => onOpenEvidence(item.id)}
+                          >
+                            打开原始详情
+                          </button>
+                        ) : null}
+                      </div>
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </section>

@@ -668,6 +668,90 @@
   font-size: 12.5px;
 }
 
+/* ---------- source reader reading surface ----------
+ *
+ * The reader is the one place a researcher reads a long capture for a long
+ * time, so the text column is width-capped and line-height opened up rather
+ * than left at the density the rest of the workspace runs at. Everything here
+ * uses tokens that already exist — no second palette.
+ */
+
+.research-reader-text {
+  /* A capped measure: long lines are the main reason a wall of captured text
+     is hard to read, and this is the one surface where that matters most. */
+  max-width: 72ch;
+  margin: 8px 0 0;
+  padding: 12px 14px;
+  border: 1px solid var(--rw-line);
+  border-radius: 8px;
+  background: var(--rw-panel-soft);
+  color: var(--rw-text);
+  font: inherit;
+  font-size: 13.5px;
+  line-height: 1.75;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  /* Height and scrolling move out of inline styles so narrow screens and
+     long captures can be handled by the breakpoints below. */
+  max-height: min(60vh, 34rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* Keyboard users must be able to scroll a long capture: a plain <pre> is not
+ * focusable, so without this the text is unreachable without a pointer. */
+.research-reader-text:focus-visible {
+  outline: 2px solid var(--rw-focus);
+  outline-offset: 2px;
+}
+
+.research-reader-text mark {
+  background: var(--tint-warning-bg);
+  color: var(--rw-text);
+  box-shadow: 0 0 0 1px var(--tint-warning-border);
+  border-radius: 2px;
+}
+
+/* The excerpt an excerpt list entry points at, once it has been located. */
+.research-reader-text mark[data-reader-focus="true"] {
+  background: var(--tint-accent-bg);
+  box-shadow: 0 0 0 1px var(--tint-accent-border);
+}
+
+/* A link out to the captured page. Wrapping matters as much as the colour: a
+ * long url has to break rather than push the panel wide. */
+.research-reader-link {
+  color: var(--rw-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.research-reader-link:focus-visible {
+  outline: 2px solid var(--rw-focus);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* Metadata that belongs to one excerpt rather than to the source as a whole. */
+.research-reader-attribution {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--rw-muted);
+}
+
+.research-reader-note {
+  margin: 6px 0 0;
+  font-size: 12.5px;
+  color: var(--rw-muted);
+  overflow-wrap: anywhere;
+}
+
 /* ---------- source detail ---------- */
 
 .research-source-title {
@@ -1502,5 +1586,34 @@
   }
   .research-tab-strip {
     flex-wrap: nowrap;
+  }
+}
+
+/*
+ * The reader's own narrow-screen behaviour. Handled here rather than by
+ * changing the workspace grid, so a single panel cannot reflow the pages
+ * around it.
+ */
+@media (max-width: 767px) {
+  .research-reader-text {
+    /* A fixed pixel ceiling is meaningless on a phone: 60vh already scales,
+       and dropping the absolute cap lets a short capture stop short of a
+       scrollbar it does not need. */
+    max-height: 60vh;
+    font-size: 13px;
+    line-height: 1.7;
+    padding: 10px 11px;
+  }
+  .research-reader-attribution {
+    gap: 4px 8px;
+  }
+}
+
+/* 320px: the narrowest phone still in use. */
+@media (max-width: 400px) {
+  .research-reader-text {
+    max-height: 52vh;
+    font-size: 12.5px;
+    padding: 9px 10px;
   }
 }
