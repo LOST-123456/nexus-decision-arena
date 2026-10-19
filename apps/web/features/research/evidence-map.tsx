@@ -20,6 +20,7 @@ import {
   EVIDENCE_MAP_FILTERS,
   toEvidenceMapFlow,
   type EvidenceMapFilter,
+  type EvidenceMapFlowEdge,
   type EvidenceMapFlowNode
 } from "./evidence-map-adapter";
 import {
@@ -43,6 +44,145 @@ import {
 const nodeTypes = {
   "evidence-map": EvidenceMapGraphNode
 };
+
+/* ------------------------------------------------------------------ *
+ * Flow identity
+ *
+ * React Flow adopts the `nodes` prop by reference: a new array of new node
+ * objects makes `StoreUpdater` call `setNodes`, and `adoptUserNodes` then
+ * rebuilds every internal node whose user object it has not seen before —
+ * resetting `internals.handleBounds` for all of them, because the flow nodes
+ * this panel passes never carry a `measured` field. `nodesMeasured` drops
+ * back to false until the ResizeObserver reports the unchanged sizes again.
+ *
+ * Under `next dev`, React Strict Mode runs the panel's load effect twice, so
+ * a re-fetch returns an equal graph as a new object and the flow derived from
+ * it churns for no visible reason. A stable flow identity is what keeps the
+ * readiness signal honest AND still: equal content must not look like a
+ * layout change.
+ * ------------------------------------------------------------------ */
+
+/** Shared empty flow: an empty graph has no nodes to give identity to. */
+const EMPTY_EVIDENCE_MAP_FLOW: {
+  nodes: EvidenceMapFlowNode[];
+  edges: EvidenceMapFlowEdge[];
+} = { nodes: [], edges: [] };
+
+/* Control characters as separators: real field values (ids, labels, status
+ * words) never contain them, so no two different structures can collide into
+ * the same key by accident. */
+const FIELD_SEP = "\u0000";
+const RECORD_SEP = "\u001e";
+const SECTION_SEP = "\u001f";
+
+/**
+ * One field of a node or edge record as a key fragment.
+ *
+ * Two defences are load-bearing here, and each closes a collision a plain
+ * `String(value)` leaves open:
+ *
+ *  1. A type tag. `5` and `"5"` stringify identically, as do `true` and
+ *     `"true"`; without the tag a record whose field flipped between a number
+ *     and its string form would keep the old key and the old picture.
+ *
+ *  2. `JSON.stringify` for strings. It escapes every control character, so a
+ *     label carrying a raw `\u0000` can no longer extend past its own field
+ *     and forge the separator of the next one — the equal-key/different-
+ *     content case this whole key exists to prevent. `=` inside a value was
+ *     never ambiguous (field names are a fixed, known set), but quoting keeps
+ *     that property obvious rather than incidental.
+ */
+function primitiveKeyPart(value: unknown): string {
+  if (value === null) return "null";
+  switch (typeof value) {
+    case "string":
+      return `s${JSON.stringify(value)}`;
+    case "number":
+      return `n${value}`;
+    case "boolean":
+      return `b${value}`;
+    case "undefined":
+      return "u";
+    default:
+      /* Every current node/edge field is a primitive. If one ever stops
+       * being one, fall back to a structural serialization so two different
+       * values can never share a key — an equal-looking key must never be
+       * produced by different content. */
+      return `o${JSON.stringify(value)}`;
+  }
+}
+
+/**
+ * A content key for everything the flow derives from a graph.
+ *
+ * It covers every field of every node and edge record — ids, types, labels,
+ * statuses, positions' inputs, relations, confidences — plus the filter, in
+ * graph order. Two graphs with the same key draw exactly the same picture.
+ *
+ * It deliberately excludes `generatedAt` and `coverage`: neither reaches the
+ * flow (the node detail panel reads the live `graph` object, not the flow),
+ * and keying on a refresh timestamp would rebuild the flow on every re-fetch
+ * even when nothing on screen would change — the very churn this exists to
+ * stop. Node and edge records are flat primitive objects, so the key is a
+ * join, not a serialization of the whole graph.
+ */
+export function evidenceMapFlowContentKey(
+  graph: EvidenceMapGraph,
+  filter: EvidenceMapFilter
+): string {
+  const recordKey = (record: Record<string, unknown>): string =>
+    Object.keys(record)
+      .map((field) => `${field}=${primitiveKeyPart(record[field])}`)
+      .join(FIELD_SEP);
+
+  const nodeKeys = graph.nodes.map((node) =>
+    recordKey(node as unknown as Record<string, unknown>)
+  );
+  const edgeKeys = graph.edges.map((edge) =>
+    recordKey(edge as unknown as Record<string, unknown>)
+  );
+
+  return [
+    graph.sessionId,
+    filter,
+    nodeKeys.join(RECORD_SEP),
+    edgeKeys.join(RECORD_SEP)
+  ].join(SECTION_SEP);
+}
+
+/**
+ * The flow for the current graph and filter, with a stable identity across
+ * re-fetches that return equal content.
+ *
+ * The memo is keyed on the content key rather than the graph object: when a
+ * second fetch (Strict Mode's double effect, a retry, a future refresh)
+ * returns an equal graph, the previously built flow is reused — same node
+ * objects, so React Flow sees an unchanged `nodes` prop, never re-adopts the
+ * nodes, and never resets the measurement the readiness signal reads. When
+ * the content really differs — a label, a status, an edge, the filter, the
+ * session — the key differs and the flow is rebuilt from the live graph.
+ *
+ * The hook is component-local by construction: nothing is cached across
+ * panels, so two research sessions can never borrow each other's flow.
+ */
+export function useEvidenceMapFlow(
+  graph: EvidenceMapGraph | null,
+  filter: EvidenceMapFilter
+): { nodes: EvidenceMapFlowNode[]; edges: EvidenceMapFlowEdge[] } {
+  const contentKey = useMemo(
+    () => (graph ? evidenceMapFlowContentKey(graph, filter) : null),
+    [graph, filter]
+  );
+
+  return useMemo(() => {
+    if (graph === null || contentKey === null) return EMPTY_EVIDENCE_MAP_FLOW;
+    return toEvidenceMapFlow(applyEvidenceMapFilter(graph, filter));
+    // `graph` and `filter` are captured; `contentKey` encodes every field the
+    // flow derives from them, so this rebuilds exactly when the drawn picture
+    // would change — and never when only the object identity changed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contentKey]);
+}
 
 /**
  * The slice of React Flow's internal node record this panel needs in order to
@@ -374,14 +514,12 @@ export function EvidenceMapPanel({ sessionId }: { sessionId: string }) {
     void load();
   }, [load]);
 
-  const filtered = useMemo(
-    () => (graph ? applyEvidenceMapFilter(graph, filter) : null),
-    [graph, filter]
-  );
-  const flow = useMemo(
-    () => (filtered ? toEvidenceMapFlow(filtered) : { nodes: [], edges: [] }),
-    [filtered]
-  );
+  // The flow holds its identity across re-fetches that return equal content
+  // (see useEvidenceMapFlow): React Flow sees an unchanged `nodes` prop, does
+  // not re-adopt the nodes, and does not reset the measurement the readiness
+  // signal reads. A real content change — label, status, edge, filter,
+  // session — still rebuilds it from the live graph.
+  const flow = useEvidenceMapFlow(graph, filter);
   // Identity-stable, because the reporter subscribes to it.
   const flowNodeIds = useMemo(
     () => new Set(flow.nodes.map((node) => node.id)),
