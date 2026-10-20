@@ -33,7 +33,10 @@ import type { SourceIndependenceService } from "./source-independence-service";
  *
  * There is no cache and no write path. A read never mutates a claim, a
  * verdict, a verification state, a ruling or a saved snapshot, and the same
- * rows always produce the same assessment.
+ * rows always produce the same assessment. The narrow views
+ * (`assessClaims` / `assessFindings`) are pure derivations of an assessment
+ * that was computed exactly once — either one the caller already holds
+ * (`existing`) or one this call computes itself.
  */
 export type ResearchQualityDependencies = {
   /** The same workspace projection the research UI renders. */
@@ -59,6 +62,69 @@ export type ResearchQualityFindingFilter = {
   /** Cap on returned rows; the total is reported alongside. */
   limit?: number | undefined;
 };
+
+/**
+ * The claims view, derived from an assessment that has already been computed.
+ *
+ * Pure and synchronous: it reads `assessment.claimFindings` and nothing else,
+ * so a caller that already holds an assessment gets this view without a
+ * second projection. The `sessionId` guard keeps an assessment belonging to
+ * another session from being served under this one's id — the narrow views
+ * are session-scoped exactly like the full assessment is.
+ */
+export function deriveClaimsView(
+  sessionId: string,
+  assessment: ResearchQualityAssessment
+): {
+  sessionId: string;
+  assessedAt: string;
+  ruleVersion: string;
+  claimFindings: ResearchQualityAssessment["claimFindings"];
+} | null {
+  if (assessment.sessionId !== sessionId) return null;
+  return {
+    sessionId: assessment.sessionId,
+    assessedAt: assessment.assessedAt,
+    ruleVersion: assessment.ruleVersion,
+    claimFindings: assessment.claimFindings
+  };
+}
+
+/**
+ * The findings view, derived from an assessment that has already been
+ * computed. The narrowing rules are the ones the endpoint always had —
+ * severity and category filters, then the 500-row cap — applied to the
+ * assessment's own findings, with the total counted before the cap.
+ */
+export function deriveFindingsView(
+  sessionId: string,
+  assessment: ResearchQualityAssessment,
+  filter: ResearchQualityFindingFilter = {}
+): {
+  sessionId: string;
+  assessedAt: string;
+  ruleVersion: string;
+  total: number;
+  findings: ResearchQualityAssessment["findings"];
+} | null {
+  if (assessment.sessionId !== sessionId) return null;
+  const narrowed = assessment.findings.filter((finding) => {
+    if (filter.severity && finding.severity !== filter.severity) return false;
+    if (filter.category && finding.category !== filter.category) return false;
+    return true;
+  });
+  const limit =
+    typeof filter.limit === "number" && filter.limit > 0
+      ? Math.min(filter.limit, 500)
+      : undefined;
+  return {
+    sessionId: assessment.sessionId,
+    assessedAt: assessment.assessedAt,
+    ruleVersion: assessment.ruleVersion,
+    total: narrowed.length,
+    findings: limit ? narrowed.slice(0, limit) : narrowed
+  };
+}
 
 export class ResearchQualityService {
   constructor(private readonly dependencies: ResearchQualityDependencies) {}
@@ -120,30 +186,39 @@ export class ResearchQualityService {
     });
   }
 
-  /** The claim-level diagnostics alone, for a claim-oriented view. */
-  async assessClaims(sessionId: string): Promise<{
+  /**
+   * The claim-level diagnostics alone, for a claim-oriented view.
+   *
+   * `existing` lets a caller that has already computed an assessment reuse
+   * it: the view is then a pure derivation with zero database reads and zero
+   * projection work. Without it, one assessment is computed — never two.
+   */
+  async assessClaims(
+    sessionId: string,
+    existing?: ResearchQualityAssessment | null
+  ): Promise<{
     sessionId: string;
     assessedAt: string;
     ruleVersion: string;
     claimFindings: ResearchQualityAssessment["claimFindings"];
   } | null> {
-    const assessment = await this.assess(sessionId);
+    const assessment = existing ?? (await this.assess(sessionId));
     if (!assessment) return null;
-    return {
-      sessionId: assessment.sessionId,
-      assessedAt: assessment.assessedAt,
-      ruleVersion: assessment.ruleVersion,
-      claimFindings: assessment.claimFindings
-    };
+    return deriveClaimsView(sessionId, assessment);
   }
 
   /**
    * The findings alone, optionally narrowed. The total is the unfiltered
    * count, so a limited view still says how much there is.
+   *
+   * `existing` reuses an assessment this caller already holds, so picking a
+   * severity never re-runs the projection; the same derivation is what the
+   * full assessment's findings come from.
    */
   async assessFindings(
     sessionId: string,
-    filter: ResearchQualityFindingFilter = {}
+    filter: ResearchQualityFindingFilter = {},
+    existing?: ResearchQualityAssessment | null
   ): Promise<{
     sessionId: string;
     assessedAt: string;
@@ -151,24 +226,9 @@ export class ResearchQualityService {
     total: number;
     findings: ResearchQualityAssessment["findings"];
   } | null> {
-    const assessment = await this.assess(sessionId);
+    const assessment = existing ?? (await this.assess(sessionId));
     if (!assessment) return null;
-    const narrowed = assessment.findings.filter((finding) => {
-      if (filter.severity && finding.severity !== filter.severity) return false;
-      if (filter.category && finding.category !== filter.category) return false;
-      return true;
-    });
-    const limit =
-      typeof filter.limit === "number" && filter.limit > 0
-        ? Math.min(filter.limit, 500)
-        : undefined;
-    return {
-      sessionId: assessment.sessionId,
-      assessedAt: assessment.assessedAt,
-      ruleVersion: assessment.ruleVersion,
-      total: narrowed.length,
-      findings: limit ? narrowed.slice(0, limit) : narrowed
-    };
+    return deriveFindingsView(sessionId, assessment, filter);
   }
 
   /* ---------------------------------------------------------------- *

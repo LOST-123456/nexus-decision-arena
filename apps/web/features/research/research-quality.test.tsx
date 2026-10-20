@@ -9,10 +9,10 @@ import { ResearchQualityAssessmentSchema } from "@nexus/shared";
  * Only the data access is faked. What these tests pin down is the honesty
  * contract: a dimension that could not be computed reads 无法计算 and never 0
  * or 100, the overall score is refused rather than guessed, status is spelled
- * out in words, a severity filter re-asks the server while the total stays
- * unfiltered, every action button leads somewhere real (and a finding with
- * nowhere to go renders no button at all), and a failure is stated with a
- * working retry.
+ * out in words, one assessment drives every view (so a severity pick filters
+ * locally and never re-runs the projection), every action button leads
+ * somewhere real (and a finding with nowhere to go renders no button at all),
+ * and a failure is stated with a working retry.
  */
 
 const getResearchQuality = vi.fn();
@@ -217,35 +217,21 @@ function assessmentFixture(overrides: Record<string, unknown> = {}) {
   });
 }
 
-function claimsView() {
-  return {
-    sessionId: SESSION_ID,
-    assessedAt: ASSESSED_AT,
-    ruleVersion: RULE_VERSION,
-    claimFindings: assessmentFixture().claimFindings
-  };
-}
-
-function findingsView(findings: unknown[], total = findings.length) {
-  return {
-    sessionId: SESSION_ID,
-    assessedAt: ASSESSED_AT,
-    ruleVersion: RULE_VERSION,
-    total,
-    findings
-  };
-}
-
 const noNavigation = {};
 
 beforeEach(() => {
   getResearchQuality.mockReset();
   getResearchQualityClaims.mockReset();
   getResearchQualityFindings.mockReset();
+  // One assessment is all the panel asks for; the narrow endpoints must not
+  // be called at all, and these defaults make an accidental call fail loudly
+  // rather than resolve into a second reading of the same rows.
   getResearchQuality.mockResolvedValue(assessmentFixture());
-  getResearchQualityClaims.mockResolvedValue(claimsView());
-  getResearchQualityFindings.mockResolvedValue(
-    findingsView(assessmentFixture().findings)
+  getResearchQualityClaims.mockRejectedValue(
+    new Error("the claims endpoint must not be requested")
+  );
+  getResearchQualityFindings.mockRejectedValue(
+    new Error("the findings endpoint must not be requested")
   );
 });
 
@@ -398,12 +384,10 @@ describe("ResearchQualityPanel · claim diagnostics", () => {
   });
 
   it("says so when there is no claim to diagnose", async () => {
-    getResearchQualityClaims.mockResolvedValue({
-      sessionId: SESSION_ID,
-      assessedAt: ASSESSED_AT,
-      ruleVersion: RULE_VERSION,
-      claimFindings: []
-    });
+    // The empty state comes from the one assessment the panel already
+    // loaded; asking the narrow claims endpoint again would be a second
+    // reading of the same rows, so it must stay untouched.
+    getResearchQuality.mockResolvedValue(assessmentFixture({ claimFindings: [] }));
     render(
       <ResearchQualityPanel sessionId={SESSION_ID} navigation={noNavigation} />
     );
@@ -413,6 +397,9 @@ describe("ResearchQualityPanel · claim diagnostics", () => {
     expect(screen.getByTestId("quality-claims-headline").textContent).toContain(
       "没有任何主张"
     );
+    expect(getResearchQuality).toHaveBeenCalledTimes(1);
+    expect(getResearchQualityClaims).not.toHaveBeenCalled();
+    expect(getResearchQualityFindings).not.toHaveBeenCalled();
   });
 
   it("keeps one list item per claim even when the claim carries recommendations", async () => {
@@ -421,19 +408,14 @@ describe("ResearchQualityPanel · claim diagnostics", () => {
     // paragraphs and the list stays countable — one item per claim.
     const claimFindings = [
       {
-        ...claimsView().claimFindings[0],
+        ...assessmentFixture().claimFindings[0],
         recommendations: [
           "补充该主张的证据材料",
           "把研究缺口纳入计划"
         ]
       }
     ];
-    getResearchQualityClaims.mockResolvedValue({
-      sessionId: SESSION_ID,
-      assessedAt: ASSESSED_AT,
-      ruleVersion: RULE_VERSION,
-      claimFindings
-    });
+    getResearchQuality.mockResolvedValue(assessmentFixture({ claimFindings }));
     render(
       <ResearchQualityPanel sessionId={SESSION_ID} navigation={noNavigation} />
     );
@@ -444,38 +426,89 @@ describe("ResearchQualityPanel · claim diagnostics", () => {
     expect(items).toHaveLength(1);
     expect(items[0]?.textContent).toContain("补充该主张的证据材料");
     expect(items[0]?.textContent).toContain("把研究缺口纳入计划");
+    // The claim list came from the same single assessment as everything else.
+    expect(getResearchQuality).toHaveBeenCalledTimes(1);
+    expect(getResearchQualityClaims).not.toHaveBeenCalled();
   });
 });
 
 describe("ResearchQualityPanel · findings", () => {
-  it("re-asks the server when a severity is picked, and keeps the total", async () => {
-    const critical = assessmentFixture().findings.filter(
-      (finding) => finding.severity === "critical"
-    );
-    getResearchQualityFindings.mockResolvedValue(findingsView(critical, 3));
-
+  it("filters locally when a severity is picked, and keeps the total", async () => {
     render(
       <ResearchQualityPanel sessionId={SESSION_ID} navigation={noNavigation} />
     );
     await waitFor(() =>
       expect(screen.getByTestId("quality-findings")).toBeTruthy()
     );
-    expect(getResearchQualityFindings).toHaveBeenCalledWith(SESSION_ID, {});
+    // The one assessment the panel loaded already carried the findings; a
+    // severity pick narrows them here and must not re-run the projection.
+    expect(getResearchQuality).toHaveBeenCalledTimes(1);
 
     fireEvent.click(screen.getByTestId("quality-filter-critical"));
     await waitFor(() =>
-      expect(getResearchQualityFindings).toHaveBeenCalledWith(SESSION_ID, {
-        severity: "critical"
-      })
+      expect(
+        screen.getByText(/质量问题（筛选后 1 条，共 1 条）/)
+      ).toBeTruthy()
     );
-    // The server narrowed the rows; the reported total is still the full one.
-    expect(screen.getByTestId("quality-filters").textContent).toContain("全部");
-    expect(
-      screen.getByText(/质量问题（筛选后 1 条，共 3 条）/)
-    ).toBeTruthy();
+    // Still exactly one request: no findings endpoint call, no re-assessment.
+    expect(getResearchQuality).toHaveBeenCalledTimes(1);
+    expect(getResearchQualityClaims).not.toHaveBeenCalled();
+    expect(getResearchQualityFindings).not.toHaveBeenCalled();
     expect(screen.getByTestId("quality-filter-critical").getAttribute("aria-pressed")).toBe(
       "true"
     );
+    // The critical row is the only one left on screen.
+    expect(
+      screen.queryByTestId(`quality-finding-stale_source:${EVIDENCE_ID}`)
+    ).toBeNull();
+    expect(
+      screen.getByTestId(`quality-finding-missing_evidence:${CLAIM_ID}`)
+    ).toBeTruthy();
+  });
+
+  it("loads one assessment for every view, not one per endpoint", async () => {
+    render(
+      <ResearchQualityPanel sessionId={SESSION_ID} navigation={noNavigation} />
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("quality-dimensions")).toBeTruthy()
+    );
+    // Overview, dimensions, claims and findings all rendered — from a single
+    // request. The narrow endpoints were not asked at all.
+    expect(screen.getByTestId("quality-overall-score")).toBeTruthy();
+    expect(screen.getByTestId("quality-claims")).toBeTruthy();
+    expect(screen.getByTestId("quality-findings")).toBeTruthy();
+    expect(getResearchQuality).toHaveBeenCalledTimes(1);
+    expect(getResearchQuality).toHaveBeenCalledWith(SESSION_ID);
+    expect(getResearchQualityClaims).not.toHaveBeenCalled();
+    expect(getResearchQualityFindings).not.toHaveBeenCalled();
+  });
+
+  it("keeps one assessedAt and fingerprint across every view", async () => {
+    render(
+      <ResearchQualityPanel sessionId={SESSION_ID} navigation={noNavigation} />
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("quality-findings")).toBeTruthy()
+    );
+    // The overview is the only place the timestamp and fingerprint are
+    // printed; both come from the same assessment object the claims and
+    // findings render from, so the views cannot disagree by construction.
+    const overview = screen.getByTestId("quality-overview");
+    expect(overview.textContent).toContain("2026-10-12");
+    expect(overview.textContent).toContain("0123456789abcdef");
+    // One severity switch later, the same reading is still on screen —
+    // no second assessment was fetched to redraw the list.
+    fireEvent.click(screen.getByTestId("quality-filter-warning"));
+    await waitFor(() =>
+      expect(
+        screen.getByText(/质量问题（筛选后 1 条，共 1 条）/)
+      ).toBeTruthy()
+    );
+    expect(screen.getByTestId("quality-overview").textContent).toContain(
+      "2026-10-12"
+    );
+    expect(getResearchQuality).toHaveBeenCalledTimes(1);
   });
 
   it("renders an action only when it leads somewhere real", async () => {
@@ -534,7 +567,7 @@ describe("ResearchQualityPanel · findings", () => {
   });
 
   it("says an empty result is not a clean bill of health", async () => {
-    getResearchQualityFindings.mockResolvedValue(findingsView([]));
+    getResearchQuality.mockResolvedValue(assessmentFixture({ findings: [] }));
     render(
       <ResearchQualityPanel sessionId={SESSION_ID} navigation={noNavigation} />
     );
@@ -544,6 +577,9 @@ describe("ResearchQualityPanel · findings", () => {
     expect(screen.getByTestId("quality-findings-empty").textContent).toContain(
       "没有发现问题不等于研究没有问题"
     );
+    // The empty list came from the one assessment, not from a second call.
+    expect(getResearchQuality).toHaveBeenCalledTimes(1);
+    expect(getResearchQualityFindings).not.toHaveBeenCalled();
   });
 });
 

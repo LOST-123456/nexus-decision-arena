@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   ClaimSchema,
   deriveClaimVerdicts,
@@ -20,7 +20,11 @@ import {
   type SourceLink,
   type SourceSnapshot
 } from "@nexus/shared";
-import { ResearchQualityService } from "./research-quality-service";
+import {
+  deriveClaimsView,
+  deriveFindingsView,
+  ResearchQualityService
+} from "./research-quality-service";
 import type { ResearchWorkspace } from "./workspace-service";
 import { deriveRevalidationWarnings } from "./revalidation-warnings";
 
@@ -518,5 +522,164 @@ describe("ResearchQualityService · the warnings the report reads", () => {
     expect(
       assessment!.claimFindings[0]!.sourceUpdateRiskCount
     ).toBe(warnings.evidenceNeedingReconfirmation.length);
+  });
+});
+
+/**
+ * Single assessment reuse — the fix for the panel that used to trigger three
+ * full projections per load.
+ *
+ * The boundary under test: a narrow view is a pure derivation of an
+ * assessment that was computed exactly once. Handed an assessment, the
+ * service performs zero reads and zero projection; handed nothing, it
+ * computes one — never two. And an assessment belonging to another session
+ * is never served under this one's id.
+ */
+describe("ResearchQualityService · single assessment reuse", () => {
+  /** A service whose workspace read is counted, over the populated fixture. */
+  function countingService() {
+    const readWorkspace = vi.fn(async () => populatedWorkspace());
+    const service = new ResearchQualityService({
+      workspace: readWorkspace,
+      now: () => NOW
+    });
+    return { service, readWorkspace };
+  }
+
+  it("runs exactly one full assessment for one assess call", async () => {
+    const { service, readWorkspace } = countingService();
+
+    await service.assess(SESSION_ID);
+
+    expect(readWorkspace).toHaveBeenCalledTimes(1);
+  });
+
+  it("derives the claims view from an assessment it was handed, with no reads", async () => {
+    const { service, readWorkspace } = countingService();
+    const assessment = await service.assess(SESSION_ID);
+    readWorkspace.mockClear();
+
+    const view = await service.assessClaims(SESSION_ID, assessment);
+
+    expect(view).not.toBeNull();
+    expect(view!.claimFindings).toEqual(assessment!.claimFindings);
+    expect(view!.assessedAt).toBe(assessment!.assessedAt);
+    expect(view!.ruleVersion).toBe(assessment!.ruleVersion);
+    // Zero reads, zero projection: the derivation is pure.
+    expect(readWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("derives the findings view from an assessment it was handed, with no reads", async () => {
+    const { service, readWorkspace } = countingService();
+    const assessment = await service.assess(SESSION_ID);
+    readWorkspace.mockClear();
+
+    const view = await service.assessFindings(
+      SESSION_ID,
+      { severity: "critical" },
+      assessment
+    );
+
+    expect(view).not.toBeNull();
+    expect(view!.assessedAt).toBe(assessment!.assessedAt);
+    expect(view!.findings.every((item) => item.severity === "critical")).toBe(
+      true
+    );
+    expect(view!.total).toBe(view!.findings.length);
+    expect(readWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("assesses exactly once when no assessment is handed in", async () => {
+    // The narrow endpoints without `existing` still compute one assessment —
+    // not two. This is the behaviour the routes rely on.
+    const { service, readWorkspace } = countingService();
+
+    await service.assessClaims(SESSION_ID);
+    expect(readWorkspace).toHaveBeenCalledTimes(1);
+    readWorkspace.mockClear();
+
+    await service.assessFindings(SESSION_ID, { severity: "warning" });
+    expect(readWorkspace).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps one assessedAt and fingerprint across both derived views", async () => {
+    const { service } = countingService();
+    const assessment = await service.assess(SESSION_ID);
+
+    const claims = await service.assessClaims(SESSION_ID, assessment);
+    const findings = await service.assessFindings(SESSION_ID, {}, assessment);
+
+    // Same reading, three views: no millisecond drift to paper over.
+    expect(claims!.assessedAt).toBe(assessment!.assessedAt);
+    expect(findings!.assessedAt).toBe(assessment!.assessedAt);
+    expect(assessment!.inputFingerprint).toHaveLength(16);
+  });
+
+  it("never serves another session's assessment under this session's id", async () => {
+    const { service } = countingService();
+    const assessment = await service.assess(SESSION_ID);
+    const otherSession = newId();
+
+    expect(deriveClaimsView(otherSession, assessment!)).toBeNull();
+    expect(deriveFindingsView(otherSession, assessment!)).toBeNull();
+    expect(await service.assessClaims(otherSession, assessment)).toBeNull();
+    expect(await service.assessFindings(otherSession, {}, assessment)).toBeNull();
+  });
+
+  it("derives empty views for an empty session's assessment", async () => {
+    const service = new ResearchQualityService({
+      workspace: async () =>
+        workspaceFixture({
+          claims: [],
+          evidence: [],
+          sources: [],
+          verdicts: [],
+          gaps: []
+        }),
+      now: () => NOW
+    });
+    const assessment = await service.assess(SESSION_ID);
+
+    const claims = await service.assessClaims(SESSION_ID, assessment);
+    const findings = await service.assessFindings(SESSION_ID, {}, assessment);
+
+    expect(claims!.claimFindings).toEqual([]);
+    expect(findings!.findings).toEqual([]);
+    expect(findings!.total).toBe(0);
+    // Empty is still a real reading, with the same timestamp.
+    expect(claims!.assessedAt).toBe(assessment!.assessedAt);
+  });
+
+  it("narrows by severity, category and cap exactly like the endpoint did", async () => {
+    const { service } = countingService();
+    const assessment = await service.assess(SESSION_ID);
+    const expected = assessment!.findings.filter(
+      (finding) => finding.severity === "critical"
+    );
+
+    const bySeverity = await service.assessFindings(
+      SESSION_ID,
+      { severity: "critical" },
+      assessment
+    );
+    expect(bySeverity!.findings).toEqual(expected);
+
+    const capped = await service.assessFindings(
+      SESSION_ID,
+      { limit: 1 },
+      assessment
+    );
+    expect(capped!.findings).toHaveLength(1);
+    // The cap trims the rows, never the count of what matched.
+    expect(capped!.total).toBe(assessment!.findings.length);
+
+    const byCategory = await service.assessFindings(
+      SESSION_ID,
+      { category: "missing_evidence" },
+      assessment
+    );
+    expect(
+      byCategory!.findings.every((item) => item.category === "missing_evidence")
+    ).toBe(true);
   });
 });

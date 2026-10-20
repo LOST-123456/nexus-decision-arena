@@ -8,11 +8,7 @@ import type {
 } from "@nexus/shared";
 import {
   getResearchQuality,
-  getResearchQualityClaims,
-  getResearchQualityFindings,
-  ResearchQualityFailedError,
-  type ResearchQualityClaimsResponse,
-  type ResearchQualityFindingsResponse
+  ResearchQualityFailedError
 } from "./api";
 import { StatusPill } from "./components";
 import {
@@ -44,6 +40,12 @@ import {
  *  - every button navigates to a surface that already exists in the
  *    workspace; nothing here writes, and nothing here opens a form that
  *    cannot act on the finding it came from.
+ *
+ * One assessment per load: the overview, the six dimensions, the claim
+ * diagnostics and the findings all render from the single assessment the
+ * panel fetches, so every view carries the same `assessedAt` and the same
+ * `inputFingerprint` by construction — and a severity pick filters the
+ * findings that were already loaded instead of re-running the projection.
  */
 
 /** Where a finding's "go and look" button leads. */
@@ -56,6 +58,13 @@ export type ResearchQualityNavigation = {
 };
 
 type SeverityFilter = QualitySeverity | "all";
+
+/**
+ * The findings cap the server applies on the findings endpoint, kept
+ * identical here so the locally narrowed view shows exactly the rows the
+ * endpoint would have returned for the same filter.
+ */
+const FINDINGS_VIEW_LIMIT = 500;
 
 const SEVERITY_FILTERS: Array<{ id: SeverityFilter; label: string }> = [
   { id: "all", label: "全部" },
@@ -252,13 +261,12 @@ export function ResearchQualityPanel({
   sessionId: string;
   navigation: ResearchQualityNavigation;
 }) {
+  // One assessment drives every view: overview, dimensions, claims and
+  // findings. The narrow endpoints still exist on the server, but the panel
+  // has no reason to ask for the same projection three times — the full
+  // assessment already carries the claim diagnostics and the findings.
   const [assessment, setAssessment] =
     useState<ResearchQualityAssessment | null>(null);
-  const [claims, setClaims] = useState<ResearchQualityClaimsResponse | null>(
-    null
-  );
-  const [findings, setFindings] =
-    useState<ResearchQualityFindingsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [failure, setFailure] = useState<string | null>(null);
   const [severity, setSeverity] = useState<SeverityFilter>("all");
@@ -274,23 +282,9 @@ export function ResearchQualityPanel({
     setFailure(null);
     void (async () => {
       try {
-        // Three reads of the same projection: the whole assessment for the
-        // overview and the six dimensions, the claim view, and the findings
-        // list. The findings read repeats when a severity filter is picked,
-        // so the server does the narrowing and the reported total stays the
-        // unfiltered one.
-        const [nextAssessment, nextClaims, nextFindings] = await Promise.all([
-          getResearchQuality(sessionId),
-          getResearchQualityClaims(sessionId),
-          getResearchQualityFindings(
-            sessionId,
-            severity === "all" ? {} : { severity }
-          )
-        ]);
+        const nextAssessment = await getResearchQuality(sessionId);
         if (cancelled) return;
         setAssessment(nextAssessment);
-        setClaims(nextClaims);
-        setFindings(nextFindings);
       } catch (cause) {
         if (!cancelled) {
           setFailure(failureText(cause, "读取研究质量评估失败"));
@@ -302,7 +296,9 @@ export function ResearchQualityPanel({
     return () => {
       cancelled = true;
     };
-  }, [sessionId, severity, reloadCount]);
+  }, [sessionId, reloadCount]);
+  // `severity` is deliberately not a dependency: it narrows the findings
+  // that are already loaded, and must not re-run the assessment.
 
   if (failure) {
     return (
@@ -332,7 +328,7 @@ export function ResearchQualityPanel({
     );
   }
 
-  if (loading || !assessment || !claims || !findings) {
+  if (loading || !assessment) {
     return (
       <section className="research-panel" data-testid="research-quality">
         <header className="research-panel-header">
@@ -350,8 +346,18 @@ export function ResearchQualityPanel({
     );
   }
 
-  const claimFindings = claims.claimFindings;
+  const claimFindings = assessment.claimFindings;
   const overall = assessment.overall;
+  // The same finding list the server would return from the findings
+  // endpoint, narrowed here: the severity pick must not re-run the
+  // projection, and the total is the narrowed count before the same
+  // 500-row cap the endpoint applies.
+  const narrowedFindings =
+    severity === "all"
+      ? assessment.findings
+      : assessment.findings.filter((finding) => finding.severity === severity);
+  const findingsTotal = narrowedFindings.length;
+  const visibleFindings = narrowedFindings.slice(0, FINDINGS_VIEW_LIMIT);
 
   return (
     <section className="research-panel" data-testid="research-quality">
@@ -532,15 +538,15 @@ export function ResearchQualityPanel({
         ))}
       </div>
       <h3 className="research-label">
-        质量问题（筛选后 {findings.findings.length} 条，共 {findings.total} 条）
+        质量问题（筛选后 {visibleFindings.length} 条，共 {findingsTotal} 条）
       </h3>
-      {findings.findings.length === 0 ? (
+      {visibleFindings.length === 0 ? (
         <p className="research-muted" data-testid="quality-findings-empty">
           当前筛选条件下没有规则命中项。没有发现问题不等于研究没有问题。
         </p>
       ) : (
         <ul className="research-plain-list" data-testid="quality-findings">
-          {findings.findings.map((finding) => {
+          {visibleFindings.map((finding) => {
             const action = actionFor(finding, navigation);
             return (
               <li key={finding.id} data-testid={`quality-finding-${finding.id}`}>
