@@ -265,26 +265,26 @@ export function ResearchPlanPanel({
 
       {view ? (
         <>
-          <div className="research-facts" data-testid="plan-summary">
+          <dl className="research-deflist" data-testid="plan-summary">
             <div>
-              <div className="research-label">计划条目</div>
-              <p style={{ margin: 0 }}>{view.summary.total} 项</p>
+              <dt className="research-label">计划条目</dt>
+              <dd style={{ margin: 0 }}>{view.summary.total} 项</dd>
             </div>
             <div>
-              <div className="research-label">尚未执行</div>
-              <p data-testid="plan-not-started" style={{ margin: 0 }}>
+              <dt className="research-label">尚未执行</dt>
+              <dd data-testid="plan-not-started" style={{ margin: 0 }}>
                 {view.summary.notStarted} 项
-              </p>
+              </dd>
             </div>
             <div>
-              <div className="research-label">已完成</div>
-              <p style={{ margin: 0 }}>{view.summary.completed} 项</p>
+              <dt className="research-label">已完成</dt>
+              <dd style={{ margin: 0 }}>{view.summary.completed} 项</dd>
             </div>
             <div>
-              <div className="research-label">已关闭/不适用</div>
-              <p style={{ margin: 0 }}>{view.summary.dismissed} 项</p>
+              <dt className="research-label">已关闭/不适用</dt>
+              <dd style={{ margin: 0 }}>{view.summary.dismissed} 项</dd>
             </div>
-          </div>
+          </dl>
 
           <p className="research-muted" data-testid="plan-headline">
             {view.headline}
@@ -329,44 +329,44 @@ export function ResearchPlanPanel({
                       </ul>
                     ) : null}
 
-                    <div className="research-facts">
+                    <dl className="research-deflist">
                       <div>
-                        <div className="research-label">需要的材料</div>
-                        <div>{item.query.neededEvidenceKind}</div>
+                        <dt className="research-label">需要的材料</dt>
+                        <dd>{item.query.neededEvidenceKind}</dd>
                       </div>
                       <div>
-                        <div className="research-label">建议来源类型</div>
-                        <div>
+                        <dt className="research-label">建议来源类型</dt>
+                        <dd>
                           {item.query.sourceTypes.length > 0
                             ? item.query.sourceTypes.join("、")
                             : "未指定"}
-                        </div>
+                        </dd>
                       </div>
                       <div>
-                        <div className="research-label">检索词</div>
-                        <div data-testid={`plan-terms-${item.id}`}>
+                        <dt className="research-label">检索词</dt>
+                        <dd data-testid={`plan-terms-${item.id}`}>
                           {item.query.terms.length > 0
                             ? item.query.terms.join("、")
                             : "（未填写）"}
-                        </div>
+                        </dd>
                       </div>
                       <div>
-                        <div className="research-label">检索词语言</div>
-                        <div data-testid={`plan-query-language-${item.id}`}>
+                        <dt className="research-label">检索词语言</dt>
+                        <dd data-testid={`plan-query-language-${item.id}`}>
                           {item.query.queryLanguage
                             ? languageCodeLabel(item.query.queryLanguage)
                             : "未记录"}
-                        </div>
+                        </dd>
                       </div>
                       <div>
-                        <div className="research-label">时间范围</div>
-                        <div>
+                        <dt className="research-label">时间范围</dt>
+                        <dd>
                           {item.query.timeRange
                             ? `${item.query.timeRange.from ?? "—"} 至 ${item.query.timeRange.to ?? "—"}`
                             : "未限定"}
-                        </div>
+                        </dd>
                       </div>
-                    </div>
+                    </dl>
 
                     {item.outcome ? (
                       <p data-testid={`plan-outcome-${item.id}`}>
@@ -472,7 +472,7 @@ export function ResearchPlanPanel({
 
                     {editingItemId === item.id ? (
                       <form
-                        className="research-facts"
+                        className="research-deflist"
                         data-testid="plan-query-form"
                         onSubmit={(event) => {
                           event.preventDefault();
@@ -560,7 +560,7 @@ export function ResearchPlanPanel({
 
                     {deciding && deciding.itemId === item.id ? (
                       <form
-                        className="research-facts"
+                        className="research-deflist"
                         data-testid="plan-decision-form"
                         onSubmit={(event) => {
                           event.preventDefault();
@@ -624,7 +624,7 @@ export function ResearchPlanPanel({
 
                     {outcoming && outcoming.itemId === item.id ? (
                       <form
-                        className="research-facts"
+                        className="research-deflist"
                         data-testid="plan-outcome-form"
                         onSubmit={(event) => {
                           event.preventDefault();

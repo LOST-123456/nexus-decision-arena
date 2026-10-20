@@ -188,6 +188,23 @@ describe("CitationReviewPanel", () => {
     );
   });
 
+  it("shows the matched excerpt itself when the snapshot context opens", async () => {
+    // The context panel gated its 命中片段 row on matchedText but never
+    // rendered the text — a label with nothing under it. The row now
+    // shows the excerpt, in the deflist pattern the other panels use.
+    renderPanel();
+    await waitFor(() =>
+      expect(screen.getByTestId("citation-review")).toBeTruthy()
+    );
+
+    fireEvent.click(screen.getByTestId(`citation-context-${EVIDENCE_ID}`));
+    const panel = document.querySelector("dl.research-deflist");
+    expect(panel).toBeTruthy();
+    expect(panel?.textContent).toContain("命中片段");
+    expect(panel?.textContent).toContain(PAGE_TEXT);
+    expect(panel?.textContent).toContain("原文上下文");
+  });
+
   it("keeps the excerpt's own verification state out of the assessment", async () => {
     renderPanel();
     await waitFor(() => expect(screen.getByTestId("citation-review")).toBeTruthy());

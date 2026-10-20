@@ -167,6 +167,22 @@ describe("ResearchPlanPanel", () => {
     expect(document.body.textContent).not.toContain("检索进行中");
   });
 
+  it("lays the summary out as label/value pairs, not bundled grid cells", async () => {
+    // plan-summary used .research-facts with each label+value wrapped in
+    // one div, so every row collapsed into a single cell of the 96px
+    // two-track grid. It now uses the deflist pattern: the wrapper
+    // dissolves and each label takes a max-content track of its own.
+    render(<ResearchPlanPanel sessionId={SESSION_ID} canEdit />);
+    await waitFor(() =>
+      expect(screen.getByTestId("plan-headline")).toBeTruthy()
+    );
+    const summary = screen.getByTestId("plan-summary");
+    expect(summary.tagName).toBe("DL");
+    expect(summary.className).toContain("research-deflist");
+    expect(summary.querySelectorAll("dt").length).toBe(4);
+    expect(summary.querySelectorAll("dd").length).toBe(4);
+  });
+
   it("adds a diagnosed gap to the plan and says honestly it has not run", async () => {
     addToResearchPlan.mockResolvedValue({ item: {}, alreadyPlanned: false });
     render(<ResearchPlanPanel sessionId={SESSION_ID} canEdit />);

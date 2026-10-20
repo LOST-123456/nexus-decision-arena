@@ -448,7 +448,7 @@ export function SourceReader({
           </div>
         </div>
         <p className="research-question">{source.title}</p>
-        <dl className="research-facts" style={{ marginTop: 8 }}>
+        <dl className="research-deflist" style={{ marginTop: 8 }}>
           <dt>来源类型</dt>
           <dd>{sourceKindLabel(source.kind)}</dd>
           <dt>规范化地址</dt>

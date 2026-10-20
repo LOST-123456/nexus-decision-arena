@@ -245,10 +245,10 @@ export function SourceIndependencePanel({
 
       {summary ? (
         <>
-          <div className="research-facts" data-testid="independence-summary">
+          <dl className="research-deflist" data-testid="independence-summary">
             <div>
-              <div className="research-label">独立信息源</div>
-              <p data-testid="independence-headline" style={{ margin: 0 }}>
+              <dt className="research-label">独立信息源</dt>
+              <dd data-testid="independence-headline" style={{ margin: 0 }}>
                 {summary.pages === 0
                   ? "尚未登记来源"
                   : `${summary.pages} 个页面、${
@@ -257,26 +257,26 @@ export function SourceIndependencePanel({
                         ? summary.confirmedIndependentSources
                         : `${summary.suspectedIndependentSources}–${summary.confirmedIndependentSources}`
                     } 条独立信息源`}
-              </p>
+              </dd>
             </div>
             <div>
-              <div className="research-label">已确认合并的页面</div>
-              <p style={{ margin: 0 }} data-testid="merged-page-count">
+              <dt className="research-label">已确认合并的页面</dt>
+              <dd style={{ margin: 0 }} data-testid="merged-page-count">
                 {summary.clusters.reduce(
                   (total, cluster) =>
                     cluster.pageCount > 1 ? total + cluster.pageCount : total,
                   0
                 )}{" "}
                 个
-              </p>
+              </dd>
             </div>
             <div>
-              <div className="research-label">疑似重复待确认</div>
-              <p style={{ margin: 0 }} data-testid="suspected-count">
+              <dt className="research-label">疑似重复待确认</dt>
+              <dd style={{ margin: 0 }} data-testid="suspected-count">
                 {summary.suspectedLinks.length} 组
-              </p>
+              </dd>
             </div>
-          </div>
+          </dl>
 
           {summary.notes.length > 0 ? (
             <ul className="research-plain-list" data-testid="independence-notes">
@@ -390,32 +390,32 @@ export function SourceIndependencePanel({
                       依据：{profile.provenanceReasons.join("；")}
                     </p>
 
-                    <div className="research-facts">
+                    <dl className="research-deflist">
                       <div>
-                        <div className="research-label">发布机构</div>
-                        <div>{profile.facts.publisher ?? "未登记"}</div>
+                        <dt className="research-label">发布机构</dt>
+                        <dd>{profile.facts.publisher ?? "未登记"}</dd>
                       </div>
                       <div>
-                        <div className="research-label">作者</div>
-                        <div>{profile.facts.author ?? "未登记"}</div>
+                        <dt className="research-label">作者</dt>
+                        <dd>{profile.facts.author ?? "未登记"}</dd>
                       </div>
                       <div>
-                        <div className="research-label">发布时间</div>
-                        <div>{formatDate(profile.facts.publishedAt)}</div>
+                        <dt className="research-label">发布时间</dt>
+                        <dd>{formatDate(profile.facts.publishedAt)}</dd>
                       </div>
                       <div>
-                        <div className="research-label">抓取时间</div>
-                        <div>{formatDate(profile.facts.retrievedAt)}</div>
+                        <dt className="research-label">抓取时间</dt>
+                        <dd>{formatDate(profile.facts.retrievedAt)}</dd>
                       </div>
                       <div>
-                        <div className="research-label">内容版本</div>
-                        <div>
+                        <dt className="research-label">内容版本</dt>
+                        <dd>
                           {profile.facts.contentVersion
                             ? profile.facts.contentVersion.slice(0, 12)
                             : "无快照"}
-                        </div>
+                        </dd>
                       </div>
-                    </div>
+                    </dl>
 
                     {profile.qualityLabels.length > 0 ? (
                       <p className="research-muted" data-testid={`quality-${profile.sourceId}`}>
@@ -496,7 +496,7 @@ export function SourceIndependencePanel({
 
                     {override && override.sourceId === profile.sourceId ? (
                       <form
-                        className="research-facts"
+                        className="research-deflist"
                         data-testid="override-form"
                         onSubmit={(event) => {
                           event.preventDefault();
@@ -573,7 +573,7 @@ export function SourceIndependencePanel({
 
                     {relation && relation.fromSourceId === profile.sourceId ? (
                       <form
-                        className="research-facts"
+                        className="research-deflist"
                         data-testid="relation-form"
                         onSubmit={(event) => {
                           event.preventDefault();

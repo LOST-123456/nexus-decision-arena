@@ -208,7 +208,7 @@ export function FileReader({
             </button>
           </div>
         </div>
-        <dl className="research-facts" style={{ marginTop: 8 }}>
+        <dl className="research-deflist" style={{ marginTop: 8 }}>
           <dt>内容指纹</dt>
           <dd style={{ overflowWrap: "anywhere" }}>{file.sha256}</dd>
           <dt>来源登记</dt>

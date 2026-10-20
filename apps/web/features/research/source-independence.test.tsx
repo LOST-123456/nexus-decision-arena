@@ -157,6 +157,22 @@ describe("SourceIndependencePanel", () => {
     );
   });
 
+  it("lays the independence summary out as label/value pairs, not bundled grid cells", async () => {
+    // independence-summary had the same bundled-div-in-a-two-track-grid
+    // problem as the claim card; it now uses the deflist pattern, so the
+    // label column sizes to its content instead of a fixed 96px.
+    getSourceAnalysis.mockResolvedValue(analysis());
+    render(<SourceIndependencePanel sessionId={SESSION_ID} canEdit />);
+    await waitFor(() =>
+      expect(screen.getByTestId("independence-headline")).toBeTruthy()
+    );
+    const summary = screen.getByTestId("independence-summary");
+    expect(summary.tagName).toBe("DL");
+    expect(summary.className).toContain("research-deflist");
+    expect(summary.querySelectorAll("dt").length).toBe(3);
+    expect(summary.querySelectorAll("dd").length).toBe(3);
+  });
+
   it("shows mere similarity as a suspicion, not as a merged fact", async () => {
     getSourceAnalysis.mockResolvedValue(
       analysis({

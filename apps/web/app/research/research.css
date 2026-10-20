@@ -760,26 +760,6 @@
   line-height: 1.4;
 }
 
-.research-facts {
-  display: grid;
-  grid-template-columns: 96px minmax(0, 1fr);
-  gap: 4px 12px;
-  font-size: 12.5px;
-  margin: 0;
-}
-
-.research-facts dt {
-  color: var(--rw-muted);
-  /* "可计算权重覆盖" and friends wrapped to three lines against the 96px
-     column and knocked the value column out of alignment. */
-  overflow-wrap: anywhere;
-}
-
-.research-facts dd {
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-
 .research-quote {
   border-left: 3px solid var(--rw-accent);
   background: var(--rw-panel-soft);
@@ -1063,6 +1043,15 @@
 .research-deflist dd {
   margin: 0;
   overflow-wrap: anywhere;
+}
+
+/* Form footers inside a deflist keep their flex row: the generic
+   "> div { display: contents }" rule above would dissolve the wrapper and
+   drop each button into its own grid cell, so the actions row opts back into
+   flex and spans both tracks. */
+.research-deflist > .research-actions {
+  display: flex;
+  grid-column: 1 / -1;
 }
 
 .research-timeline {
@@ -1617,3 +1606,141 @@
     padding: 9px 10px;
   }
 }
+
+/* ---------- research quality: conclusion-first verdict (P0-1) ----------
+ * The answer leads: the overall score at a size that reads across the
+ * panel, the status and the conclusion beside it, and the risks that need
+ * action underneath. Colour never carries the meaning alone — the status
+ * pill keeps its text label and every risk note is a sentence.
+ */
+.quality-verdict {
+  display: flex;
+  gap: 8px 20px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  margin: 0 0 10px;
+}
+
+.quality-verdict-score {
+  min-width: 108px;
+}
+
+.quality-verdict-number {
+  margin: 2px 0 0;
+  /* One size for numbers and for 无法计算 alike: an honest refusal is an
+     answer, not a placeholder, and must not shrink to hide. */
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.01em;
+}
+
+.quality-verdict-body {
+  flex: 1;
+  min-width: min(100%, 260px);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.quality-verdict-explanation {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
+.quality-verdict-risks {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.quality-verdict-risks ul {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+/* Demoted metadata: when the assessment ran, under which rules, over which
+   material fingerprint. Small, muted, still present — traceability is not
+   decoration to be dropped for a cleaner top. */
+.quality-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 16px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--rw-line);
+  font-size: 11px;
+  color: var(--rw-muted);
+}
+
+@media (max-width: 700px) {
+  .quality-verdict-number {
+    font-size: 26px;
+  }
+}
+
+/* ---------- research quality: in-page navigation ---------- */
+
+/*
+ * The landing offset for the panel's sections — the only positioning number
+ * this feature needs, and it was not guessed. The sticky/fixed inventory of
+ * this surface was checked first: `.app-nav` is `position: relative` and
+ * `.app-subnav` static, so both scroll away with the page; the only
+ * `position: sticky` rule is `.research-table th`, which sticks inside its
+ * own `overflow: auto` wrapper and never leaves that box; and the fixed
+ * elements are the off-canvas skip link and the modal scrims. Nothing
+ * overlays the viewport top, so no measured chrome height has to be
+ * subtracted — this gap is breathing room so a landed heading is not flush
+ * against the top. It lives in one token, derived from the shared spacing
+ * scale, so it stays consistent with the rest of the surface and can be
+ * corrected in one place if a sticky bar is ever added.
+ */
+.research-panel {
+  --quality-section-offset: var(--space-4);
+}
+
+.research-panel [id^="quality-section-"] {
+  scroll-margin-top: var(--quality-section-offset);
+}
+
+/*
+ * Quiet by design: small muted text links, no fill, no border — the
+ * navigation must never compete with the conclusion above it or the claim
+ * cards below it. It sits in normal flow (never fixed), so on a narrow
+ * screen it cannot cover the content it links to; the items wrap instead
+ * of scrolling sideways, so nothing is hidden and the page cannot overflow
+ * horizontally. The active link takes the accent and an underline; the
+ * border stays transparent at rest so the row does not shift.
+ */
+.quality-section-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  margin: var(--space-4) 0 var(--space-2);
+}
+
+.quality-section-nav-link {
+  padding: 2px 0;
+  border-bottom: 1px solid transparent;
+  color: var(--rw-muted);
+  font-size: 12.5px;
+  text-decoration: none;
+}
+
+.quality-section-nav-link:hover {
+  color: var(--rw-text);
+}
+
+.quality-section-nav-link.is-active {
+  color: var(--rw-accent);
+  border-bottom-color: var(--rw-accent);
+}
+
+/* Focus styling comes from `.research-root :focus-visible` above — the
+   links are inside that root, so the keyboard ring needs no second rule. */

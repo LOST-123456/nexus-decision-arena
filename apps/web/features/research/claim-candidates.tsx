@@ -452,7 +452,7 @@ export function ClaimCandidatesPanel({
           写入后<strong>仍然是未核实</strong>，需要走既有的人工核实流程。
         </p>
         {run ? (
-          <dl className="research-facts" style={{ marginTop: 8 }}>
+          <dl className="research-deflist" style={{ marginTop: 8 }}>
             <dt>分析引擎</dt>
             <dd>{`${run.provider} · ${run.model}`}</dd>
             <dt>原文规模</dt>

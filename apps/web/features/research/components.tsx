@@ -1072,7 +1072,7 @@ export function SourceDetail({
               : "这段摘录尚未与保存的原文做过定位核对。"}
         </p>
         {evidence.verifiedBy ? (
-          <dl className="research-facts" style={{ marginTop: 10 }}>
+          <dl className="research-deflist" style={{ marginTop: 10 }}>
             <dt>核实人</dt>
             <dd>{evidence.verifiedBy}</dd>
             <dt>核实时间</dt>
@@ -1100,7 +1100,7 @@ export function SourceDetail({
         {source ? (
           <>
             <div className="research-source-title">{source.title}</div>
-            <dl className="research-facts" style={{ marginTop: 8 }}>
+            <dl className="research-deflist" style={{ marginTop: 8 }}>
               <dt>发布机构</dt>
               <dd>{source.publisher ?? "—"}</dd>
               <dt>作者</dt>
@@ -1137,7 +1137,7 @@ export function SourceDetail({
                     {forkStateLabel(copy.forkState)}
                   </StatusPill>
                 </div>
-                <dl className="research-facts" style={{ marginTop: 8 }}>
+                <dl className="research-deflist" style={{ marginTop: 8 }}>
                   <dt>来源研究</dt>
                   <dd style={{ overflowWrap: "anywhere" }}>{copy.originSessionId}</dd>
                   <dt>复制者</dt>

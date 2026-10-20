@@ -522,22 +522,24 @@ export function CitationReviewPanel({
                   ) : null}
 
                   {contextOpen && check ? (
-                    <div className="research-facts">
+                    <dl className="research-deflist">
                       {check.matchedText ? (
                         <div>
-                          <div className="research-label">命中片段</div>
-  
+                          <dt className="research-label">命中片段</dt>
+                          <dd>{check.matchedText}</dd>
                         </div>
                       ) : null}
                       {check.contextText ? (
                         <div>
-                          <div className="research-label">原文上下文</div>
-                          <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", maxHeight: 200, overflowY: "auto", margin: 0, padding: 10, borderRadius: 8, background: "var(--wb-surface-subtle, rgba(0,0,0,0.03))", font: "inherit", fontSize: 13 }}>
-                            {check.contextText}
-                          </pre>
+                          <dt className="research-label">原文上下文</dt>
+                          <dd>
+                            <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", maxHeight: 200, overflowY: "auto", margin: 0, padding: 10, borderRadius: 8, background: "var(--wb-surface-subtle, rgba(0,0,0,0.03))", font: "inherit", fontSize: 13 }}>
+                              {check.contextText}
+                            </pre>
+                          </dd>
                         </div>
                       ) : null}
-                    </div>
+                    </dl>
                   ) : null}
 
                   {assessments.length > 0 ? (
