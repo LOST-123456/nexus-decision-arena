@@ -100,7 +100,8 @@ export function CitationReviewPanel({
   claims,
   sourcesById,
   canEdit,
-  onChanged
+  onChanged,
+  navigation
 }: {
   sessionId: string;
   evidence: Evidence[];
@@ -108,6 +109,19 @@ export function CitationReviewPanel({
   sourcesById: Map<string, { id: string; title: string }>;
   canEdit: boolean;
   onChanged?: () => void | Promise<void>;
+  /**
+   * Where a reader may go from here.
+   *
+   * This panel used to be a dead end: it said "this citation no longer resolves"
+   * and offered no way to get to the excerpt or the claim it was talking about,
+   * so acting on a finding meant going back to the tab bar and hunting through
+   * the workspace by title. Optional, because the panel is also rendered on its
+   * own in tests and by callers that have nowhere to navigate to.
+   */
+  navigation?: {
+    onOpenEvidence?: (evidenceId: string) => void;
+    onOpenClaim?: (claimId: string) => void;
+  };
 }) {
   const [snapshot, setSnapshot] = useState<CitationReviewSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
@@ -510,6 +524,16 @@ export function CitationReviewPanel({
                         {contextOpen ? "收起快照上下文" : "打开快照上下文"}
                       </button>
                     ) : null}
+                    {navigation?.onOpenEvidence ? (
+                      <button
+                        type="button"
+                        className="research-button research-button-secondary"
+                        data-testid={`open-evidence-${item.id}`}
+                        onClick={() => navigation.onOpenEvidence?.(item.id)}
+                      >
+                        查看材料详情
+                      </button>
+                    ) : null}
                   </div>
 
                   {check ? (
@@ -594,6 +618,18 @@ export function CitationReviewPanel({
                               </p>
                             ) : null}
                             <div className="research-actions">
+                              {navigation?.onOpenClaim ? (
+                                <button
+                                  type="button"
+                                  className="research-button research-button-secondary"
+                                  data-testid={`open-claim-${assessment.id}`}
+                                  onClick={() =>
+                                    navigation.onOpenClaim?.(assessment.claimId)
+                                  }
+                                >
+                                  查看主张
+                                </button>
+                              ) : null}
                               {canEdit ? (
                                 <button
                                   type="button"

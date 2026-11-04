@@ -63,11 +63,19 @@ const PROVENANCE_OPTIONS: readonly SourceProvenanceKind[] = [
 export function SourceIndependencePanel({
   sessionId,
   canEdit,
-  onChanged
+  onChanged,
+  initialSourceId
 }: {
   sessionId: string;
   canEdit: boolean;
   onChanged?: () => void | Promise<void>;
+  /**
+   * A source to point the reader at on arrival. A quality card is about one
+   * source, and this panel lists all of them; without this the card's "核对来源"
+   * button dropped the reader at the top of a long list with no way to tell
+   * which entry the card meant.
+   */
+  initialSourceId?: string | null;
 }) {
   const [result, setResult] = useState<SourceAnalysisResult | null>(null);
   const [loading, setLoading] = useState(true);
@@ -126,6 +134,22 @@ export function SourceIndependencePanel({
     }
     return map;
   }, [result]);
+
+  /**
+   * Bring the located source into view once the profiles are on screen. Purely
+   * an assist: the marker below is what actually says which entry it is, so a
+   * browser (or a test environment) without `scrollIntoView` loses nothing but
+   * the scroll.
+   */
+  useEffect(() => {
+    if (!initialSourceId || !result) return;
+    const node = document.querySelector(
+      `[data-source-profile="${initialSourceId}"]`
+    );
+    if (node instanceof HTMLElement && typeof node.scrollIntoView === "function") {
+      node.scrollIntoView({ block: "center" });
+    }
+  }, [initialSourceId, result]);
 
   const submitRelation = useCallback(
     async (input: {
@@ -369,8 +393,14 @@ export function SourceIndependencePanel({
                   item.sourceIds.includes(profile.sourceId)
                 );
                 const isMerged = (cluster?.pageCount ?? 1) > 1;
+                const isLocated = profile.sourceId === initialSourceId;
                 return (
-                  <li key={profile.sourceId} data-testid={`profile-${profile.sourceId}`}>
+                  <li
+                    key={profile.sourceId}
+                    data-testid={`profile-${profile.sourceId}`}
+                    data-source-profile={profile.sourceId}
+                    data-located={isLocated ? "true" : undefined}
+                  >
                     <div className="research-actions">
                       <strong>{profile.title}</strong>
                       <span data-testid={`provenance-pill-${profile.sourceId}`}>
@@ -379,6 +409,11 @@ export function SourceIndependencePanel({
                           {profile.provenanceOrigin === "human" ? "（人工判定）" : ""}
                         </StatusPill>
                       </span>
+                      {isLocated ? (
+                        <span data-testid="located-source-marker">
+                          <StatusPill tone="research-pill-context">当前定位</StatusPill>
+                        </span>
+                      ) : null}
                       {isMerged ? (
                         <span className="research-muted">
                           与另外 {cluster!.pageCount - 1} 个页面同属一份独立信息源

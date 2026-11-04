@@ -10,6 +10,17 @@ import {
   type AuthUser
 } from "../../features/arena/api-client";
 
+/**
+ * 演示账号提示，口令值来自环境变量而不是源码。
+ *
+ * 这一段以前把口令直接印在登录页上。对一台放在公网的部署来说，那不是提示，
+ * 是把钥匙挂在门上——而且部署方一旦换了口令，它说的还是旧值，照着输反而登不
+ * 进去。现在只有显式配置了 NEXT_PUBLIC_DEMO_OWNER_PASSWORD 的那台机器才会渲染
+ * 这一块，源码里不留任何口令字面量。
+ */
+const DEMO_OWNER_PASSWORD = process.env.NEXT_PUBLIC_DEMO_OWNER_PASSWORD ?? "";
+const DEMO_VIEWER_PASSWORD = process.env.NEXT_PUBLIC_DEMO_VIEWER_PASSWORD ?? "";
+
 export default function LoginPage() {
   const router = useRouter();
   const [username, setUsername] = useState("");
@@ -67,11 +78,23 @@ export default function LoginPage() {
           <p className="eyebrow">TEAM ACCESS</p>
           <h1>账户与团队角色</h1>
           <p>Owner 可以管理成员；Reviewer 可以创建评审和人工裁决；Viewer 只能查看结果。</p>
-          <div className="auth-demo-accounts">
-            <strong>本演示默认账号</strong>
-            <code>owner / nexus-owner</code>
-            <code>viewer / nexus-viewer</code>
-          </div>
+          {DEMO_OWNER_PASSWORD ? (
+            <div className="auth-demo-accounts">
+              <strong>本机演示账号</strong>
+              <code>owner / {DEMO_OWNER_PASSWORD}</code>
+              {DEMO_VIEWER_PASSWORD ? (
+                <code>viewer / {DEMO_VIEWER_PASSWORD}</code>
+              ) : null}
+              <p className="auth-demo-note">
+                只在配置了 NEXT_PUBLIC_DEMO_OWNER_PASSWORD 的机器上出现；对公网
+                开放的部署不显示账号信息。
+              </p>
+            </div>
+          ) : null}
+          <p className="auth-signup-note">
+            没有账号？本系统不开放自助注册，请找团队里的 Owner 在「团队成员」
+            里为你开通 Reviewer 或 Viewer 角色。
+          </p>
         </section>
         <form className="auth-form" onSubmit={submitLogin}>
           <h2>{currentUser ? "切换账户" : "登录"}</h2>

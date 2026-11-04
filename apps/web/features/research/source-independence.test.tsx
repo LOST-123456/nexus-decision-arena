@@ -341,4 +341,41 @@ describe("SourceIndependencePanel", () => {
     );
     expect(screen.getByTestId("retry-analysis")).toBeTruthy();
   });
+
+  /**
+   * A quality card is about one source, and this panel lists every source in
+   * the research. Arriving with `initialSourceId` has to say *which* entry the
+   * card meant, or the reader is left scanning the list for it.
+   */
+  it("marks the source a quality card sent the reader to", async () => {
+    getSourceAnalysis.mockResolvedValue(analysis());
+    render(
+      <SourceIndependencePanel
+        sessionId={SESSION_ID}
+        canEdit
+        initialSourceId={SOURCE_B}
+      />
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId(`profile-${SOURCE_B}`)).toBeTruthy()
+    );
+
+    expect(screen.getByTestId(`profile-${SOURCE_B}`).dataset.located).toBe(
+      "true"
+    );
+    expect(screen.queryAllByTestId("located-source-marker")).toHaveLength(1);
+    expect(
+      screen.getByTestId(`profile-${SOURCE_A}`).dataset.located
+    ).toBeUndefined();
+  });
+
+  it("marks nothing when it was opened without one", async () => {
+    getSourceAnalysis.mockResolvedValue(analysis());
+    render(<SourceIndependencePanel sessionId={SESSION_ID} canEdit />);
+    await waitFor(() =>
+      expect(screen.getByTestId(`profile-${SOURCE_A}`)).toBeTruthy()
+    );
+
+    expect(screen.queryAllByTestId("located-source-marker")).toHaveLength(0);
+  });
 });

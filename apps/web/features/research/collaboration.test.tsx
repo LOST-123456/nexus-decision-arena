@@ -360,3 +360,140 @@ describe("CollaborationPanel", () => {
     expect(banner.textContent).toContain("不是该研究的协作者");
   });
 });
+
+/**
+ * The audit trail is append-only, so it is read a page at a time. What has to
+ * hold is that "more" is offered when it exists, that extending appends rather
+ * than replacing, and that a failed extension never costs the events already
+ * on screen — losing audit history to a network blip would be the worst of the
+ * three outcomes.
+ */
+describe("CollaborationPanel · activity paging", () => {
+  function event(sequence: number) {
+    return {
+      id: `evt-${sequence}`,
+      sessionId: SESSION_ID,
+      sequence,
+      correlationId: `corr-${sequence}`,
+      type: "COLLABORATION_MEMBER_INVITED",
+      payload: {},
+      occurredAt: "2026-10-20T09:00:00.000Z"
+    };
+  }
+
+  it("appends the next page of events instead of replacing the trail", async () => {
+    seedLists({});
+    getCurrentUser.mockResolvedValue({ id: ME, role: "owner" });
+    listCollaborationActivity
+      .mockResolvedValueOnce({
+        activity: [event(9), event(8)],
+        nextCursor: 8,
+        hasNextPage: true
+      })
+      .mockResolvedValueOnce({
+        activity: [event(7)],
+        nextCursor: null,
+        hasNextPage: false
+      });
+
+    render(<CollaborationPanel sessionId={SESSION_ID} canEdit={true} />);
+    fireEvent.click(await screen.findByTestId("collab-tab-activity"));
+
+    expect(await screen.findAllByTestId("collab-activity-item")).toHaveLength(2);
+    fireEvent.click(screen.getByTestId("collab-activity-load-more"));
+
+    await waitFor(() =>
+      expect(screen.getAllByTestId("collab-activity-item")).toHaveLength(3)
+    );
+    // The cursor travels as the last sequence already on screen.
+    expect(listCollaborationActivity).toHaveBeenLastCalledWith(SESSION_ID, {
+      after: 8
+    });
+    expect(screen.queryByTestId("collab-activity-load-more")).toBeNull();
+  });
+
+  it("keeps the events already on screen when the next page fails", async () => {
+    seedLists({});
+    getCurrentUser.mockResolvedValue({ id: ME, role: "owner" });
+    listCollaborationActivity
+      .mockResolvedValueOnce({
+        activity: [event(9), event(8)],
+        nextCursor: 8,
+        hasNextPage: true
+      })
+      .mockRejectedValueOnce(new Error("network down"));
+
+    render(<CollaborationPanel sessionId={SESSION_ID} canEdit={true} />);
+    fireEvent.click(await screen.findByTestId("collab-tab-activity"));
+
+    expect(await screen.findAllByTestId("collab-activity-item")).toHaveLength(2);
+    fireEvent.click(screen.getByTestId("collab-activity-load-more"));
+
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toContain("network down")
+    );
+    expect(screen.getAllByTestId("collab-activity-item")).toHaveLength(2);
+    expect(screen.getByTestId("collab-activity-load-more")).toBeTruthy();
+  });
+
+  /**
+   * 空表单提交必须给解释。
+   *
+   * 这四处以前是 `if (!field) return;`：按钮看着可用，点下去不发请求、
+   * 不报错、不提示，用户只能反复点 —— 表现和「按钮坏了」完全一样。
+   */
+  it("邀请时账号留空会说明缺什么，而不是静默返回", async () => {
+    getCurrentUser.mockResolvedValue({ id: ME, role: "editor" });
+    // members 为空 = 当前账号是平台拥有者（没有成员行），四个面板都可见。
+    seedLists({ members: [] });
+
+    render(<CollaborationPanel sessionId={SESSION_ID} canEdit={true} />);
+    fireEvent.click(await screen.findByTestId("collab-invite-submit"));
+
+    const error = await screen.findByTestId("collab-error");
+    expect(error.textContent).toContain("账号 ID");
+    expect(inviteCollaborationMember).not.toHaveBeenCalled();
+  });
+
+  it("工作项标题留空会说明缺什么", async () => {
+    getCurrentUser.mockResolvedValue({ id: ME, role: "editor" });
+    // members 为空 = 当前账号是平台拥有者（没有成员行），四个面板都可见。
+    seedLists({ members: [] });
+
+    render(<CollaborationPanel sessionId={SESSION_ID} canEdit={true} />);
+    fireEvent.click(await screen.findByTestId("collab-tab-work"));
+    fireEvent.click(await screen.findByTestId("collab-work-submit"));
+
+    const error = await screen.findByTestId("collab-error");
+    expect(error.textContent).toContain("标题");
+    expect(createCollaborationWorkItem).not.toHaveBeenCalled();
+  });
+
+  it("评论正文留空会说明缺什么", async () => {
+    getCurrentUser.mockResolvedValue({ id: ME, role: "editor" });
+    // members 为空 = 当前账号是平台拥有者（没有成员行），四个面板都可见。
+    seedLists({ members: [] });
+
+    render(<CollaborationPanel sessionId={SESSION_ID} canEdit={true} />);
+    fireEvent.click(await screen.findByTestId("collab-tab-comments"));
+    fireEvent.click(await screen.findByTestId("collab-comment-submit"));
+
+    const error = await screen.findByTestId("collab-error");
+    expect(error.textContent).toContain("评论内容");
+    expect(createCollaborationComment).not.toHaveBeenCalled();
+  });
+
+  it("发起审阅时对象留空会说明缺什么", async () => {
+    getCurrentUser.mockResolvedValue({ id: ME, role: "editor" });
+    // members 为空 = 当前账号是平台拥有者（没有成员行），四个面板都可见。
+    seedLists({ members: [] });
+
+    render(<CollaborationPanel sessionId={SESSION_ID} canEdit={true} />);
+    fireEvent.click(await screen.findByTestId("collab-tab-review"));
+    fireEvent.click(await screen.findByTestId("collab-review-submit"));
+
+    const error = await screen.findByTestId("collab-error");
+    expect(error.textContent).toContain("对象 ID");
+    expect(createCollaborationReviewRequest).not.toHaveBeenCalled();
+  });
+});

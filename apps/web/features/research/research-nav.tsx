@@ -35,7 +35,7 @@ export function ResearchNav() {
   if (sessionId) {
     links.push(
       { href: `/research/${sessionId}`, label: "研究工作台" },
-      { href: `/research/${sessionId}/evidence`, label: "证据地图" },
+      { href: `/research/${sessionId}/evidence`, label: "证据清单" },
       { href: `/research/${sessionId}/report`, label: "事实核查报告" },
       { href: `/sessions/${sessionId}`, label: "质询视图" },
       { href: `/sessions/${sessionId}/report`, label: "决策报告" }

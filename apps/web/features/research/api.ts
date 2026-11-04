@@ -74,7 +74,11 @@ import type {
   ShareGrantDraft,
   ShareGrantScope,
   ShareGrantSubjectType,
-  SourceCopyRecord
+  SourceCopyRecord,
+  SourceMonitoringSummary,
+  SnapshotDiff,
+  SourceCheckOutcome,
+  RevalidationTask
 } from "@nexus/shared";
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "";
 
@@ -474,6 +478,28 @@ export function getResearchWorkspace(
 }
 
 /**
+ * Rewrites the question the research asks.
+ *
+ * The only field a research may be edited for: a research created before the
+ * field existed has no other way to acquire one, and the report renders the
+ * same blank. Sends nothing but the question, so this call cannot be used to
+ * touch a conclusion.
+ */
+export function updateResearchQuestion(
+  sessionId: string,
+  researchQuestion: string
+): Promise<{ sessionId: string; researchQuestion: string | null }> {
+  return request<{ sessionId: string; researchQuestion: string | null }>(
+    `/api/sessions/${encodeURIComponent(sessionId)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ researchQuestion }),
+      idempotencyKey: idempotencyKey("research-question")
+    }
+  );
+}
+
+/**
  * Reads the Evidence Map: the session's material drawn as a relationship
  * graph. Read-only on both ends — an edge in the graph means "bears on", not
  * "proves", so nothing here can promote a claim's verdict.
@@ -700,10 +726,10 @@ export function getFactCheckReport(
   );
 }
 
-/** Absolute url for the Markdown export, so it can be a real download link. */
-export function factCheckReportMarkdownUrl(sessionId: string): string {
-  return `${apiUrl}/api/sessions/${encodeURIComponent(sessionId)}/fact-check-report?format=markdown&download=1`;
-}
+/**
+ * Export urls for this report live in `components/report-export-actions`,
+ * next to the decision report's, so the two pages cannot drift apart again.
+ */
 
 /**
  * Why this route gets its own fetch instead of the shared `request()`.
@@ -1624,17 +1650,36 @@ export function retrySourceFileParse(
  * ------------------------------------------------------------------ */
 
 /**
- * Every saved version of the report, newest first.
+ * One page of saved versions of the report, newest first.
  *
  * A version is a frozen document, not a fingerprint: the list carries what
  * each save recorded (who, when, why, what it covered) so the researcher can
  * pick the one they mean before reading or comparing it.
+ *
+ * The history grows with every save, so it is paged: `after` is the `version`
+ * of the last item already on screen, and the server answers the page that
+ * follows it. Omitting both parameters asks for the newest page.
  */
 export function listReportSnapshots(
-  sessionId: string
-): Promise<{ snapshots: ReportSnapshotSummary[] }> {
-  return request<{ snapshots: ReportSnapshotSummary[] }>(
-    `/api/sessions/${encodeURIComponent(sessionId)}/report-snapshots`
+  sessionId: string,
+  page: { limit?: number; after?: number | null } = {}
+): Promise<{
+  snapshots: ReportSnapshotSummary[];
+  nextCursor: number | null;
+  hasNextPage: boolean;
+}> {
+  const query = new URLSearchParams();
+  if (page.limit !== undefined) query.set("limit", String(page.limit));
+  if (page.after !== undefined && page.after !== null) {
+    query.set("after", String(page.after));
+  }
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return request<{
+    snapshots: ReportSnapshotSummary[];
+    nextCursor: number | null;
+    hasNextPage: boolean;
+  }>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/report-snapshots${suffix}`
   );
 }
 
@@ -2729,14 +2774,122 @@ export function cancelCollaborationReviewRequest(
 }
 
 /**
- * The activity feed, projected from the shared `executionEvents` table. One
- * audit trail for the whole research, so a collaboration action and a material
- * change are never two different histories.
+ * One page of the activity feed, projected from the shared `executionEvents`
+ * table. One audit trail for the whole research, so a collaboration action and
+ * a material change are never two different histories.
+ *
+ * The trail is append-only, so it is read a page at a time: `after` is the
+ * `sequence` of the last event already on screen.
  */
 export function listCollaborationActivity(
-  sessionId: string
-): Promise<{ activity: CollaborationActivity[] }> {
-  return requestCollaboration<{ activity: CollaborationActivity[] }>(
-    `/api/sessions/${encodeURIComponent(sessionId)}/collaboration/activity`
+  sessionId: string,
+  page: { limit?: number; after?: number | null } = {}
+): Promise<{
+  activity: CollaborationActivity[];
+  nextCursor: number | null;
+  hasNextPage: boolean;
+}> {
+  const query = new URLSearchParams();
+  if (page.limit !== undefined) query.set("limit", String(page.limit));
+  if (page.after !== undefined && page.after !== null) {
+    query.set("after", String(page.after));
+  }
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return requestCollaboration<{
+    activity: CollaborationActivity[];
+    nextCursor: number | null;
+    hasNextPage: boolean;
+  }>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/collaboration/activity${suffix}`
+  );
+}
+
+/**
+ * Source monitoring.
+ *
+ * The backend has had these six routes — drift check, monitoring summary,
+ * snapshot diff, and the re-check task queue — but nothing in the UI called
+ * them, so "this page changed under your conclusion" could never reach a
+ * reader. These wrappers are the missing half; the panel is
+ * `source-monitoring.tsx`.
+ *
+ * A check costs a network request, so it carries an idempotency key: a double
+ * click is the same check, not two fetches of someone else's page.
+ */
+
+/** Reads whether one source has drifted, with the open work it produced. */
+export function getSourceMonitoring(
+  sessionId: string,
+  sourceId: string
+): Promise<SourceMonitoringSummary> {
+  return request<SourceMonitoringSummary>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/sources/${encodeURIComponent(sourceId)}/monitoring`
+  );
+}
+
+/** Compares the two most recent stored captures of one source. */
+export function getSourceDiff(
+  sessionId: string,
+  sourceId: string
+): Promise<SnapshotDiff> {
+  return request<SnapshotDiff>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/sources/${encodeURIComponent(sourceId)}/diff`
+  );
+}
+
+/**
+ * Re-fetches one source and records what it found.
+ *
+ * Reviewer-only on the server. The outcome says `unchanged`, `changed`,
+ * `unavailable` or `failed` — and only `changed` opens a re-check task. A
+ * failed check is deliberately not a statement about the content.
+ */
+export function checkSourceDrift(
+  sessionId: string,
+  sourceId: string
+): Promise<SourceCheckOutcome> {
+  return request<SourceCheckOutcome>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/sources/${encodeURIComponent(sourceId)}/check`,
+    {
+      method: "POST",
+      idempotencyKey: idempotencyKey("source-check")
+    }
+  );
+}
+
+/** Every re-check task in the session, newest first. */
+export function listRevalidationTasks(
+  sessionId: string,
+  status?: "open" | "in_review" | "resolved" | "dismissed"
+): Promise<{ tasks: RevalidationTask[] }> {
+  const suffix = status ? `?status=${encodeURIComponent(status)}` : "";
+  return request<{ tasks: RevalidationTask[] }>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/revalidation-tasks${suffix}`
+  );
+}
+
+/**
+ * Moves one task between states.
+ *
+ * `in_review` says a person picked it up; `resolved` and `dismissed` close it
+ * and therefore require a note — the record of why is the point of the task,
+ * not an optional extra. Closing a task never touches a verdict: it says
+ * "I have re-read the material", not "the conclusion changed".
+ */
+export function resolveRevalidationTask(
+  sessionId: string,
+  taskId: string,
+  input: {
+    status: "in_review" | "resolved" | "dismissed";
+    note?: string;
+  }
+): Promise<RevalidationTask> {
+  return request<RevalidationTask>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/revalidation-tasks/${encodeURIComponent(taskId)}`,
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+      idempotencyKey: idempotencyKey("revalidation-task")
+    }
   );
 }

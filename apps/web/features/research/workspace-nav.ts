@@ -22,6 +22,7 @@ export const WORKSPACE_TABS = [
   { id: "review", label: "审核中心", group: "verify", narrowOnly: false },
   { id: "cross", label: "交叉审查", group: "verify", narrowOnly: false },
   { id: "citations", label: "引用核查", group: "verify", narrowOnly: false },
+  { id: "monitoring", label: "来源监控", group: "verify", narrowOnly: false },
   { id: "independence", label: "来源关系", group: "verify", narrowOnly: false },
   { id: "quality", label: "研究质量", group: "verify", narrowOnly: false },
 

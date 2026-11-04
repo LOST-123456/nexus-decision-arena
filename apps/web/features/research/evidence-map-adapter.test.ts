@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { EvidenceMapGraph } from "@nexus/shared";
 import {
   applyEvidenceMapFilter,
+  layoutEvidenceMapNodes,
+  MAX_NODES_PER_ROW,
   toEvidenceMapFlow,
   visibleNodeIdsForFilter
 } from "./evidence-map-adapter";
@@ -127,5 +129,74 @@ describe("filtering", () => {
     expect(filtered.coverage).toEqual([]);
     const all = applyEvidenceMapFilter(graph, "all");
     expect(all.coverage).toHaveLength(1);
+  });
+});
+
+/*
+ * Layout bounds: the layout is the thing that decides whether a large research
+ * session is readable at all. Placing a whole band on one row made the canvas
+ * width linear in the material (120 excerpts -> 36,000 px), which no `fitView`
+ * can bring into view because `minZoom` clamps first. These tests pin the
+ * bound, not a pixel-perfect picture.
+ */
+describe("layout bounds", () => {
+  const evidence = (index: number): EvidenceMapGraph["nodes"][number] => ({
+    id: `evidence:e${index}`,
+    sessionId: SESSION_ID,
+    entityId: `e${index}`,
+    type: "evidence",
+    label: `摘录${index}`,
+    status: "unverified",
+    excerpt: "原文",
+    verificationStatus: "unverified",
+    direction: "supports"
+  });
+
+  const claim = (index: number): EvidenceMapGraph["nodes"][number] => ({
+    id: `claim:c${index}`,
+    sessionId: SESSION_ID,
+    entityId: `c${index}`,
+    type: "claim",
+    label: `主张${index}`,
+    status: "proposed",
+    statement: `主张${index}`,
+    verdict: "insufficient_evidence"
+  });
+
+  it("wraps a crowded band instead of stretching the canvas with it", () => {
+    const layout = layoutEvidenceMapNodes(
+      Array.from({ length: 120 }, (_, index) => evidence(index + 1))
+    );
+
+    // 120 nodes = 20 rows of 6; the width is set by the row cap, not by 120.
+    expect(layout.width).toBeLessThan(MAX_NODES_PER_ROW * 300);
+    expect(layout.height).toBeGreaterThan(layout.width);
+  });
+
+  it("never leaves two nodes on the same coordinate and never overlaps a band", () => {
+    const layout = layoutEvidenceMapNodes([
+      ...Array.from({ length: 10 }, (_, index) => claim(index + 1)),
+      evidence(1)
+    ]);
+
+    const occupied = new Set<string>();
+    for (const position of layout.positions.values()) {
+      const key = `${position.x}:${position.y}`;
+      expect(occupied.has(key)).toBe(false);
+      occupied.add(key);
+    }
+
+    // The claim band needs two rows, so the evidence band starts below both.
+    expect(layout.positions.get("claim:c1")).toEqual({ x: 0, y: 0 });
+    expect(layout.positions.get("claim:c7")).toEqual({ x: 0, y: 200 });
+    expect(layout.positions.get("evidence:e1")).toEqual({ x: 0, y: 400 });
+  });
+
+  it("draws the same picture for the same material", () => {
+    const nodes = Array.from({ length: 9 }, (_, index) => evidence(index + 1));
+    const first = layoutEvidenceMapNodes(nodes).positions;
+    const second = layoutEvidenceMapNodes(nodes).positions;
+
+    expect([...first.entries()]).toEqual([...second.entries()]);
   });
 });

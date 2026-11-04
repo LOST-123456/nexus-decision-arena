@@ -1414,6 +1414,62 @@ describe("ResearchQualityPanel · the recommendation actions (Task03B-2)", () =>
     expect(navigation.onOpenPlan).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps the re-read action when the issue is recorded against an excerpt", async () => {
+    // A stale capture and a broken citation are findings on the excerpt, so the
+    // recommendation carries evidence ids and no source id. The action must
+    // still exist — and lead to the excerpt — instead of disappearing exactly
+    // where a reader looks for something to do.
+    const navigation = wiredNavigation();
+    getResearchQuality.mockResolvedValue(
+      assessmentFixture({
+        recommendations: [
+          {
+            id: `recommendation:evidence:${EVIDENCE_ID}:stale_source`,
+            title: "重新核查变化的来源：材料",
+            detail: "该材料所在的来源已发生变化，需要重新核查。",
+            action: "open_source_reader",
+            claimId: null,
+            evidenceIds: [EVIDENCE_ID],
+            sourceIds: [],
+            findingIds: [`stale_source:${EVIDENCE_ID}`]
+          },
+          {
+            id: `recommendation:claim:${CLAIM_ID}:stale_source`,
+            title: "重新核查变化的来源：出货量同比增长 12%。",
+            detail: "来源监测将该主张列为可能受影响。",
+            action: "open_source_reader",
+            claimId: CLAIM_ID,
+            evidenceIds: [],
+            sourceIds: [],
+            findingIds: [`stale_source:${CLAIM_ID}`]
+          }
+        ]
+      })
+    );
+    render(
+      <ResearchQualityPanel
+        sessionId={SESSION_ID}
+        navigation={navigation as never}
+      />
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("quality-recommendations")).toBeTruthy()
+    );
+
+    const evidenceButton = screen.getByTestId(
+      `quality-recommendation-action-recommendation:evidence:${EVIDENCE_ID}:stale_source`
+    );
+    fireEvent.click(evidenceButton);
+    expect(navigation.onOpenEvidence).toHaveBeenCalledWith(EVIDENCE_ID);
+    expect(navigation.onOpenReader).not.toHaveBeenCalled();
+
+    const claimButton = screen.getByTestId(
+      `quality-recommendation-action-recommendation:claim:${CLAIM_ID}:stale_source`
+    );
+    fireEvent.click(claimButton);
+    expect(navigation.onOpenClaim).toHaveBeenCalledWith(CLAIM_ID);
+  });
+
   it("renders no recommendation button when no surface can act", async () => {
     // Same honesty rule as a finding: a control that cannot act is worse
     // than no control, so an unwired navigation leaves the advice without

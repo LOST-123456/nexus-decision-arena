@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { reviewRequestTypeLabel } from "@nexus/shared";
 import { getCurrentUser, type AuthUser } from "../arena/api-client";
 import { ConfirmDialog } from "../../components/ui/dialog";
 import { Notice } from "../../components/ui/notice";
@@ -62,12 +63,10 @@ const ROLE_LABELS: Record<TeamMemberRole, string> = {
   viewer: "只读"
 };
 
-const REQUEST_TYPE_LABELS: Record<ReviewRequestType, string> = {
-  claim_review: "主张审核",
-  source_review: "来源审核",
-  report_review: "报告审核",
-  conflict_review: "冲突审核"
-};
+/*
+ * 审核类型的说法在 `@nexus/shared` 里，和消息中心生成卡片用的是同一份。
+ * 以前这里另写了一份，两个地方迟早会用两个词说同一件事。
+ */
 
 /**
  * The audit trail shares one `execution_events` table with the research
@@ -128,6 +127,14 @@ export function CollaborationPanel({
   const [workItems, setWorkItems] = useState<WorkItem[]>([]);
   const [reviewRequests, setReviewRequests] = useState<ReviewRequest[]>([]);
   const [activity, setActivity] = useState<CollaborationActivity[]>([]);
+  /**
+   * Paging state for the audit trail, which is append-only and therefore has
+   * no end. `activityCursor` is the `sequence` of the last event on screen.
+   */
+  const [activityCursor, setActivityCursor] = useState<number | null>(null);
+  const [activityHasMore, setActivityHasMore] = useState(false);
+  const [activityLoadingMore, setActivityLoadingMore] = useState(false);
+  const [activityMoreError, setActivityMoreError] = useState<string | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
   const [subTab, setSubTab] = useState<SubTab>("members");
 
@@ -184,8 +191,36 @@ export function CollaborationPanel({
   const reloadActivity = useCallback(async () => {
     const response = await listCollaborationActivity(sessionId);
     setActivity(response.activity);
+    setActivityCursor(response.nextCursor);
+    setActivityHasMore(response.hasNextPage);
+    setActivityMoreError(null);
     return response.activity;
   }, [sessionId]);
+
+  /**
+   * Appends the page that follows what is on screen. A failed extension leaves
+   * the events already shown alone: losing audit history to a network blip is
+   * worse than not loading more of it.
+   */
+  const loadMoreActivity = useCallback(async () => {
+    if (activityCursor === null || activityLoadingMore) return;
+    setActivityLoadingMore(true);
+    setActivityMoreError(null);
+    try {
+      const response = await listCollaborationActivity(sessionId, {
+        after: activityCursor
+      });
+      setActivity((current) => [...current, ...response.activity]);
+      setActivityCursor(response.nextCursor);
+      setActivityHasMore(response.hasNextPage);
+    } catch (cause) {
+      setActivityMoreError(
+        cause instanceof Error ? cause.message : "更早的活动加载失败"
+      );
+    } finally {
+      setActivityLoadingMore(false);
+    }
+  }, [sessionId, activityCursor, activityLoadingMore]);
 
   const reloadComments = useCallback(async () => {
     if (!commentTargetType.trim() || !commentTargetId.trim()) {
@@ -428,6 +463,7 @@ export function CollaborationPanel({
           busy={busy}
           run={run}
           afterChange={afterChange}
+          onError={setError}
         />
       ) : null}
 
@@ -444,6 +480,7 @@ export function CollaborationPanel({
           busy={busy}
           run={run}
           afterChange={afterChange}
+          onError={setError}
         />
       ) : null}
 
@@ -456,11 +493,18 @@ export function CollaborationPanel({
           busy={busy}
           run={run}
           afterChange={afterChange}
+          onError={setError}
         />
       ) : null}
 
       {subTab === "activity" ? (
-        <ActivityView activity={activity} />
+        <ActivityView
+          activity={activity}
+          hasNextPage={activityHasMore}
+          loadingMore={activityLoadingMore}
+          moreError={activityMoreError}
+          onLoadMore={() => void loadMoreActivity()}
+        />
       ) : null}
     </div>
   );
@@ -508,7 +552,12 @@ function MembersView({
 
   const invite = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!inviteUserId.trim()) return;
+    if (!inviteUserId.trim()) {
+      // 静默 return 等于「点了没反应」：按钮看起来可用，点下去什么都不发生。
+      // 缺什么就说什么，别让用户猜。
+      onError("请填写要邀请的账号 ID。");
+      return;
+    }
     const ok = await run(async () => {
       await inviteCollaborationMember(sessionId, {
         userId: inviteUserId.trim(),
@@ -518,7 +567,7 @@ function MembersView({
       setInviteUserId("");
       await afterChange();
     }, "邀请成员");
-    if (!ok) onError(null);
+    if (!ok) return;
   };
 
   const accept = async (member: TeamMember) => {
@@ -527,7 +576,7 @@ function MembersView({
       onMessage(`${member.userId} 已接受邀请。`);
       await afterChange();
     }, "接受邀请");
-    if (!ok) onError(null);
+    if (!ok) return;
   };
 
   const decline = async (member: TeamMember) => {
@@ -536,7 +585,7 @@ function MembersView({
       onMessage(`${member.userId} 已拒绝邀请。`);
       await afterChange();
     }, "拒绝邀请");
-    if (!ok) onError(null);
+    if (!ok) return;
   };
 
   const changeRole = async (
@@ -549,7 +598,7 @@ function MembersView({
       onMessage(`已将 ${member.userId} 的角色改为${ROLE_LABELS[role]}。`);
       await afterChange();
     }, "修改角色");
-    if (!ok) onError(null);
+    if (!ok) return;
   };
 
   const confirmRemove = async (member: TeamMember) => {
@@ -568,7 +617,7 @@ function MembersView({
       setRemoveReason("");
       await afterChange();
     }, "移除成员");
-    if (!ok) onError(null);
+    if (!ok) return;
   };
 
   return (
@@ -797,7 +846,8 @@ function WorkItemsView({
   canWrite,
   busy,
   run,
-  afterChange
+  afterChange,
+  onError
 }: {
   sessionId: string;
   workItems: WorkItem[];
@@ -806,6 +856,7 @@ function WorkItemsView({
   busy: boolean;
   run: (action: () => Promise<unknown>, label: string) => Promise<boolean>;
   afterChange: () => Promise<void>;
+  onError: (value: string | null) => void;
 }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -815,7 +866,10 @@ function WorkItemsView({
 
   const create = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!title.trim()) return;
+    if (!title.trim()) {
+      onError("请填写工作项标题。");
+      return;
+    }
     const ok = await run(async () => {
       await createCollaborationWorkItem(sessionId, {
         title: title.trim(),
@@ -1024,7 +1078,8 @@ function CommentsView({
   canComment,
   busy,
   run,
-  afterChange
+  afterChange,
+  onError
 }: {
   sessionId: string;
   comments: Comment[];
@@ -1037,6 +1092,7 @@ function CommentsView({
   busy: boolean;
   run: (action: () => Promise<unknown>, label: string) => Promise<boolean>;
   afterChange: () => Promise<void>;
+  onError: (value: string | null) => void;
 }) {
   const [body, setBody] = useState("");
   // The comment waiting for a confirmation before it is deleted. Only the
@@ -1046,7 +1102,14 @@ function CommentsView({
 
   const create = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!body.trim() || !targetType.trim() || !targetId.trim()) return;
+    if (!body.trim() || !targetType.trim() || !targetId.trim()) {
+      onError(
+        !body.trim()
+          ? "请填写评论内容。"
+          : "请先选择这条评论指向的主张或证据。"
+      );
+      return;
+    }
     const ok = await run(async () => {
       await createCollaborationComment(sessionId, {
         body: body.trim(),
@@ -1210,7 +1273,8 @@ function ReviewRequestsView({
   canCreate,
   busy,
   run,
-  afterChange
+  afterChange,
+  onError
 }: {
   sessionId: string;
   reviewRequests: ReviewRequest[];
@@ -1219,6 +1283,7 @@ function ReviewRequestsView({
   busy: boolean;
   run: (action: () => Promise<unknown>, label: string) => Promise<boolean>;
   afterChange: () => Promise<void>;
+  onError: (value: string | null) => void;
 }) {
   const [requestType, setRequestType] =
     useState<ReviewRequestType>("claim_review");
@@ -1234,7 +1299,10 @@ function ReviewRequestsView({
 
   const create = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!targetId.trim()) return;
+    if (!targetId.trim()) {
+      onError("请填写要审阅的对象 ID。");
+      return;
+    }
     const ok = await run(async () => {
       await createCollaborationReviewRequest(sessionId, {
         requestType,
@@ -1403,7 +1471,7 @@ function ReviewRequestsView({
                 (isRequester || myUserId === null);
               return (
                 <tr key={request.id} data-testid="collab-review-item">
-                  <td>{REQUEST_TYPE_LABELS[request.requestType] ?? request.requestType}</td>
+                  <td>{reviewRequestTypeLabel(request.requestType)}</td>
                   <td className="research-muted">
                     {request.targetType}:{request.targetId}
                   </td>
@@ -1522,7 +1590,19 @@ function ReviewRequestsView({
  * Activity
  * ------------------------------------------------------------------ */
 
-function ActivityView({ activity }: { activity: CollaborationActivity[] }) {
+function ActivityView({
+  activity,
+  hasNextPage,
+  loadingMore,
+  moreError,
+  onLoadMore
+}: {
+  activity: CollaborationActivity[];
+  hasNextPage: boolean;
+  loadingMore: boolean;
+  moreError: string | null;
+  onLoadMore: () => void;
+}) {
   return (
     <section className="research-panel" data-testid="collab-activity">
       <div className="research-panel-head">
@@ -1553,6 +1633,26 @@ function ActivityView({ activity }: { activity: CollaborationActivity[] }) {
           <li className="research-muted">还没有协作活动记录。</li>
         ) : null}
       </ul>
+      {hasNextPage || moreError ? (
+        <div className="research-actions">
+          {moreError ? (
+            <p className="research-error" role="alert">
+              {moreError}
+            </p>
+          ) : null}
+          {hasNextPage ? (
+            <button
+              type="button"
+              className="research-button research-button-secondary"
+              data-testid="collab-activity-load-more"
+              onClick={onLoadMore}
+              disabled={loadingMore}
+            >
+              {loadingMore ? "正在加载更早活动…" : "加载更早活动"}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
     </section>
   );
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { MAX_PAGE_LIMIT } from "@nexus/shared";
 import {
   compareReportSnapshots,
   createReportSnapshot,
@@ -113,6 +114,23 @@ export function ReportVersionsPanel({
     changeReason: string | null;
   } | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
+  /**
+   * Paging state for the history list.
+   *
+   * The history grows by one row per save and never shrinks, so it is read a
+   * page at a time. `nextCursor` is the `version` of the last row on screen —
+   * a value the server compares against, not an offset — so a save that lands
+   * while the reader is paging cannot duplicate or skip a row.
+   */
+  const [nextCursor, setNextCursor] = useState<number | null>(null);
+  const [hasNextPage, setHasNextPage] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  /**
+   * Its own error slot. `loadError` replaces the whole list when set, which is
+   * right for "the history could not be read at all" and wrong for "the next
+   * page did not arrive": the rows already on screen are still true.
+   */
+  const [moreError, setMoreError] = useState<string | null>(null);
 
   /**
    * Saving is a write, so the panel waits until it knows who is reading
@@ -124,20 +142,48 @@ export function ReportVersionsPanel({
 
   const reload = useCallback(async () => {
     setLoadError(null);
+    setMoreError(null);
     try {
       // A failure to re-read the live material must not cost the reader the
       // version list. When the current fingerprint cannot be read, the last
       // known one stays on screen rather than being replaced by a guess.
-      const [{ snapshots: next }, live] = await Promise.all([
+      const [page, live] = await Promise.all([
         listReportSnapshots(sessionId),
         getFactCheckReport(sessionId).catch(() => null)
       ]);
-      setSnapshots(next);
+      setSnapshots(page.snapshots);
+      setNextCursor(page.nextCursor);
+      setHasNextPage(page.hasNextPage);
       if (live) setLiveFingerprint(live.materialsFingerprint);
     } catch (cause) {
       setLoadError(errorText(cause, "历史版本加载失败"));
     }
   }, [sessionId]);
+
+  /**
+   * Appends the page that follows what is on screen.
+   *
+   * Kept separate from `reload` on purpose: reloading replaces the list with
+   * the newest page, which would silently throw away the older rows the
+   * reader just asked for. A failed "load more" leaves the existing rows
+   * intact and says so, because losing history to a network blip is worse
+   * than not loading more of it.
+   */
+  const loadMore = useCallback(async () => {
+    if (nextCursor === null || loadingMore) return;
+    setLoadingMore(true);
+    setMoreError(null);
+    try {
+      const page = await listReportSnapshots(sessionId, { after: nextCursor });
+      setSnapshots((current) => [...(current ?? []), ...page.snapshots]);
+      setNextCursor(page.nextCursor);
+      setHasNextPage(page.hasNextPage);
+    } catch (cause) {
+      setMoreError(errorText(cause, "更早的版本加载失败"));
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [sessionId, nextCursor, loadingMore]);
 
   useEffect(() => {
     let cancelled = false;
@@ -365,6 +411,26 @@ export function ReportVersionsPanel({
             ))}
           </ul>
         )}
+        {snapshots !== null && snapshots.length > 0 && (hasNextPage || moreError) ? (
+          <div className="research-actions" data-testid="report-versions-more">
+            {moreError ? (
+              <p className="research-error" role="alert">
+                {moreError}
+              </p>
+            ) : null}
+            {hasNextPage ? (
+              <button
+                type="button"
+                className="research-button research-button-secondary"
+                data-testid="report-versions-load-more"
+                onClick={() => void loadMore()}
+                disabled={loadingMore}
+              >
+                {loadingMore ? "正在加载更早版本…" : "加载更早版本"}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </section>
 
       {selectedMeta && selected ? (
@@ -473,7 +539,16 @@ export function ReportComparePanel({ sessionId }: { sessionId: string }) {
   const reload = useCallback(async () => {
     setLoadError(null);
     try {
-      const { snapshots: next } = await listReportSnapshots(sessionId);
+      // The comparison asks the reader to name two versions, so it needs a
+      // list it can offer, not a feed it can extend: a "load more" under a
+      // pair of selects would produce versions the reader cannot pick until
+      // they scroll. It therefore asks for the largest page the server
+      // allows in one go. Beyond that the newest versions are still offered,
+      // which is the honest limit of a dropdown — the history tab is where
+      // older ones are reachable.
+      const { snapshots: next } = await listReportSnapshots(sessionId, {
+        limit: MAX_PAGE_LIMIT
+      });
       // Newest first from the server; the selects read better oldest-first.
       // The default pair is the last two versions: what the most recent save
       // changed. With a single version the panel asks for another one anyway.

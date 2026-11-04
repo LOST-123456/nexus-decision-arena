@@ -178,6 +178,7 @@ export function EvidenceForm({
   const [claimIds, setClaimIds] = useState<string[]>(
     defaultClaimId ? [defaultClaimId] : []
   );
+  const [claimFilter, setClaimFilter] = useState("");
 
   const toggleClaim = (claimId: string) => {
     setClaimIds((current) =>
@@ -338,24 +339,71 @@ export function EvidenceForm({
         {claims.length === 0 ? (
           <p className="research-muted">还没有主张，请先添加一条待核查主张。</p>
         ) : (
-          claims.map((claim) => (
-            <label
-              key={claim.id}
-              style={{ display: "flex", gap: 8, alignItems: "flex-start" }}
+          <>
+            {/*
+              主张一多，勾选就成了找针。
+              一个研究跑到几十条主张很常见，而这一栏决定"这条材料算谁的"——
+              挑错一条，材料就挂在不相关的主张上，报告里那条主张仍然是"证据不足"，
+              用户却以为材料已经录完了。所以：勾选数量摆在明面上，超过一屏给搜索框，
+              没被搜索命中的已选项仍然保留（筛掉不等于取消）。
+            */}
+            <div
+              className="research-actions"
+              style={{ justifyContent: "space-between", marginBottom: 4 }}
             >
-              <input
-                type="checkbox"
-                checked={claimIds.includes(claim.id)}
-                onChange={() => toggleClaim(claim.id)}
-              />
-              <span>
-                {claim.statement}
-                <span className="research-muted">
-                  （{claimStatusLabel(claim.status)}）
-                </span>
+              <span className="research-muted" data-testid="evidence-claim-count">
+                已勾选 {claimIds.length} 条 · 共 {claims.length} 条
               </span>
-            </label>
-          ))
+              {claims.length > 6 ? (
+                <input
+                  className="research-input"
+                  style={{ maxWidth: 280 }}
+                  placeholder="搜索主张内容"
+                  value={claimFilter}
+                  onChange={(event) => setClaimFilter(event.target.value)}
+                  aria-label="搜索要关联的主张"
+                  data-testid="evidence-claim-filter"
+                />
+              ) : null}
+            </div>
+            {claims
+              .filter((claim) =>
+                claimFilter.trim() === ""
+                  ? true
+                  : claim.statement
+                      .toLowerCase()
+                      .includes(claimFilter.trim().toLowerCase())
+              )
+              .map((claim) => (
+                <label
+                  key={claim.id}
+                  style={{ display: "flex", gap: 8, alignItems: "flex-start" }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={claimIds.includes(claim.id)}
+                    onChange={() => toggleClaim(claim.id)}
+                  />
+                  <span>
+                    {claim.statement}
+                    <span className="research-muted">
+                      （{claimStatusLabel(claim.status)}）
+                    </span>
+                  </span>
+                </label>
+              ))}
+            {claimFilter.trim() !== "" &&
+            claims.every(
+              (claim) =>
+                !claim.statement
+                  .toLowerCase()
+                  .includes(claimFilter.trim().toLowerCase())
+            ) ? (
+              <p className="research-muted" data-testid="evidence-claim-no-match">
+                没有匹配「{claimFilter.trim()}」的主张。清空搜索框可以看到全部。
+              </p>
+            ) : null}
+          </>
         )}
       </fieldset>
       {error ? (
@@ -498,11 +546,14 @@ export function ClaimForm({
 export function ImportSourceForm({
   onSubmit,
   busy,
-  error
+  error,
+  onInvalid
 }: {
   onSubmit: (commands: ImportSourceCommand[]) => void;
   busy: boolean;
   error: string | null;
+  /** 校验没通过时把原因交回去。没有它，空提交看起来就像按钮坏了。 */
+  onInvalid?: (message: string) => void;
 }) {
   const [input, setInput] = useState("");
   const [title, setTitle] = useState("");
@@ -521,7 +572,10 @@ export function ImportSourceForm({
       data-testid="import-source-form"
       onSubmit={(event) => {
         event.preventDefault();
-        if (urls.length === 0) return;
+        if (urls.length === 0) {
+          onInvalid?.("请至少填写一个网页地址，每行一个。");
+          return;
+        }
         onSubmit(
           urls.map((url) => ({ url, ...(canUseTitle ? { title: title.trim() } : {}) }))
         );

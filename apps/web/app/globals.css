@@ -451,11 +451,17 @@ dd {
   background: var(--surface-hover);
 }
 
+/*
+ * The front door scrolls now. It used to be a fixed two-row grid sized to the
+ * viewport — one hero, one stage — which is exactly why it could only ever talk
+ * about one surface. Horizontal inset is per-section (hero / paths / preview)
+ * so all three line up on the same max width; the shell only owns the vertical
+ * breathing room.
+ */
 .entry-shell {
-  display: grid;
-  min-height: 100vh;
-  grid-template-rows: auto minmax(0, 1fr);
-  padding: 1.25rem;
+  min-height: calc(100vh - var(--app-nav-h));
+  min-height: calc(100dvh - var(--app-nav-h));
+  padding: 1.25rem 0 2.5rem;
   background: var(--canvas);
 }
 
@@ -468,12 +474,13 @@ dd {
   border-bottom: 1px solid var(--line);
 }
 
+/* Height comes from the map frame below; a viewport-tall stage had nothing to
+   fill it once the page grew a second section. */
 .entry-stage {
   display: grid;
-  min-height: calc(100vh - 6.5rem);
   grid-template-columns: 13rem minmax(0, 1fr);
   gap: 1rem;
-  padding-top: 1rem;
+  padding-top: 0.9rem;
 }
 
 .entry-status-rail {
@@ -560,6 +567,19 @@ dd {
   font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 还没定稿的结论：标签换成警告色，让人先看见"会变"再去读内容。 */
+.workspace-vitals .vital-provisional small {
+  color: var(--warning);
+}
+
+.workspace-vitals .vital-step {
+  margin-left: 0.35rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
 }
 
 .workspace-vitals .vital-alert {
@@ -748,6 +768,187 @@ main:focus-visible {
   flex-wrap: wrap;
   gap: var(--space-2);
   justify-content: flex-end;
+}
+
+/* --------------------------------------------------------------------------
+   Quick session switcher (⌘K / Ctrl+K)
+
+   Rides on `.dialog-backdrop` for the scrim, animation and z-index, then
+   overrides only the panel: a command surface is a top-anchored column, not a
+   vertically centred card, because the list grows downward as the user types
+   and a centred panel would jump every keystroke.
+   -------------------------------------------------------------------------- */
+
+.app-nav-quick-switcher {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 28px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-pill);
+  background: var(--surface-inset);
+  color: var(--content-muted);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  transition:
+    background var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+}
+
+.app-nav-quick-switcher:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+  color: var(--content-primary);
+}
+
+.quick-switcher-kbd {
+  padding: 1px 5px;
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-sm);
+  background: var(--surface-panel-soft);
+  color: var(--content-faint);
+  font-family: inherit;
+  font-size: 0.62rem;
+  line-height: 1.4;
+}
+
+.quick-switcher {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: min(34rem, 100%);
+  max-height: min(70vh, 32rem);
+  margin-top: 8vh;
+  padding: var(--space-4);
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-lg);
+  background: var(--surface-panel);
+  box-shadow: var(--shadow-3);
+  animation: dialog-pop var(--duration-fast) var(--ease-standard);
+  /* Top-anchored: the backdrop centres, this keeps the panel in the upper
+     third where the eye already is. */
+  align-self: start;
+}
+
+.quick-switcher-title {
+  font-size: var(--text-sm);
+  font-weight: 650;
+  color: var(--content-muted);
+  letter-spacing: 0.04em;
+}
+
+.quick-switcher-input {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-md);
+  background: var(--surface-inset);
+  color: var(--content-primary);
+  font-family: inherit;
+  font-size: var(--text-base);
+}
+
+.quick-switcher-input::placeholder {
+  color: var(--content-faint);
+}
+
+.quick-switcher-hint {
+  margin: calc(var(--space-2) * -1) 0 0;
+  color: var(--content-faint);
+  font-size: var(--text-xs);
+  line-height: var(--leading-normal);
+}
+
+.quick-switcher-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.quick-switcher-option {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+/*
+ * Two signals, not one: the accent border is the pointer affordance, and
+ * `aria-selected` carries the same information to assistive tech. Neither is
+ * dropped, because the option is reached by keyboard as often as by mouse.
+ */
+.quick-switcher-option-active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.quick-switcher-name {
+  color: var(--content-primary);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  overflow-wrap: anywhere;
+}
+
+.quick-switcher-meta {
+  color: var(--content-faint);
+  font-size: var(--text-xs);
+}
+
+.quick-switcher-id {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
+.quick-switcher-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--status-danger);
+  border-radius: var(--radius-md);
+  background: var(--surface-inset);
+  color: var(--content-primary);
+  font-size: var(--text-xs);
+}
+
+.quick-switcher-error button {
+  min-height: 26px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-sm);
+  background: var(--surface-panel-strong);
+  color: var(--content-primary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.quick-switcher-status {
+  margin: 0;
+  color: var(--content-faint);
+  font-size: var(--text-xs);
+}
+
+@media (max-width: 767px) {
+  /* No keyboard on a phone, and the pill would crowd the menu button. */
+  .quick-switcher-kbd {
+    display: none;
+  }
+
+  .quick-switcher {
+    margin-top: 4vh;
+    max-height: 76vh;
+  }
 }
 
 /*
@@ -1018,7 +1219,7 @@ main:focus-visible {
   display: grid;
   height: 100%;
   min-height: 34rem;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto minmax(0, 1fr);
   overflow: hidden;
   border: 1px solid var(--line);
   background: var(--canvas-raised);
@@ -1035,12 +1236,50 @@ main:focus-visible {
   grid-row: 1;
 }
 
-.decision-map > .human-checkpoint-banner {
+.decision-map > .map-zoom-hint {
   grid-row: 2;
 }
 
-.decision-map > .map-canvas {
+.decision-map > .human-checkpoint-banner {
   grid-row: 3;
+}
+
+.decision-map > .map-canvas {
+  grid-row: 4;
+}
+
+/*
+ * 「图被缩小了 / 有节点在视野外」这句话必须说出来。
+ *
+ * 缩到能装下全图时节点文字会小到看不清；装不下时又会有节点被裁掉。两种
+ * 情况都不说，用户只会觉得这个图画糊了或者缺了一块。
+ */
+.map-zoom-hint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--tint-info-bg, var(--panel-soft));
+  padding: 0.4rem 0.8rem;
+  color: var(--muted-strong);
+  font-size: 0.6rem;
+  line-height: 1.5;
+}
+
+.map-fit-button {
+  cursor: pointer;
+  border: 1px solid var(--accent);
+  background: transparent;
+  padding: 0.1rem 0.4rem;
+  color: var(--accent);
+  font-size: 0.6rem;
+  font-weight: 650;
+}
+
+.map-fit-button:hover {
+  background: var(--accent);
+  color: var(--surface-panel);
 }
 
 .decision-map-compact {
@@ -1049,6 +1288,8 @@ main:focus-visible {
 }
 
 .map-toolbar {
+  position: relative;
+  z-index: 3;
   display: flex;
   min-height: 3.5rem;
   align-items: center;
@@ -1067,6 +1308,15 @@ main:focus-visible {
   font-weight: 680;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 决策地图抬头也要标未定稿，否则同一屏两个地方各说各话。 */
+.map-conclusion-tag {
+  margin-left: 0.4rem;
+  color: var(--warning);
+  font-size: 0.58rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
 }
 
 .map-runtime {
@@ -1381,6 +1631,57 @@ main:focus-visible {
   stroke-dasharray: 7 5;
 }
 
+/*
+ * 图例收成一个小按钮。
+ *
+ * 它原来是常驻浮层，压在画布右上角——5 个节点的图里有 2 个被图例盖住一半，
+ * 等于图例挡住了它要解释的东西。收起来以后画布全给节点，要看的人点一下。
+ */
+.edge-legend-shell {
+  position: relative;
+}
+
+.edge-legend-shell > summary {
+  cursor: pointer;
+  border: 1px solid var(--line);
+  background: var(--surface-overlay);
+  padding: 0.22rem 0.5rem;
+  color: var(--muted-strong);
+  font-size: 0.55rem;
+  letter-spacing: 0.06em;
+  list-style: none;
+  user-select: none;
+}
+
+.edge-legend-shell > summary::-webkit-details-marker {
+  display: none;
+}
+
+.edge-legend-shell > summary::before {
+  content: "▸ ";
+}
+
+.edge-legend-shell[open] > summary::before {
+  content: "▾ ";
+}
+
+.edge-legend-shell > summary:hover {
+  color: var(--content-primary);
+}
+
+.edge-legend-shell[open] > summary {
+  border-bottom-color: transparent;
+}
+
+/* 展开时是一张浮层，浮在画布上方——用户主动点开的，不遮住任何常态内容。 */
+.edge-legend-shell[open] > .edge-legend {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 20;
+  margin-top: 0.2rem;
+}
+
 .edge-legend {
   display: grid;
   width: 15.5rem;
@@ -1577,6 +1878,36 @@ main:focus-visible {
   letter-spacing: 0.08em;
 }
 
+/* 「还有更多」这件事得有人说话，否则被切一半的卡片看起来像数据缺失。 */
+.timeline-overflow {
+  color: var(--muted);
+  font-size: 0.56rem;
+  line-height: 1.4;
+}
+
+/*
+ * 右边渐隐：这是横向滚动的视觉句号。
+ * 只在真的溢出时挂上，装得下还渐隐会让人以为末尾被裁了。
+ */
+.timeline[data-overflow="true"] .timeline-list {
+  -webkit-mask-image: linear-gradient(
+    to right,
+    #000 calc(100% - 2.5rem),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to right,
+    #000 calc(100% - 2.5rem),
+    transparent 100%
+  );
+}
+
+/* 键盘要能滚：滚动区默认不可聚焦，Tab 一下才轮得到它。 */
+.timeline-list:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
 .timeline ol {
   display: flex;
   min-width: 0;
@@ -1657,7 +1988,9 @@ main:focus-visible {
 
 @media (max-width: 767px) {
   .entry-shell {
-    padding: 0.9rem;
+    /* Horizontal inset lives on the sections now; repeating it here would
+       double it on a phone. */
+    padding: 0.9rem 0 1.8rem;
   }
 
   .entry-header {
@@ -1929,6 +2262,452 @@ main:focus-visible {
   line-height: 1.45;
 }
 
+/* Placed directly under the heading: an error that renders below the buttons
+   sits under the fold on a laptop and reads as "nothing happened". */
+.human-checkpoint > .checkpoint-error {
+  margin-top: 0.5rem;
+  border-left: 2px solid var(--danger);
+  background: var(--tint-danger-bg);
+  padding: 0.35rem 0.45rem;
+}
+
+.checkpoint-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.4rem;
+  color: var(--muted);
+  font-size: 0.6rem;
+}
+
+.checkpoint-meta > span {
+  border: 1px solid var(--line);
+  padding: 0.1rem 0.3rem;
+}
+
+.checkpoint-type-evidence {
+  color: var(--warning);
+  border-color: var(--warning);
+}
+
+.checkpoint-type-logic {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.checkpoint-type-assumption {
+  color: var(--running);
+  border-color: var(--running);
+}
+
+.checkpoint-type-priority {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* The receipt for the previous click. "点了没反应" is usually "it worked and
+   the panel came back looking the same" — this line is what breaks the tie. */
+.checkpoint-last-outcome {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.3rem;
+  margin-top: 0.5rem;
+  border: 1px solid var(--line);
+  background: var(--panel-strong);
+  padding: 0.35rem 0.45rem;
+  color: var(--muted);
+  font-size: 0.62rem;
+  line-height: 1.5;
+}
+
+.checkpoint-last-outcome > strong {
+  color: var(--text);
+}
+
+.checkpoint-action.is-pending {
+  border-color: var(--running);
+  background: var(--surface-hover);
+  color: var(--running);
+  cursor: progress;
+}
+
+.checkpoint-progress {
+  margin-top: 0.5rem;
+  color: var(--running);
+  font-size: 0.62rem;
+  line-height: 1.5;
+}
+
+.decision-in-progress {
+  display: grid;
+  gap: 0.4rem;
+  margin-top: 0.75rem;
+  border: 1px solid var(--running);
+  background: var(--panel-strong);
+  padding: 0.8rem;
+}
+
+.decision-in-progress .eyebrow {
+  color: var(--running);
+}
+
+.decision-in-progress h2 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.4rem;
+  font-size: 0.86rem;
+  font-weight: 680;
+}
+
+.decision-in-progress-round {
+  color: var(--muted);
+  font-size: 0.62rem;
+  font-weight: 600;
+}
+
+.decision-in-progress-copy {
+  color: var(--muted-strong);
+  font-size: 0.65rem;
+  line-height: 1.55;
+}
+
+.decision-in-progress-clock {
+  color: var(--muted);
+  font-size: 0.6rem;
+  line-height: 1.5;
+}
+
+.decision-in-progress-clock > strong {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 质询进度：把"还要等"变成看得见的一步一步，而不是一个越走越大的数字。 */
+.decision-in-progress-progress {
+  color: var(--muted-strong);
+  font-size: 0.65rem;
+  line-height: 1.5;
+}
+
+/* 阶段步号：首屏十几秒不动的时候，这一行是"在推进"的唯一证据。 */
+.decision-in-progress-step {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.decision-in-progress-step-label {
+  color: var(--muted-strong);
+  font-size: 0.65rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.5;
+}
+
+.decision-in-progress-step-label > span {
+  margin: 0 0.3rem;
+  color: var(--muted);
+}
+
+.decision-in-progress-step-track {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.2rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.decision-in-progress-step-track > li {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--line);
+}
+
+.decision-in-progress-step-track > li.is-done {
+  background: var(--accent);
+}
+
+.decision-in-progress-step-track > li.is-current {
+  background: var(--running);
+  animation: vital-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes vital-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .decision-in-progress-step-track > li.is-current {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+/* 后台那一轮出了问题：这是确定信息，不是猜测，所以用错误色而不是警告色。 */
+.decision-in-progress-stall {
+  margin-top: 0.35rem;
+  border-left: 2px solid var(--danger);
+  background: var(--tint-danger-bg);
+  padding: 0.35rem 0.45rem;
+  color: var(--danger);
+  font-size: 0.65rem;
+  line-height: 1.5;
+}
+
+/* 补充材料：工作区下方整块，交材料是"下一轮之前"的动作，不是现在就得做。 */
+.session-materials {
+  display: grid;
+  gap: 0.6rem;
+  margin-top: 1rem;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  padding: 0.85rem 0.9rem;
+}
+
+.session-materials-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.session-materials-head .eyebrow {
+  color: var(--accent);
+}
+
+.session-materials-head h2 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.45rem;
+  font-size: 0.9rem;
+  font-weight: 680;
+}
+
+.session-materials-count,
+.session-materials-round {
+  color: var(--muted);
+  font-size: 0.62rem;
+  font-weight: 600;
+}
+
+.session-materials-round {
+  border: 1px solid var(--line-strong);
+  padding: 0.15rem 0.4rem;
+}
+
+.session-materials-copy,
+.session-materials-empty {
+  color: var(--muted-strong);
+  font-size: 0.65rem;
+  line-height: 1.6;
+}
+
+/* ---------------------------------------------------------------
+   检索候选来源
+   与材料区分：材料是"你交的东西"，候选是"系统查到、但还没人核过的东西"。
+   所以用虚线框和一行明确的"未核实"，不跟已登记材料混成一种视觉。
+   --------------------------------------------------------------- */
+.session-web-sources {
+  border: 1px dashed var(--line-strong);
+  border-radius: 6px;
+  padding: 0.6rem 0.7rem;
+  margin: 0 0 0.7rem;
+}
+
+.session-web-sources-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: baseline;
+  margin: 0 0 0.5rem;
+}
+
+.session-web-sources-head span {
+  color: var(--warning);
+  font-size: 0.6rem;
+}
+
+.session-web-sources ul {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.session-web-sources li {
+  display: flex;
+  gap: 0.6rem;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.session-web-sources li small {
+  display: block;
+  color: var(--muted);
+  font-size: 0.58rem;
+  word-break: break-all;
+}
+
+.session-web-source-ignore {
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 0.6rem;
+  padding: 0.15rem 0.1rem;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  white-space: nowrap;
+}
+
+.session-web-source-ignore:hover:not(:disabled) {
+  color: var(--fg);
+}
+
+.session-web-source-ignore:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.session-web-sources li > div {
+  min-width: 0;
+  flex: 1;
+}
+
+.session-web-sources li p {
+  margin: 0.2rem 0 0;
+  color: var(--muted-strong);
+  font-size: 0.62rem;
+  line-height: 1.5;
+}
+
+.session-materials-list {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.session-materials-list > li {
+  display: grid;
+  gap: 0.25rem;
+  border-left: 2px solid var(--accent-soft);
+  background: var(--surface-panel-soft);
+  padding: 0.45rem 0.55rem;
+}
+
+.session-material-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.4rem;
+}
+
+.session-material-head > strong {
+  color: var(--text);
+  font-size: 0.7rem;
+}
+
+.session-material-head > span,
+.session-materials-list small {
+  color: var(--muted);
+  font-size: 0.58rem;
+}
+
+.session-materials-list p {
+  color: var(--muted-strong);
+  font-size: 0.64rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.session-material-form {
+  display: grid;
+  gap: 0.5rem;
+  border-top: 1px solid var(--line);
+  padding-top: 0.6rem;
+}
+
+.session-material-form label {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.session-material-form label > span {
+  color: var(--muted-strong);
+  font-size: 0.66rem;
+  font-weight: 650;
+}
+
+.session-material-form input,
+.session-material-form textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: var(--surface-inset);
+  padding: 0.55rem 0.6rem;
+  color: var(--text);
+  font-size: 0.72rem;
+  line-height: 1.55;
+  resize: vertical;
+}
+
+.session-material-form input:disabled,
+.session-material-form textarea:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
+.session-material-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.session-material-submit {
+  border: 1px solid var(--accent);
+  background: var(--accent-soft);
+  padding: 0.4rem 0.7rem;
+  color: var(--accent);
+  font-size: 0.66rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.session-material-submit:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.session-material-hint {
+  color: var(--muted);
+  font-size: 0.6rem;
+}
+
+.session-materials-notice {
+  color: var(--success);
+  font-size: 0.63rem;
+  line-height: 1.55;
+}
+
+.session-materials-error {
+  color: var(--danger);
+  font-size: 0.63rem;
+  line-height: 1.55;
+}
+
 .decision-complete {
   display: grid;
   gap: 0.65rem;
@@ -2044,6 +2823,73 @@ main:focus-visible {
   padding: 2.5rem 1.25rem 4rem;
 }
 
+/* 证据覆盖率：结论之前的第一块内容。用左边框区分等级，不做大面积底色，
+   免得整页看起来像一个错误页——它要表达的是"能用到什么程度"，不是"出错了"。 */
+.report-coverage {
+  display: grid;
+  gap: 0.35rem;
+  margin-bottom: 1.5rem;
+  border: 1px solid var(--line);
+  border-left-width: 3px;
+  background: var(--panel-soft);
+  padding: 0.7rem 0.85rem;
+}
+
+.report-coverage-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.report-coverage-level {
+  font-size: 0.78rem;
+  font-weight: 680;
+}
+
+.report-coverage-ratio {
+  color: var(--muted);
+  font-size: 0.62rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.report-coverage-statement {
+  color: var(--muted-strong);
+  font-size: 0.68rem;
+  line-height: 1.6;
+}
+
+.report-coverage-usage {
+  color: var(--muted);
+  font-size: 0.64rem;
+  line-height: 1.6;
+}
+
+.report-coverage-unverified {
+  border-left-color: var(--danger);
+}
+
+.report-coverage-unverified .report-coverage-level {
+  color: var(--danger);
+}
+
+.report-coverage-partial {
+  border-left-color: var(--warning);
+}
+
+.report-coverage-partial .report-coverage-level {
+  color: var(--warning);
+}
+
+.report-coverage-verified {
+  border-left-color: var(--success);
+}
+
+.report-coverage-verified .report-coverage-level {
+  color: var(--success);
+}
+
 .report-hero {
   border-bottom: 1px solid var(--line-strong);
   padding-bottom: 1.5rem;
@@ -2082,7 +2928,20 @@ main:focus-visible {
   font-weight: 680;
 }
 
+/*
+ * The section is a two-column grid: a 9rem label rail, then the content.
+ * The markup order is eyebrow -> h2 -> body, so without an explicit column the
+ * body auto-places into the *label* rail and every paragraph renders as a
+ * 9rem-wide ribbon. That was invisible while the body was a single short line;
+ * a multi-sentence executive summary made it unreadable.
+ */
+.report-section > p:last-child,
+.report-section > ol {
+  grid-column: 2;
+}
+
 .report-section > p:last-child {
+  max-width: 42rem;
   color: var(--muted-strong);
   line-height: 1.85;
 }
@@ -2093,6 +2952,192 @@ main:focus-visible {
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+/*
+ * 执行计划表。
+ *
+ * The action plan is a table, not prose: each row is one piece of evidence a
+ * challenge demanded, so the reader can scan severity and owner in a column
+ * instead of reading a paragraph. It lives in the same second grid column as
+ * the section body (see the grid-column rule above).
+ */
+.report-plan-wrap {
+  grid-column: 2;
+  overflow-x: auto;
+}
+
+.report-plan {
+  width: 100%;
+  /* 40rem keeps the six columns from wrapping at the 692px the report body
+     gives this table on a 1440px viewport; below that the wrapper scrolls. */
+  min-width: 40rem;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+
+.report-plan caption {
+  padding-bottom: 0.7rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.6;
+  text-align: left;
+}
+
+.report-plan th {
+  border-bottom: 1px solid var(--line-strong);
+  padding: 0 0.6rem 0.5rem;
+  color: var(--muted);
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.report-plan td {
+  border-top: 1px solid var(--line);
+  padding: 0.7rem 0.6rem;
+  color: var(--muted-strong);
+  line-height: 1.65;
+  vertical-align: top;
+}
+
+.report-plan tbody tr:first-child td {
+  border-top: 0;
+}
+
+.report-plan-index {
+  color: var(--running);
+  font-size: 0.62rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
+.report-plan-action {
+  color: var(--fg);
+  font-weight: 600;
+  min-width: 9rem;
+}
+
+/* The claim the challenge is aimed at. Long statements wrap here instead of
+   pushing the severity and owner columns off the visible area. */
+.report-plan-basis {
+  color: var(--muted-strong);
+  min-width: 12rem;
+  max-width: 22rem;
+}
+
+/* Role names are two to four characters; letting them wrap turns
+   「风险审查员」into a two-line 风险审/查员 that reads like a typo. */
+.report-plan-role {
+  white-space: nowrap;
+}
+
+.report-plan-sevcell {
+  white-space: nowrap;
+}
+
+.report-plan-sev {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.report-plan-status {
+  display: inline-block;
+  /* Inside the mobile grid this cell would otherwise stretch the badge into a
+     full-width bar. No effect in the desktop table layout. */
+  justify-self: start;
+  border: 1px solid var(--line-strong);
+  padding: 0.1rem 0.34rem;
+  color: var(--muted);
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+/* 必办 = adopted by the current decision; 参考 = everything else. Color is the
+   only difference, so the two stay the same width and the column stays aligned. */
+.report-plan-status.is-decisive {
+  border-color: var(--warning);
+  color: var(--warning);
+}
+
+@media (max-width: 767px) {
+  /*
+   * Six columns do not fit 390px, and a horizontally scrolling table hides the
+   * two columns that carry the decision — severity and whether the item was
+   * adopted. So each row becomes a labelled block instead: the header row is
+   * gone and every cell shows its own label via data-label.
+   */
+  .report-plan-wrap {
+    grid-column: 1;
+    overflow-x: visible;
+  }
+
+  .report-plan {
+    min-width: 0;
+  }
+
+  /* Once the table box is block-level the caption is no longer a table-caption
+     child and collapses to a 23px-wide column of single characters. */
+  .report-plan caption {
+    display: block;
+    width: 100%;
+    padding-bottom: 0.8rem;
+  }
+
+  .report-plan thead {
+    display: none;
+  }
+
+  .report-plan,
+  .report-plan tbody,
+  .report-plan tr,
+  .report-plan td {
+    display: block;
+    width: auto;
+  }
+
+  .report-plan tr {
+    border-top: 1px solid var(--line);
+    padding: 0.75rem 0;
+  }
+
+  .report-plan tbody tr:first-child {
+    border-top: 0;
+    padding-top: 0;
+  }
+
+  .report-plan tr:last-child {
+    padding-bottom: 0;
+  }
+
+  .report-plan td {
+    display: grid;
+    grid-template-columns: 5.5rem minmax(0, 1fr);
+    gap: 0.5rem;
+    border-top: 0;
+    padding: 0.14rem 0;
+    max-width: none;
+  }
+
+  .report-plan td::before {
+    content: attr(data-label);
+    color: var(--muted);
+    font-size: 0.6rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+  }
+
+  .report-plan td.report-plan-index {
+    font-size: 0.62rem;
+  }
 }
 
 .report-section li {
@@ -2151,6 +3196,13 @@ main:focus-visible {
   .report-section {
     grid-template-columns: 1fr;
     gap: 0.75rem;
+  }
+
+  /* Single column: the label rail above no longer exists, so the body must
+     go back to the only column instead of asking for a second one. */
+  .report-section > p:last-child,
+  .report-section > ol {
+    grid-column: 1;
   }
 }
 
@@ -2467,6 +3519,19 @@ main:focus-visible {
   line-height: 1.6;
 }
 
+/* The environment variable names are the actual remedy, so they are shown as
+   code rather than as prose: copying them is the whole point. */
+.new-session-note code {
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  background: var(--panel-strong);
+  padding: 0.05em 0.3em;
+  color: var(--text);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.92em;
+  white-space: nowrap;
+}
+
 .new-session-form {
   display: grid;
   gap: 0.85rem;
@@ -2547,6 +3612,210 @@ main:focus-visible {
   opacity: 0.62;
 }
 
+/*
+ * 字段块：标签、输入框、字数、错误各占一行。
+ *
+ * 以前 label 直接是表单的栅格子项，加一行小字就会把栅格撑歪，所以包一层。
+ */
+.new-session-field {
+  display: grid;
+  gap: 0.35rem;
+}
+
+/* 标题行：字段名 + 必填标记。分开成两个元素，label 的文字才保持干净。 */
+.field-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+
+.field-head label {
+  display: inline;
+  color: var(--muted-strong);
+  font-size: 0.68rem;
+  font-weight: 650;
+}
+
+/* 必填标记：写"必填"而不是星号——星号要配图例才认得，而图例没人读。 */
+.field-required {
+  margin-left: 0.4rem;
+  border: 1px solid var(--tint-danger-border);
+  border-radius: var(--radius-pill);
+  background: var(--tint-danger-bg);
+  padding: 0 0.34rem;
+  color: var(--content-primary);
+  font-size: 0.55rem;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.field-meta {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.field-counter {
+  color: var(--muted);
+  font-size: 0.62rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 到顶了才变色：平时它只是参考，不需要吸引注意力。 */
+.field-counter-full {
+  color: var(--warning);
+  font-weight: 650;
+}
+
+.field-error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 0.66rem;
+}
+
+.new-session-field input[aria-invalid="true"],
+.new-session-field textarea[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+
+.form-required-note {
+  margin: 0.35rem 0 0;
+  color: var(--muted);
+  font-size: 0.64rem;
+}
+
+/*
+ * 整表只读时的挡板。
+ *
+ * 放在表单最上方、而不是按钮旁边：人还没开始填就该知道这件事，不该等填完。
+ */
+.new-session-lock {
+  display: grid;
+  gap: 0.4rem;
+  border: 1px solid var(--tint-warning-border);
+  background: var(--tint-warning-bg);
+  padding: 0.7rem 0.8rem;
+}
+
+.new-session-lock strong {
+  font-size: 0.76rem;
+}
+
+.new-session-lock p {
+  margin: 0;
+  color: var(--muted-strong);
+  font-size: 0.7rem;
+  line-height: 1.6;
+}
+
+.new-session-lock a {
+  justify-self: start;
+  color: var(--accent);
+  font-size: 0.7rem;
+  font-weight: 650;
+}
+
+/* 填写提示：贴在名称下面，展开时才占版面，收起后只留一行。 */
+.brief-hints {
+  display: grid;
+  gap: 0.5rem;
+  border: 1px dashed var(--line-strong);
+  background: var(--panel-soft);
+  padding: 0.65rem 0.7rem;
+}
+
+.brief-hints-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.brief-hints-head .eyebrow {
+  color: var(--accent);
+  margin: 0;
+}
+
+.brief-hints-toggle,
+.brief-hint-copy,
+.brief-hints-fill,
+.brief-hints-copy-all {
+  border: 1px solid var(--line-strong);
+  background: var(--panel-strong);
+  padding: 0.25rem 0.5rem;
+  color: var(--muted-strong);
+  font-size: 0.62rem;
+  font-weight: 650;
+  cursor: pointer;
+  transition:
+    border-color 150ms ease,
+    color 150ms ease;
+}
+
+.brief-hints-toggle:hover,
+.brief-hint-copy:hover,
+.brief-hints-fill:hover,
+.brief-hints-copy-all:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.brief-hints-lede,
+.brief-hints-foot {
+  color: var(--muted);
+  font-size: 0.64rem;
+  line-height: 1.55;
+}
+
+.brief-hint {
+  display: grid;
+  gap: 0.3rem;
+  border-top: 1px solid var(--line);
+  padding-top: 0.45rem;
+}
+
+.brief-hint-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.brief-hint-head strong {
+  color: var(--text);
+  font-size: 0.7rem;
+}
+
+.brief-hint-why {
+  color: var(--muted-strong);
+  font-size: 0.63rem;
+  line-height: 1.6;
+}
+
+.brief-hint-template {
+  display: block;
+  border-left: 2px solid var(--accent-soft);
+  background: var(--surface-inset);
+  padding: 0.4rem 0.5rem;
+  color: var(--content-subtle);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
+  font-size: 0.63rem;
+  line-height: 1.6;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.brief-hints-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.brief-hints-fill {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .new-session-error {
   border: 1px solid var(--danger);
   background: var(--tint-danger-bg);
@@ -2572,22 +3841,47 @@ main:focus-visible {
   font-size: 0.7rem;
 }
 
+/*
+ * "Blocked" is not "failed".
+ *
+ * A failure means something went wrong and the answer is to retry. Being
+ * blocked means the form is waiting on a prerequisite, and the answer is
+ * written in the sentence below — so it is a warning, not an alarm.
+ */
+.new-session-error-blocked {
+  border-color: var(--warning);
+  background: var(--tint-warning-bg);
+}
+
+.new-session-error-blocked strong {
+  color: var(--warning);
+}
+
+/*
+ * 整页唯一的主动作，就用实心。
+ *
+ * 原来它是描边浅底，和输入框长得像亲戚，视觉重量还比不过上面的文本框——
+ * 一个"开始评审"按钮不该让人先找一下。
+ */
 .new-session-submit {
   display: flex;
-  min-height: 2.8rem;
+  min-height: 3rem;
   align-items: center;
   justify-content: space-between;
-  border: 1px solid var(--running);
-  background: var(--panel-strong);
-  padding: 0.65rem 0.85rem;
-  color: var(--text);
-  font-size: 0.78rem;
-  font-weight: 700;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  padding: 0.7rem 0.95rem;
+  color: var(--surface-panel);
+  font-size: 0.82rem;
+  font-weight: 750;
+  transition:
+    filter 160ms ease,
+    border-color 160ms ease;
 }
 
 .new-session-submit:hover:not(:disabled) {
   border-color: var(--focus);
-  background: var(--surface-hover);
+  filter: brightness(1.08);
 }
 
 .new-session-submit:disabled {
@@ -2644,6 +3938,20 @@ main:focus-visible {
 
 .new-session-runtime-error {
   color: var(--danger) !important;
+}
+/*
+ * The link sits inside the sentence instead of after it: "请先登录…去登录" read
+ * as one dead end before, because the only way forward was a nav item the
+ * reader had to guess at.
+ */
+.new-session-runtime-error-link {
+  margin-left: 0.4em;
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+.new-session-runtime-error-link:hover {
+  color: var(--text);
 }
 .runtime-mode-badge,
 .correlation-chip {
@@ -2781,6 +4089,44 @@ main:focus-visible {
   }
 }
 
+/*
+ * The same export strip on the research page. One component, two hosts: the
+ * research reading column runs at a larger control scale than the arena's
+ * header strip, so the size is adjusted here rather than by forking the
+ * component into a second copy that would then drift.
+ */
+.report-export-note {
+  color: var(--muted);
+  font-size: 0.62rem;
+}
+
+/*
+ * A failed export says so, on the page, instead of replacing the page with
+ * the backend's bare JSON error body.
+ */
+.report-export-error {
+  color: var(--danger, #e05a4f);
+  font-size: 0.62rem;
+  line-height: 1.4;
+  flex-basis: 100%;
+}
+
+.research-report-actions .report-export-actions button,
+.research-report-actions .report-export-actions a {
+  font-size: 0.72rem;
+  padding: 0.5rem 0.7rem;
+  color: var(--text);
+  border-color: var(--border-base);
+}
+
+.research-report-actions .report-export-actions a {
+  text-decoration: none;
+}
+
+.research-report-actions .report-export-note {
+  font-size: 0.72rem;
+}
+
 .review-list-shell { min-height:100vh;background:linear-gradient(var(--grid-line) 1px,transparent 1px),linear-gradient(90deg,var(--grid-line) 1px,transparent 1px),var(--canvas);background-size:3rem 3rem; }
 .review-list-header { display:flex;min-height:4.5rem;align-items:center;justify-content:space-between;gap:1rem;border-bottom:1px solid var(--line);background:var(--surface-overlay);padding:0 1.25rem; }
 .review-list-content { width:min(100%,82rem);margin:0 auto;padding:2.2rem 1.25rem 3rem; }
@@ -2792,6 +4138,28 @@ main:focus-visible {
 .review-card>header,.review-actions { display:flex;flex-wrap:wrap;align-items:center;gap:.5rem; }
 .review-card>header { justify-content:space-between; }
 .review-phase { color:var(--muted);font-size:.62rem;letter-spacing:.08em; }
+/*
+ * "Why is this research on my list" — stated per row, and again as a filter.
+ * `--running` is the same accent the card's top edge uses, so the badge reads
+ * as part of this card rather than as a status chip borrowed from elsewhere.
+ */
+.relation-badge { border:1px solid var(--line-strong);border-radius:999px;padding:.1rem .45rem;color:var(--muted-strong);font-size:.58rem;letter-spacing:.04em;white-space:nowrap; }
+.relation-badge[data-relation="owner"] { border-color:var(--running);color:var(--running); }
+.relation-filter { display:flex;flex-wrap:wrap;gap:.4rem;margin-top:1rem; }
+.relation-filter-option { border:1px solid var(--line-strong);background:transparent;padding:.38rem .7rem;color:var(--muted-strong);font-size:.64rem;border-radius:999px;cursor:pointer;transition:border-color var(--duration-fast) var(--ease-standard),color var(--duration-fast) var(--ease-standard); }
+.relation-filter-option:hover { border-color:var(--running);color:var(--text); }
+.relation-filter-option[aria-pressed="true"] { border-color:var(--running);background:var(--surface-panel);color:var(--text);font-weight:650; }
+/*
+ * 消息页的两组。`等你处理` 是活儿,`最近动态` 是背景——所以前者用实线边框和
+ * 强调色标题,后者用虚线,读的人扫一眼就知道该先看哪一半。
+ */
+.notifications-group { margin-top:1.8rem; }
+.notifications-group-head { display:flex;align-items:baseline;justify-content:space-between;gap:.75rem;border-bottom:1px solid var(--line-strong);padding-bottom:.5rem; }
+.notifications-group-head h2 { font-size:.95rem;font-weight:680; }
+.notifications-group[data-testid="notifications-news"] .notifications-group-head { border-bottom-style:dashed; }
+.notifications-group[data-testid="notifications-news"] .notifications-group-head h2 { color:var(--muted-strong);font-weight:600; }
+.notifications-group .research-muted { font-size:.66rem; }
+
 .review-card h2 { font-size:1.05rem;font-weight:680;line-height:1.4; }
 .review-card dl { display:grid;grid-template-columns:repeat(3,minmax(0,1fr));margin:0;border-top:1px solid var(--line);border-left:1px solid var(--line); }
 .review-card dl>div { border-right:1px solid var(--line);border-bottom:1px solid var(--line);padding:.6rem; }
@@ -2804,6 +4172,10 @@ main:focus-visible {
 .review-actions .review-delete { border-color:var(--tint-danger-border);color:var(--danger); }
 .review-empty { display:grid;justify-items:start;gap:.65rem;margin-top:1.2rem;border:1px dashed var(--line-strong);background:var(--surface-overlay-soft);padding:1.2rem;color:var(--muted); }
 .review-empty strong { color:var(--text); }
+.review-list-more { display:flex;justify-content:center;margin-top:1.2rem; }
+.review-more { border:1px solid var(--line-strong);background:transparent;padding:.55rem .9rem;color:var(--muted-strong);font-size:.68rem;border-radius:var(--radius-md);cursor:pointer;transition:border-color var(--duration-fast) var(--ease-standard),color var(--duration-fast) var(--ease-standard); }
+.review-more:hover:not(:disabled) { border-color:var(--running);color:var(--text); }
+.review-more:disabled { cursor:wait;opacity:.55; }
 @media (max-width:700px){.review-list-header,.review-list-heading{align-items:flex-start;flex-wrap:wrap;padding:.75rem}.review-card dl{grid-template-columns:1fr}}
 .security-shell { min-height:100vh;background:var(--canvas); }
 .security-header { display:flex;min-height:4.5rem;align-items:center;justify-content:space-between;gap:1rem;border-bottom:1px solid var(--line);background:var(--panel-soft);padding:0 1.25rem; }
@@ -2816,6 +4188,33 @@ main:focus-visible {
 .security-grid h2 { margin-top:.55rem;font-size:1.1rem; }
 .security-grid p { margin-top:.6rem;color:var(--muted-strong);font-size:.78rem;line-height:1.7; }
 @media (max-width:700px){.security-header{align-items:flex-start;flex-wrap:wrap;padding:.75rem}.security-grid{grid-template-columns:1fr}.security-document{padding-top:1.5rem}}
+/*
+ * 治理页的「实际数据」区。与上面六张卡片同一套令牌，但换一种语气：
+ * 卡片是承诺（`.security-grid`，强调色上边框），这里是账本（虚线分隔 +
+ * 等宽数字），读的人要能一眼分出「说的」和「数出来的」。
+ */
+.security-measured { margin-top:3rem;border-top:1px dashed var(--line-strong);padding-top:2.2rem; }
+.security-measured>h2 { margin-top:.55rem;font-size:clamp(1.3rem,2.4vw,1.9rem);letter-spacing:-.02em; }
+.oversight { margin-top:1.6rem;display:grid;gap:1.2rem; }
+.oversight-scope { color:var(--muted);font-size:.72rem;line-height:1.7; }
+.oversight-scope strong { color:var(--text);font-variant-numeric:tabular-nums; }
+.oversight-grid { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem; }
+.oversight-block { border:1px solid var(--line);background:var(--panel);padding:1rem; }
+.oversight-block h2 { font-size:.92rem;font-weight:680; }
+.oversight-figures { display:flex;flex-wrap:wrap;gap:.9rem 1.4rem;margin:.9rem 0 0; }
+.oversight-figures>div { display:grid;gap:.2rem; }
+.oversight-figures dt { color:var(--muted);font-size:.6rem;letter-spacing:.04em; }
+.oversight-figures dd { margin:0;color:var(--text);font-size:1.25rem;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.1; }
+.oversight-note { margin-top:.9rem;color:var(--muted-strong);font-size:.72rem;line-height:1.7; }
+.oversight-note strong { color:var(--text);font-variant-numeric:tabular-nums; }
+.oversight-bar { display:flex;height:.4rem;margin-top:.6rem;gap:2px;border-radius:999px;overflow:hidden;background:var(--surface-overlay-soft); }
+.oversight-bar>span { display:block; }
+.oversight-bar-accept { background:var(--danger); }
+.oversight-bar-uphold { background:var(--running); }
+.oversight-bar-defer { background:var(--muted); }
+.oversight-footnote { border-left:2px solid var(--line-strong);padding-left:.9rem;color:var(--muted);font-size:.7rem;line-height:1.8; }
+@media (max-width:700px){.oversight-grid{grid-template-columns:1fr}}
+
 .auth-user-badge { display:inline-flex;min-height:2.5rem;align-items:center;gap:.45rem;border:1px solid var(--line-strong);background:var(--panel);padding:.45rem .65rem;color:var(--muted-strong);font-size:.66rem; }
 .auth-user-active small { color:var(--running);font-size:.5rem;letter-spacing:.08em; }
 .auth-user-badge button { border:0;background:transparent;color:var(--muted);font-size:.6rem;cursor:pointer; min-height:24px; padding:2px 6px; border-radius:var(--radius-sm); }
@@ -2828,6 +4227,12 @@ main:focus-visible {
 .auth-intro>p:not(.eyebrow) { margin-top:1rem;color:var(--muted-strong);line-height:1.75; }
 .auth-demo-accounts { display:grid;gap:.35rem;margin-top:1.2rem;border-left:2px solid var(--warning);background:var(--tint-warning-bg);padding:.8rem;color:var(--muted-strong);font-size:.7rem; }
 .auth-demo-accounts code { color:var(--warning); }
+.auth-demo-note { margin:0;color:var(--muted);font-size:.66rem; }
+/*
+ * Says the one thing a visitor cannot infer from this page: there is no
+ * sign-up form, and its absence is a decision rather than a broken link.
+ */
+.auth-signup-note { margin-top:1.1rem;color:var(--muted-strong);font-size:.72rem;line-height:1.6; }
 .auth-form { display:grid;gap:.8rem;align-content:start; }
 .auth-form h2,.team-management h2 { font-size:1.1rem; }
 .auth-form label { display:grid;gap:.35rem;color:var(--muted-strong);font-size:.68rem; }
@@ -3218,6 +4623,47 @@ main:focus-visible {
   background: var(--accent);
   color: var(--accent-contrast);
   font-weight: 620;
+}
+
+/*
+ * Unread count on the 消息 destination.
+ *
+ * Sized to stay legible at the bar's small type scale (0.58rem label would fail
+ * a contrast/size reading at 9px) and given its own background so the number
+ * does not depend on the link's hover or active colour to be seen. The active
+ * state inverts it, because the accent-on-accent pairing would otherwise
+ * disappear exactly when the reader is on the page it points at.
+ */
+.app-nav-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.15rem;
+  height: 1.15rem;
+  margin-left: 0.3rem;
+  padding: 0 0.28rem;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-size: 0.66rem;
+  font-weight: 700;
+  line-height: 1;
+  vertical-align: middle;
+}
+
+.app-nav-link[aria-current="page"] .app-nav-badge {
+  background: var(--accent-contrast);
+  color: var(--accent);
+}
+
+.app-nav-drawer-link .app-nav-badge {
+  margin-left: 0.45rem;
+}
+
+@media print {
+  .app-nav-badge {
+    display: none !important;
+  }
 }
 
 .app-nav-actions {
@@ -3958,6 +5404,131 @@ main:focus-visible {
   color: var(--content-subtle);
   font-size: 0.95rem;
   line-height: var(--leading-relaxed);
+}
+
+/* Entry paths -------------------------------------------------------- */
+
+/*
+ * The two surfaces, side by side and at the same weight. The front door used to
+ * describe the arena only; a visitor looking for the fact-checking half had to
+ * find it in the nav on their own.
+ */
+.entry-paths {
+  width: min(100%, 82rem);
+  margin: 0 auto;
+  padding: 0 1.25rem 1.4rem;
+}
+
+.entry-paths-title {
+  color: var(--content-muted);
+  font-size: 0.72rem;
+  font-weight: 620;
+  letter-spacing: 0.14em;
+}
+
+/*
+ * `auto-fit` rather than a width media query: the minimum is the width a card
+ * needs to keep its copy from wrapping into a column of single words. Below
+ * that they stack, which is also the correct reading order.
+ *
+ * The minimum is wrapped in `min(…, 100%)` because a bare `minmax(19rem, 1fr)`
+ * never shrinks below 19rem: on a 320px viewport the track would be 304px wide
+ * inside 280px of content and the whole page would scroll sideways. Clamping to
+ * the container is what makes the same rule safe at every width.
+ */
+.entry-paths-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(19rem, 100%), 1fr));
+  gap: 1rem;
+  margin-top: 0.7rem;
+}
+
+.entry-path {
+  display: grid;
+  align-content: start;
+  gap: 0.6rem;
+  border: 1px solid var(--border-base);
+  border-top: 2px solid var(--accent);
+  background: var(--surface-panel);
+  padding: 1.05rem 1.15rem 1.15rem;
+}
+
+.entry-path-index {
+  color: var(--accent);
+  font-size: 0.62rem;
+  letter-spacing: 0.12em;
+}
+
+.entry-path h3 {
+  font-size: 1.1rem;
+  font-weight: 680;
+  letter-spacing: -0.01em;
+}
+
+.entry-path-lead {
+  color: var(--content-subtle);
+  font-size: 0.85rem;
+  line-height: var(--leading-relaxed);
+}
+
+/*
+ * A real list, not a stack of divs with drawn dashes: the markers are styled
+ * through `::marker`, so assistive tech still announces "list, 3 items".
+ */
+.entry-path-points {
+  display: grid;
+  gap: 0.3rem;
+  margin: 0;
+  padding-left: 1.05rem;
+  color: var(--content-muted);
+  font-size: 0.78rem;
+  line-height: 1.55;
+}
+
+.entry-path-points > li::marker {
+  color: var(--accent);
+}
+
+.entry-path-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.1rem;
+}
+
+.entry-paths-note {
+  margin-top: 0.9rem;
+  color: var(--content-faint);
+  font-size: 0.74rem;
+  line-height: 1.6;
+}
+
+/* Entry preview ------------------------------------------------------ */
+
+.entry-preview {
+  width: min(100%, 82rem);
+  margin: 0 auto;
+  padding: 0 1.25rem;
+}
+
+.entry-preview-head {
+  display: grid;
+  gap: 0.3rem;
+  border-top: 1px solid var(--line);
+  padding-top: 1rem;
+}
+
+.entry-preview-head h2 {
+  font-size: 0.92rem;
+  font-weight: 660;
+  letter-spacing: -0.01em;
+}
+
+.entry-preview-head p {
+  max-width: 46rem;
+  color: var(--content-muted);
+  font-size: 0.78rem;
+  line-height: 1.6;
 }
 
 /* Buttons ---------------------------------------------------------------- */

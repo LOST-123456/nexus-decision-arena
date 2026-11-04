@@ -59,7 +59,7 @@ export function EvidenceExplorer({ sessionId }: { sessionId: string }) {
       .catch((cause) => {
         if (!cancelled) {
           setLoadError(
-            cause instanceof Error ? cause.message : "Evidence explorer unavailable"
+            cause instanceof Error ? cause.message : "无法加载证据浏览器"
           );
         }
       });
@@ -80,7 +80,7 @@ export function EvidenceExplorer({ sessionId }: { sessionId: string }) {
       })
       .catch((cause) => {
         if (!cancelled) {
-          setError(cause instanceof Error ? cause.message : "Failed to load detail");
+          setError(cause instanceof Error ? cause.message : "加载详情失败");
         }
       });
     return () => {
