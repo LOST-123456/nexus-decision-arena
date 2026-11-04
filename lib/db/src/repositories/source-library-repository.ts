@@ -11,6 +11,7 @@ import {
 import type { Database } from "../client";
 import {
   decisionSessions,
+  projects,
   sourceCopies,
   sourceShareGrants,
   sourceSnapshots,
@@ -60,6 +61,14 @@ export type LibrarySessionMeta = {
   sessionId: string;
   ownerUserId: string | null;
   researchQuestion: string | null;
+  /**
+   * The session's project name. The dropdowns in the library panel label a
+   * session with this first: a research created from the intake form always
+   * has one, while `researchQuestion` is optional and often empty — falling
+   * back to an id fragment there is how "资料库练习·下" showed up as
+   * "a18a3396" and looked missing.
+   */
+  projectName: string | null;
   updatedAt: string;
   /**
    * Present only on a session reached through a grant, and only then: the
@@ -171,6 +180,53 @@ export class SourceLibraryRepository {
   constructor(private readonly database: Database) {}
 
   /**
+   * The grant clause, in one place: a live grant held directly by the account,
+   * or by its platform role. Revoked grants never match.
+   *
+   * Used by both the authorized-session list and the single-session check so
+   * the two cannot drift apart — a session that a list would show must be one
+   * the detail check admits, or the interface becomes a maze.
+   */
+  private grantPredicate(userId: string, role: string) {
+    return and(
+      sql`${sourceShareGrants.revokedAt} IS NULL`,
+      sql`(${sourceShareGrants.subjectType} = 'user' AND ${sourceShareGrants.subjectId} = ${userId})
+          OR (${sourceShareGrants.subjectType} = 'role' AND ${sourceShareGrants.subjectId} = ${role})`
+    );
+  }
+
+  /** Sessions the caller holds a live grant on (not counting ownership). */
+  async listGrantedSessionIds(
+    userId: string,
+    role: string
+  ): Promise<string[]> {
+    const rows = await this.database
+      .selectDistinct({ sessionId: sourceShareGrants.sessionId })
+      .from(sourceShareGrants)
+      .where(this.grantPredicate(userId, role));
+    return rows.map((row) => row.sessionId);
+  }
+
+  /** Whether one session carries a live grant for this caller. */
+  async hasLiveGrant(
+    sessionId: string,
+    userId: string,
+    role: string
+  ): Promise<boolean> {
+    const [row] = await this.database
+      .select({ id: sourceShareGrants.id })
+      .from(sourceShareGrants)
+      .where(
+        and(
+          eq(sourceShareGrants.sessionId, sessionId),
+          this.grantPredicate(userId, role)
+        )
+      )
+      .limit(1);
+    return Boolean(row);
+  }
+
+  /**
    * Sessions the caller may browse: the ones they own plus the ones they hold
    * a live grant for (directly or through their role).
    */
@@ -183,9 +239,11 @@ export class SourceLibraryRepository {
         sessionId: decisionSessions.id,
         ownerUserId: decisionSessions.ownerUserId,
         researchQuestion: decisionSessions.researchQuestion,
+        projectName: projects.name,
         updatedAt: decisionSessions.updatedAt
       })
       .from(decisionSessions)
+      .innerJoin(projects, eq(projects.id, decisionSessions.projectId))
       .where(eq(decisionSessions.ownerUserId, userId));
 
     const grantedRows = await this.database
@@ -193,6 +251,7 @@ export class SourceLibraryRepository {
         sessionId: decisionSessions.id,
         ownerUserId: decisionSessions.ownerUserId,
         researchQuestion: decisionSessions.researchQuestion,
+        projectName: projects.name,
         updatedAt: decisionSessions.updatedAt,
         grantId: sourceShareGrants.id,
         grantScope: sourceShareGrants.scope
@@ -202,18 +261,14 @@ export class SourceLibraryRepository {
         decisionSessions,
         eq(decisionSessions.id, sourceShareGrants.sessionId)
       )
-      .where(
-        and(
-          sql`${sourceShareGrants.revokedAt} IS NULL`,
-          sql`(${sourceShareGrants.subjectType} = 'user' AND ${sourceShareGrants.subjectId} = ${userId})
-              OR (${sourceShareGrants.subjectType} = 'role' AND ${sourceShareGrants.subjectId} = ${role})`
-        )
-      );
+      .innerJoin(projects, eq(projects.id, decisionSessions.projectId))
+      .where(this.grantPredicate(userId, role));
 
     const toMeta = (row: {
       sessionId: string;
       ownerUserId: string | null;
       researchQuestion: string | null;
+      projectName: string | null;
       updatedAt: unknown;
       grantId?: string | null;
       grantScope?: string | null;
@@ -221,6 +276,7 @@ export class SourceLibraryRepository {
       sessionId: row.sessionId,
       ownerUserId: row.ownerUserId,
       researchQuestion: row.researchQuestion,
+      projectName: row.projectName,
       updatedAt: new Date(String(row.updatedAt)).toISOString(),
       ...(row.grantId ? { grantId: row.grantId } : {}),
       ...(row.grantScope ? { grantScope: row.grantScope as ShareGrantScope } : {})
@@ -244,9 +300,11 @@ export class SourceLibraryRepository {
         sessionId: decisionSessions.id,
         ownerUserId: decisionSessions.ownerUserId,
         researchQuestion: decisionSessions.researchQuestion,
+        projectName: projects.name,
         updatedAt: decisionSessions.updatedAt
       })
       .from(decisionSessions)
+      .innerJoin(projects, eq(projects.id, decisionSessions.projectId))
       .where(eq(decisionSessions.id, sessionId))
       .limit(1);
     if (!row) return null;
@@ -254,6 +312,7 @@ export class SourceLibraryRepository {
       sessionId: row.sessionId,
       ownerUserId: row.ownerUserId,
       researchQuestion: row.researchQuestion,
+      projectName: row.projectName,
       updatedAt: new Date(String(row.updatedAt)).toISOString()
     };
   }
@@ -271,14 +330,17 @@ export class SourceLibraryRepository {
         sessionId: decisionSessions.id,
         ownerUserId: decisionSessions.ownerUserId,
         researchQuestion: decisionSessions.researchQuestion,
+        projectName: projects.name,
         updatedAt: decisionSessions.updatedAt
       })
       .from(decisionSessions)
+      .innerJoin(projects, eq(projects.id, decisionSessions.projectId))
       .orderBy(desc(decisionSessions.updatedAt));
     return rows.map((row) => ({
       sessionId: row.sessionId,
       ownerUserId: row.ownerUserId,
       researchQuestion: row.researchQuestion,
+      projectName: row.projectName,
       updatedAt: new Date(String(row.updatedAt)).toISOString()
     }));
   }
