@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { expect, test, type Page } from "@playwright/test";
+import { OWNER_PASSWORD } from "./support/credentials";
 
 /**
  * Report versions, checked in a real browser against a real backend.
@@ -22,7 +23,7 @@ const verificationNote = "与 PDF 第 14 页表格逐字核对一致。";
 async function loginAsOwner(page: Page): Promise<void> {
   await page.goto("/login");
   await page.getByLabel("用户名").fill("owner");
-  await page.getByLabel("密码").fill("nexus-owner");
+  await page.getByLabel("密码").fill(OWNER_PASSWORD);
   await page.getByRole("button", { name: /^登录/ }).click();
   await expect(page).toHaveURL(/\/$/);
 }
@@ -349,6 +350,17 @@ test("a viewer can read saved versions but cannot create one", async ({
     }
   });
   expect(created.status()).toBe(201);
+  const viewerId = ((await created.json()) as { id: string }).id;
+
+  // Reading someone else's research needs an explicit grant now. The global
+  // `viewer` role narrows what an account may *write*; it does not widen what
+  // it may *read*. Without this the account is answered 404 for every id, and
+  // "read saved versions" would be asserting a permission nobody granted.
+  const granted = await page.context().request.post("/api/library/grants", {
+    headers: { "idempotency-key": `grant-${randomUUID()}` },
+    data: { sessionId, subjectType: "user", subjectId: viewerId, scope: "read" }
+  });
+  expect(granted.status()).toBe(201);
 
   const login = await page.context().request.post("/api/auth/login", {
     data: { username: viewerName, password: viewerPassword }

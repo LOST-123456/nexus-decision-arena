@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { OWNER, VIEWER } from "./support/credentials";
 
 /**
  * The cross-research library, checked in a real browser against a real
@@ -26,9 +27,6 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
  * offline: captured text arrives as an imported local file, never fetched
  * from the internet.
  */
-
-const OWNER = { username: "owner", password: "nexus-owner" };
-const VIEWER = { username: "viewer", password: "nexus-viewer" };
 
 /** Unique per run, so the desktop and mobile projects never collide. */
 function unique(prefix: string): string {

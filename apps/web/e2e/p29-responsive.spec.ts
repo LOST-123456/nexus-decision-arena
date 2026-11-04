@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { expect, test, type Page } from "@playwright/test";
+import { OWNER_PASSWORD } from "./support/credentials";
 
 /**
  * 任务书第十八节点名了五个宽度。运行时套件只有两个 project（1440×900 与
@@ -22,7 +23,7 @@ const WIDTHS = [
 async function loginAsOwner(page: Page): Promise<void> {
   await page.goto("/login");
   await page.getByLabel("用户名").fill("owner");
-  await page.getByLabel("密码").fill("nexus-owner");
+  await page.getByLabel("密码").fill(OWNER_PASSWORD);
   await page.getByRole("button", { name: /^登录/ }).click();
   await expect(page).toHaveURL(/\/$/);
 }
@@ -65,6 +66,7 @@ test("every declared width holds every route without horizontal overflow", async
   const routes = [
     "/",
     "/history",
+    "/notifications",
     "/research",
     `/research/${sessionId}`,
     `/research/${sessionId}/evidence`,

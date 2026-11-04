@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
+import { OWNER_PASSWORD } from "./support/credentials";
 
 /**
  * The two browser verifications that were still outstanding:
@@ -22,7 +23,7 @@ const excerpt = "华南区复购率为 31%。";
 async function loginAsOwner(page: Page): Promise<void> {
   await page.goto("/login");
   await page.getByLabel("用户名").fill("owner");
-  await page.getByLabel("密码").fill("nexus-owner");
+  await page.getByLabel("密码").fill(OWNER_PASSWORD);
   await page.getByRole("button", { name: /^登录/ }).click();
   await expect(page).toHaveURL(/\/$/);
 }

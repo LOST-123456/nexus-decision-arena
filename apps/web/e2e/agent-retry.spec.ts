@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { expect, test, type Page } from "@playwright/test";
+import { OWNER_PASSWORD } from "./support/credentials";
 
 /**
  * P26 — retry lineage, seen from the browser.
@@ -25,8 +26,65 @@ import { expect, test, type Page } from "@playwright/test";
  */
 
 const DB_URL =
-  process.env.DATABASE_URL ?? "postgres://nexus:nexus@127.0.0.1:5432/nexus_test_e2e";
-const PG_CONTAINER = process.env.E2E_PG_CONTAINER ?? "nexus-p0-worktree-postgres-1";
+  process.env.DATABASE_URL ?? "postgres://nexus:nexus@127.0.0.1:5433/nexus_test_e2e";
+
+/**
+ * The container's name is whatever Docker Desktop decided to call it: it comes
+ * from the compose project, which follows the directory the stack was started
+ * in. Hard-coding `nexus-p0-worktree-postgres-1` meant this file only ran on
+ * the machine that name was copied from — everywhere else `docker exec` failed
+ * and four specs went red for a reason that had nothing to do with retries.
+ *
+ * So: ask Docker which container publishes the port this database is on.
+ */
+function resolveContainer(): string {
+  const explicit = process.env.E2E_PG_CONTAINER?.trim();
+  if (explicit) return explicit;
+
+  const port = new URL(DB_URL).port || "5432";
+  let listing = "";
+  try {
+    listing = execFileSync(
+      "docker",
+      ["ps", "--format", "{{.Names}}\t{{.Ports}}"],
+      { encoding: "utf8" }
+    );
+  } catch (error) {
+    throw new Error(
+      `无法列出 docker 容器，请确认 Docker 在运行（或设置 E2E_PG_CONTAINER 指定容器名）：${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+
+  const rows = listing
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [name, ports = ""] = line.split("\t");
+      return { name: name ?? "", ports };
+    })
+    .filter((row) => /postgres/i.test(row.name));
+
+  // 端口匹配的那一个才是这套 E2E 的库；同名多开时按端口区分。
+  const byPort = rows.find((row) => row.ports.includes(`:${port}->`));
+  if (byPort) return byPort.name;
+  if (rows.length === 1) return rows[0]!.name;
+
+  throw new Error(
+    rows.length === 0
+      ? `没有找到名字含 "postgres" 的容器。请启动数据库，或设置 E2E_PG_CONTAINER。`
+      : `有多个 PostgreSQL 容器，但没有一个发布 ${port} 端口：${rows
+          .map((row) => `${row.name}(${row.ports})`)
+          .join(", ")}。请设置 E2E_PG_CONTAINER 指定用哪个。`
+  );
+}
+
+const PG_CONTAINER = resolveContainer();
+
+/** The database this spec reads, for the error messages below. */
+function databaseName(): string {
+  return decodeURIComponent(new URL(DB_URL).pathname.replace(/^\//, ""));
+}
 
 /** Runs one statement in the E2E database and returns its trimmed output. */
 function sql(statement: string): string {
@@ -56,7 +114,7 @@ function sql(statement: string): string {
 async function loginAsOwner(page: Page): Promise<void> {
   await page.goto("/login");
   await page.getByLabel("用户名").fill("owner");
-  await page.getByLabel("密码").fill("nexus-owner");
+  await page.getByLabel("密码").fill(OWNER_PASSWORD);
   await page.getByRole("button", { name: /^登录/ }).click();
   await expect(page).toHaveURL(/\/$/);
 }
@@ -127,7 +185,18 @@ function insertFailedRun(sessionId: string, claimId: string): string {
   const [roleId, promptVersionId] = sql(
     "SELECT id || ' ' || prompt_version_id FROM agent_roles ORDER BY key LIMIT 1"
   ).split(" ");
-  expect(roleId, "a seeded agent role is required").toBeTruthy();
+  /*
+   * Empty here means one of two things, and they are worth telling apart:
+   * the pipeline never ran (no session ever reached orchestration in this
+   * database), or core is writing to a different database than this spec is
+   * reading. Both used to surface as the same useless sentence.
+   */
+  expect(
+    roleId,
+    `在库 ${databaseName()} 里没有 agent role。要么这条流水线从没在这个库里跑过，` +
+      `要么 core 连的不是这个库（它默认连 nexus，本文件默认 nexus_test_e2e）。` +
+      `两边必须同一个库；设置 DATABASE_URL 让二者一致后重跑。`
+  ).toBeTruthy();
   expect(promptVersionId, "the role must carry a prompt version").toBeTruthy();
 
   sql(

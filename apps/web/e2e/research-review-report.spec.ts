@@ -1,12 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { expect, test, type Page } from "@playwright/test";
+import { OWNER_PASSWORD } from "./support/credentials";
 
 const rationale = "已对照系统内登记的原始材料逐条核对，认可当前推导结论。";
 
 async function loginAsOwner(page: Page): Promise<void> {
   await page.goto("/login");
   await page.getByLabel("用户名").fill("owner");
-  await page.getByLabel("密码").fill("nexus-owner");
+  await page.getByLabel("密码").fill(OWNER_PASSWORD);
   await page.getByRole("button", { name: /^登录/ }).click();
   await expect(page).toHaveURL(/\/$/);
 }
