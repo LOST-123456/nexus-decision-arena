@@ -263,6 +263,29 @@ export class DecisionSessionRepository {
     return created ?? null;
   }
 
+  /**
+   * Sets the question a research set out to answer.
+   *
+   * Only the question: the phase, the status, the conclusion and every claim
+   * and verdict are left exactly as they are. Editing what a research asks is
+   * not editing what it concluded, and a report that was frozen before the
+   * change must keep reading the question it was frozen with.
+   */
+  async setResearchQuestion(
+    id: string,
+    researchQuestion: string
+  ): Promise<{ sessionId: string; researchQuestion: string | null } | null> {
+    const [updated] = await this.database
+      .update(decisionSessions)
+      .set({ researchQuestion, updatedAt: new Date().toISOString() })
+      .where(eq(decisionSessions.id, id))
+      .returning({
+        sessionId: decisionSessions.id,
+        researchQuestion: decisionSessions.researchQuestion
+      });
+    return updated ?? null;
+  }
+
   async getById(id: string, executor: ReadExecutor = this.database) {
     const [session] = await executor
       .select()
