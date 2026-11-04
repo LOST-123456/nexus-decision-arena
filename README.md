@@ -45,16 +45,18 @@ macOS/Linux:
 cp .env.example .env
 ```
 
-`AUTH_DEFAULT_OWNER_PASSWORD` / `AUTH_DEFAULT_VIEWER_PASSWORD` 留空时，首次启动会用源码内置的演示口令创建两个账户：
+`AUTH_DEFAULT_OWNER_PASSWORD` / `AUTH_DEFAULT_VIEWER_PASSWORD` 留空时，首次启动会用源码里的兜底口令创建 `owner` 与 `viewer` 两个账户。那两个常量（`services/core/src/auth-config.ts` 的 `LOCAL_DEMO_*`）刻意不抄进本文件：它们只负责「一台新机器第一次能进去」，任何跑过一次的机器上都已经不是有效口令了。
 
-- Owner：`owner / nexus-owner`
-- Viewer：`viewer / nexus-viewer`
+在一台已经跑起来的机器上，当前口令在这两个文件里（`.data/` 已被 git 忽略，不进仓库）：
 
-首次启动会创建 `.data/users.json`。`.data/` 已加入 `.gitignore`，不会进入仓库。**账户文件一旦存在，这两个值就不再起作用**——之后换口令走下面的「轮换口令」。
+- `.data/owner-password.txt`
+- `.data/viewer-password.txt`
+
+首次启动会创建 `.data/users.json`。**账户文件一旦存在，环境变量与兜底值都不再起作用**——之后换口令走下面的「轮换口令」；两个口令文件丢了，也用它重设一次。
 
 #### 本地开发与公开部署是两种模式，不会互相冒充
 
-上面的默认口令只在**本地演示模式**下有效：`NODE_ENV` 不是 `production`、没有设置 `NEXUS_PUBLIC_DEPLOYMENT=true`、也没有设置 `NEXUS_DEMO_MODE=false`。这种情况下启动会在标准错误里打印一条提示，说明正在使用源码内置的签名密钥。
+源码内置的兜底口令只在**本地演示模式**下才会被采用：`NODE_ENV` 不是 `production`、没有设置 `NEXUS_PUBLIC_DEPLOYMENT=true`、也没有设置 `NEXUS_DEMO_MODE=false`。这种情况下启动会在标准错误里打印一条提示，说明正在使用源码内置的签名密钥。
 
 一旦部署被判定为**公开**（上述三个开关任意一个命中），服务会**拒绝启动**，而不是带病上线。公开部署必须提供：
 
