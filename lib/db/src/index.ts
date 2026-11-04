@@ -1,6 +1,7 @@
 export * from "./client";
 export * from "./schema";
 export * from "./repositories/decision-session-repository";
+export * from "./repositories/notification-repository";
 export * from "./repositories/arena-repository";
 export * from "./repositories/append-event";
 export * from "./repositories/evidence-repository";
