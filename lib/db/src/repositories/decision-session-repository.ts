@@ -89,9 +89,26 @@ export class HumanDecisionConflictNotEligibleError extends Error {
   }
 }
 
+/**
+ * 补充分析最多跑几轮。
+ *
+ * 上一版写死成 1 轮，理由是"防止无限重跑烧钱"。代价是一个真实项目永远只能
+ * 补一次材料——而一个项目很少一次评审就能定论：第一轮质询说"你拿不出证据"，
+ * 补上证据之后理应再被问一遍。上限保留，但从 1 提到 3，并允许部署方用
+ * `MAX_SUPPLEMENT_ROUNDS` 调整；调用方拿到的拒绝理由会写明还剩几轮。
+ */
+export function maxSupplementRounds(): number {
+  const configured = Number(process.env.MAX_SUPPLEMENT_ROUNDS ?? 3);
+  return Number.isFinite(configured) && configured >= 1
+    ? Math.floor(configured)
+    : 3;
+}
+
 export class SupplementRoundLimitError extends Error {
-  constructor() {
-    super("Only one supplement analysis round is allowed");
+  constructor(readonly limit: number = maxSupplementRounds()) {
+    super(
+      `补充分析最多 ${limit} 轮，这个项目已经用完了。要再往下推进，请新开一次评审，把这一轮补到的材料一起带上。`
+    );
     this.name = "SupplementRoundLimitError";
   }
 }
@@ -405,7 +422,7 @@ export class DecisionSessionRepository {
 
       if (
         input.decision.action === "request_more_analysis" &&
-        currentSession.supplementRound >= 1
+        currentSession.supplementRound >= maxSupplementRounds()
       ) {
         throw new SupplementRoundLimitError();
       }
