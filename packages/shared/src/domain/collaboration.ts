@@ -111,6 +111,48 @@ export type ReviewRequestStatus = z.infer<typeof ReviewRequestStatusSchema>;
 export const ReviewDecisionSchema = z.enum(["approved", "rejected"]);
 export type ReviewDecision = z.infer<typeof ReviewDecisionSchema>;
 
+/**
+ * 枚举的中文说法，放在枚举旁边。
+ *
+ * 两处都要用：审核表单的下拉框，和消息中心派生出来的卡片文案。各写一份的
+ * 结果是同一个 `report_review` 在列表里叫「报告审核」、在消息里叫「报告评审」
+ * ——两个词指一件事，读的人会以为这是两件事。
+ *
+ * 取值函数接受 `string` 而不是枚举类型：这些列在库里的类型是 `text`，模型层
+ * 没有约束，真库里完全可能有一个界面还不认识的取值。那时把原值显示出来，
+ * 比渲染成空白要好——一行消失比一行难看更糟。
+ */
+export const REVIEW_REQUEST_TYPE_LABELS: Record<ReviewRequestType, string> = {
+  claim_review: "主张审核",
+  source_review: "来源审核",
+  report_review: "报告审核",
+  conflict_review: "冲突审核"
+};
+
+export function reviewRequestTypeLabel(value: string): string {
+  return value in REVIEW_REQUEST_TYPE_LABELS
+    ? REVIEW_REQUEST_TYPE_LABELS[value as ReviewRequestType]
+    : value;
+}
+
+export const COMMENT_TARGET_TYPE_LABELS: Record<CommentTargetType, string> = {
+  claim: "主张",
+  evidence: "证据",
+  source: "来源",
+  conflict: "冲突",
+  challenge: "质疑",
+  plan_item: "计划项",
+  revalidation_task: "复核任务",
+  report_snapshot: "报告快照",
+  work_item: "任务"
+};
+
+export function commentTargetTypeLabel(value: string): string {
+  return value in COMMENT_TARGET_TYPE_LABELS
+    ? COMMENT_TARGET_TYPE_LABELS[value as CommentTargetType]
+    : value;
+}
+
 /** A team member as returned by the API: a membership row made legible. */
 export const TeamMemberSchema = z.object({
   id: IdSchema,

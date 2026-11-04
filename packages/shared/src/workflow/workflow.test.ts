@@ -5,7 +5,9 @@ import {
   ClaimSchema,
   canTransition,
   EvidenceSchema,
+  isConclusionFinal,
   newId,
+  sessionPhaseStep,
   transitionSession
 } from "../index";
 import type { SessionPhase } from "../index";
@@ -277,6 +279,58 @@ describe("session transitions", () => {
       expect(() => transitionSession("REPORT_READY", to)).toThrow(
         `Invalid session transition: REPORT_READY -> ${to}`
       );
+    }
+  });
+});
+
+/**
+ * 后台跑那十几秒里，页面只剩阶段名和时针在动，看着像卡死。
+ * 步序号把「还要等几步」变成看得见的东西；结论定没定稿决定页头怎么称呼它。
+ */
+describe("sessionPhaseStep", () => {
+  it("PLANNING → CONFLICT_DETECTED 依次是第 1..4 步", () => {
+    expect(sessionPhaseStep("PLANNING")).toMatchObject({ step: 1, total: 4 });
+    expect(sessionPhaseStep("ANALYZING")).toMatchObject({ step: 2, total: 4 });
+    expect(sessionPhaseStep("CHALLENGING")).toMatchObject({ step: 3, total: 4 });
+    expect(sessionPhaseStep("CONFLICT_DETECTED")).toMatchObject({
+      step: 4,
+      total: 4
+    });
+  });
+
+  it("REASSESSING 是回头重跑第 2 步，并标出来这不是退步", () => {
+    expect(sessionPhaseStep("REASSESSING")).toMatchObject({
+      step: 2,
+      total: 4,
+      restarted: true
+    });
+  });
+
+  it("不在机器步上的阶段返回 null，不硬凑一个数字", () => {
+    for (const phase of ["CREATED", "HUMAN_REVIEW", "DECIDED", "REPORT_READY"]) {
+      expect(sessionPhaseStep(phase)).toBeNull();
+    }
+    expect(sessionPhaseStep("NOT_A_PHASE")).toBeNull();
+  });
+});
+
+describe("isConclusionFinal", () => {
+  it("只有出了结论之后才算定稿", () => {
+    expect(isConclusionFinal("DECIDED")).toBe(true);
+    expect(isConclusionFinal("REPORT_READY")).toBe(true);
+  });
+
+  it("分析中、质询中、等人工裁决时都还没定稿", () => {
+    for (const phase of [
+      "CREATED",
+      "PLANNING",
+      "ANALYZING",
+      "CHALLENGING",
+      "CONFLICT_DETECTED",
+      "HUMAN_REVIEW",
+      "REASSESSING"
+    ]) {
+      expect(isConclusionFinal(phase)).toBe(false);
     }
   });
 });

@@ -8,6 +8,15 @@ export const ExecutionEventTypeSchema = z.enum([
   "CLAIM_CREATED",
   "CHALLENGE_CREATED",
   "CHALLENGE_RESOLVED",
+  /**
+   * 一轮质询开始了，附上这一轮要做多少条。
+   *
+   * 为什么要单独一条事件：质询是整轮里唯一按"主张 × 质询者"逐条跑模型的
+   * 环节，条数越多越久。页面拿不到总数就只能显示一个越走越大的计时器，
+   * 分不清"在推进"和"卡住了"。有这条之后，`CHALLENGE_CREATED` 的累计数
+   * 除以 total 就是进度，不需要再猜。
+   */
+  "CHALLENGE_BATCH_STARTED",
   "CONFLICT_DETECTED",
   "EVIDENCE_RECORDED",
   "EVIDENCE_VERIFICATION_CHANGED",
@@ -88,6 +97,23 @@ export const ExecutionEventTypeSchema = z.enum([
   "WORK_ITEM_COMPLETED",
   "COMMENT_CREATED",
   "COMMENT_DELETED",
+  /**
+   * 人工补充的一份材料（访谈记录、报价单、试点数据）。
+   *
+   * 为什么是事件而不是新表：材料必须和时间线、裁决、质询落在同一条不可变
+   * 序列上。一条材料在"第几轮之前交的"决定它能不能回答那一轮的质询，把这种
+   * 先后关系存在事件流里，重放时天然成立；存成可更新的行则要在每次重放时
+   * 重建先后关系，迟早会错。
+   */
+  "MATERIAL_ADDED",
+  /**
+   * 一次外部检索查到的候选来源。
+   *
+   * 它必须落库，而不是只活在这一次提示词里：审计包要能回答"当时到底是看了
+   * 哪几条才问出这个问题"，否则检索就是一段无法追溯的暗箱。注意它是**候选**，
+   * 不是证据——`verificationStatus` 仍然是 unverified。
+   */
+  "WEB_SOURCES_FOUND",
   "REVIEW_REQUEST_CREATED",
   "REVIEW_REQUEST_ASSIGNED",
   "REVIEW_REQUEST_DECIDED",

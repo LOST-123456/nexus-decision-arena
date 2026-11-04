@@ -30,3 +30,20 @@ export const ConflictSchema = z.object({
 
 export type Conflict = z.infer<typeof ConflictSchema>;
 export type ConflictStatus = z.infer<typeof ConflictStatusSchema>;
+
+/**
+ * 冲突类型的中文说法。冲突面板要把"这是哪一类分歧"讲清楚——只给
+ * `evidence` 这样的枚举名，用户无法判断该补材料还是该改判断。
+ */
+export const CONFLICT_TYPE_LABELS: Record<Conflict["type"], string> = {
+  evidence: "证据缺口",
+  logic: "推理瑕疵",
+  assumption: "未验证假设",
+  priority: "优先级分歧"
+};
+
+export function conflictTypeLabel(value: string): string {
+  return value in CONFLICT_TYPE_LABELS
+    ? CONFLICT_TYPE_LABELS[value as Conflict["type"]]
+    : value;
+}

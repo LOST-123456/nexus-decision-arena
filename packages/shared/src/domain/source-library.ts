@@ -148,6 +148,13 @@ export const LibraryCopyCommandSchema = z.object({
 export const LibrarySessionSummarySchema = z.object({
   sessionId: IdSchema,
   researchQuestion: z.string().max(1000).optional(),
+  /**
+   * The session's project name, when one exists. Labels prefer this over
+   * `researchQuestion`: every intake-created research has a name, while the
+   * question is optional — an id fragment as the only label reads as
+   * "the entry is missing".
+   */
+  projectName: z.string().max(200).optional(),
   /** `own` when the caller owns the session, `granted` otherwise. */
   access: z.enum(["own", "granted"]),
   grantId: IdSchema.optional(),
