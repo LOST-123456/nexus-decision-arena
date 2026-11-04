@@ -160,6 +160,13 @@
   font-size: 16px;
   font-weight: 600;
   line-height: 1.45;
+  /*
+   * 研究问题常常是一整串没有空格的中文长句，外加 Claim、URL 或 ID 这类断不开的
+   * 单词。没有这条规则时，390px 下它会把自己撑到 370px 宽，再逐层把整个报告页
+   * 顶到 407px——而 `body { overflow-x: hidden }` 只是把横向滚动条藏起来，右边
+   * 那截内容是真的被裁掉了。
+   */
+  overflow-wrap: anywhere;
 }
 
 .research-muted {
