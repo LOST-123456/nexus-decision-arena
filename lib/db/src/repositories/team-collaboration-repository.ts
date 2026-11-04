@@ -1,11 +1,14 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, lt, sql } from "drizzle-orm";
 import {
   newId,
+  resolvePageLimit,
   type CollaborationActivity,
   type CollaborationEventType,
   type Comment,
   type CommentDraft,
+  type CursorPage,
   type MembershipStatus,
+  type PageRequest,
   type ReviewDecision,
   type ReviewRequest,
   type ReviewRequestDraft,
@@ -188,6 +191,25 @@ export class TeamCollaborationRepository {
       )
       .limit(1);
     return row ? parseMember(row) : null;
+  }
+
+  /**
+   * Sessions where this user holds a live membership (pending or active).
+   *
+   * The list form of `getLiveMembership`: a collaborator who was invited must
+   * still find the research in their workspace, not only by typing its id.
+   */
+  async listSessionIdsForMember(userId: string): Promise<string[]> {
+    const rows = await this.database
+      .selectDistinct({ sessionId: researchMemberships.sessionId })
+      .from(researchMemberships)
+      .where(
+        and(
+          eq(researchMemberships.userId, userId),
+          sql`${researchMemberships.status} IN ('pending', 'active')`
+        )
+      );
+    return rows.map((row) => row.sessionId);
   }
 
   async getMembershipById(membershipId: string): Promise<TeamMember | null> {
@@ -755,22 +777,42 @@ export class TeamCollaborationRepository {
    * is reused, not duplicated). Only the collaboration event types are
    * returned, newest first, so the audit trail for a research stays one table.
    */
+  /**
+   * One page of a research's collaboration trail, newest first.
+   *
+   * The trail is an append-only event log: it grows with every comment, status
+   * change and review decision, so reading all of it means reading the whole
+   * history of the research on every tab click. Paged on `sequence`, which is
+   * dense and monotonic per session, so "older than the last one I saw" is a
+   * value comparison and a concurrent append cannot shift a page.
+   */
   async listActivity(
     sessionId: string,
-    types: readonly CollaborationEventType[]
-  ): Promise<CollaborationActivity[]> {
-    if (types.length === 0) return [];
+    types: readonly CollaborationEventType[],
+    page: PageRequest = {}
+  ): Promise<CursorPage<CollaborationActivity>> {
+    if (types.length === 0) {
+      return { items: [], nextCursor: null, hasNextPage: false };
+    }
+    const limit = resolvePageLimit(page.limit);
+    const after =
+      typeof page.after === "number" && Number.isFinite(page.after)
+        ? page.after
+        : null;
     const rows = await this.database
       .select()
       .from(executionEvents)
       .where(
         and(
           eq(executionEvents.sessionId, sessionId),
-          inArray(executionEvents.type, [...types])
+          inArray(executionEvents.type, [...types]),
+          after === null ? undefined : lt(executionEvents.sequence, after)
         )
       )
-      .orderBy(desc(executionEvents.sequence));
-    return rows.map((row) => ({
+      .orderBy(desc(executionEvents.sequence))
+      .limit(limit + 1);
+    const hasNextPage = rows.length > limit;
+    const items = rows.slice(0, limit).map((row) => ({
       id: String(row.id),
       sessionId: String(row.sessionId),
       sequence: Number(row.sequence),
@@ -779,6 +821,12 @@ export class TeamCollaborationRepository {
       payload: (row.payload ?? {}) as Record<string, unknown>,
       occurredAt: toIso(row.occurredAt)
     }));
+    const last = items[items.length - 1];
+    return {
+      items,
+      hasNextPage,
+      nextCursor: hasNextPage && last ? last.sequence : null
+    };
   }
 }
 

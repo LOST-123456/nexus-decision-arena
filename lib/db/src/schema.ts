@@ -1569,3 +1569,40 @@ export const researchReviewRequests = pgTable(
       .where(sql`${table.assignedReviewerUserId} IS NOT NULL`)
   })
 );
+
+/**
+ * Where one account stopped reading.
+ *
+ * The notification centre stores **no notifications**. Every item it shows is
+ * derived at read time from rows that already exist — a pending invitation in
+ * `research_memberships`, a failed run in `agent_runs` — so there is no second
+ * copy of the truth to drift and no backfill when a source's own rules change.
+ * Deleting an invitation deletes the notification, because they are the same
+ * row.
+ *
+ * What genuinely cannot be derived is the only thing stored here: which items
+ * this account has already seen. `item_key` is `<kind>:<source id>` — stable
+ * across reads, so marking one read twice is idempotent, and an item that
+ * disappears simply stops being asked about. Rows are garbage in the harmless
+ * sense: a read marker for something that no longer exists is never rendered
+ * and never counted.
+ */
+export const notificationReads = pgTable(
+  "notification_reads",
+  {
+    id: uuid("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    itemKey: text("item_key").notNull(),
+    readAt: timestampColumn("read_at").notNull().defaultNow()
+  },
+  (table) => ({
+    once: uniqueIndex("notification_reads_user_item_idx").on(
+      table.userId,
+      table.itemKey
+    ),
+    user: index("notification_reads_user_idx").on(
+      table.userId,
+      table.readAt
+    )
+  })
+);

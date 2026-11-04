@@ -55,8 +55,24 @@ export function iso(value: unknown): string {
   return date.toISOString();
 }
 
+/**
+ * `agent_roles` is a global template table shared by every session, so anything
+ * that can write to the database — a seed script, another test suite, manual SQL
+ * — can leave a row whose `key` is outside `AgentRoleKeySchema`. Parsing the
+ * table as one array meant a single unknown row made `AgentRoleSchema` throw, and
+ * because `getView` feeds `GET /api/sessions/:id`, one bad row took down the
+ * detail of *every* session. Roles this build understands are kept, the rest are
+ * dropped: a partially populated roster beats a blank error page.
+ */
 export function parseAgentRoles(rows: readonly unknown[]): AgentRole[] {
-  return AgentRoleSchema.array().parse(rows);
+  const roles: AgentRole[] = [];
+  for (const row of rows) {
+    const parsed = AgentRoleSchema.safeParse(row);
+    if (parsed.success) {
+      roles.push(parsed.data);
+    }
+  }
+  return roles;
 }
 
 export function parseClaims(rows: readonly unknown[]): Claim[] {

@@ -14,12 +14,18 @@ import { defineConfig } from "vitest/config";
  * `testTimeout` 定为 60_000 的依据：它与本目录既有用例先前内联的预算一致（不降低任何既有预算），
  * 并把预算**收敛到这一处**——内联的 per-test 超时会覆盖配置与 CLI 的 `--testTimeout`，导致预算
  * 无法按环境集中调整。现在所有集成用例使用同一个可集中调整的预算。
+ *
+ * `hookTimeout` 定为 120_000 的依据：`afterAll` 要把本轮创建的**每一个临时库** `DROP DATABASE …
+ * WITH (FORCE)` 再关闭管理连接，`beforeEach` 则要建库并跑完 20 个迁移。这些是建库/删库级别的
+ * 操作而非断言，30_000 在 Windows + Docker Desktop 上会被稳定击穿——表现为套件「Hook timed out」，
+ * 而其中每一个用例其实都通过了。预算不足还会让被判超时的 hook 在后台继续建库/删库，与后续套件
+ * 争抢同一实例，正好复现上面警告过的级联变慢。用例本身没有放宽任何断言。
  */
 export default defineConfig({
   test: {
     fileParallelism: false,
     testTimeout: 60_000,
-    hookTimeout: 30_000,
+    hookTimeout: 120_000,
     include: ["src/**/*.integration.test.ts"]
   }
 });

@@ -1,7 +1,10 @@
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, lt } from "drizzle-orm";
 import {
   newId,
+  resolvePageLimit,
+  type CursorPage,
   type ExecutionEvent,
+  type PageRequest,
   type ReportClaimReference,
   type ReportEvidenceReference,
   type ReportMonitoringReference,
@@ -122,18 +125,48 @@ export class ReportSnapshotRepository {
   }
 
   /**
-   * Every version of a session, newest first, without payloads.
+   * One page of a session's versions, newest first, without payloads.
    *
    * The history list answers "what exists" and never needs the report body,
    * so the payload stays in the database until someone opens one version.
+   *
+   * Paged on `version`, which is dense and monotonic per session: "older than
+   * the last one I saw" is a value comparison (`version < after`), not an
+   * offset, so a save that lands between two requests cannot make a row appear
+   * twice or vanish from the next page. One extra row is fetched to answer
+   * "is there another page?" without a second count query.
    */
-  async listSummaries(sessionId: string): Promise<ReportSnapshotSummary[]> {
+  async listSummaries(
+    sessionId: string,
+    page: PageRequest = {}
+  ): Promise<CursorPage<ReportSnapshotSummary>> {
+    const limit = resolvePageLimit(page.limit);
+    const after =
+      typeof page.after === "number" && Number.isFinite(page.after)
+        ? page.after
+        : null;
     const rows = await this.database
       .select()
       .from(researchReportSnapshots)
-      .where(eq(researchReportSnapshots.sessionId, sessionId))
-      .orderBy(desc(researchReportSnapshots.version));
-    return rows.map((row) => summaryFrom(row));
+      .where(
+        and(
+          eq(researchReportSnapshots.sessionId, sessionId),
+          after === null
+            ? undefined
+            : lt(researchReportSnapshots.version, after)
+        )
+      )
+      .orderBy(desc(researchReportSnapshots.version))
+      .limit(limit + 1);
+
+    const hasNextPage = rows.length > limit;
+    const items = rows.slice(0, limit).map((row) => summaryFrom(row));
+    const last = items[items.length - 1];
+    return {
+      items,
+      hasNextPage,
+      nextCursor: hasNextPage && last ? last.version : null
+    };
   }
 
   /**

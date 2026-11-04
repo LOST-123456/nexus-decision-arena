@@ -442,15 +442,93 @@ describe("report snapshot repository", () => {
     });
     expect(snapshot.snapshot.sourceReferences[0]?.present).toBe(false);
 
-    const summaries = await repository.listSummaries(sessionId);
-    expect(summaries).toHaveLength(1);
+    const page = await repository.listSummaries(sessionId);
+    expect(page.items).toHaveLength(1);
+    expect(page.hasNextPage).toBe(false);
+    expect(page.nextCursor).toBeNull();
     // The list is a table of contents: it must not carry every payload.
     expect(
-      Object.keys(summaries[0] ?? {}).includes("reportPayload")
+      Object.keys(page.items[0] ?? {}).includes("reportPayload")
     ).toBe(false);
-    expect(summaries[0]?.sourceCount).toBe(1);
+    expect(page.items[0]?.sourceCount).toBe(1);
 
     expect(await repository.maxVersion(sessionId)).toBe(1);
+  });
+
+  /**
+   * Paged on `version`, because a version history has no end: it grows by one
+   * row per save and nothing ever removes one. The cursor is a value
+   * comparison rather than an offset, so two pages cannot overlap or skip a
+   * row even when a save lands while the reader is paging.
+   */
+  it("walks the history page by page without repeating or skipping a version", async () => {
+    const { database, repository, sessionId } = await seeded();
+
+    for (let version = 1; version <= 5; version += 1) {
+      const id = newId();
+      await database.transaction(async (transaction) =>
+        repository.insertSnapshot(transaction, {
+          snapshot: {
+            id,
+            sessionId,
+            version,
+            createdBy: "reviewer (alice)",
+            researchQuestion: "成本是否下降？",
+            reportSchemaVersion: 1,
+            materialsFingerprint: "a".repeat(16),
+            snapshotHash: "c".repeat(64),
+            reportPayload: { version },
+            sourceReferences: [],
+            evidenceReferences: [],
+            claimReferences: [],
+            reviewReferences: [],
+            monitoringReferences: [],
+            changeReason: `第 ${version} 版`,
+            idempotencyKey: `key-${version}`
+          },
+          event: {
+            correlationId: id,
+            type: "REPORT_SNAPSHOT_CREATED",
+            payload: { snapshotId: id, version }
+          }
+        })
+      );
+    }
+
+    const first = await repository.listSummaries(sessionId, { limit: 2 });
+    expect(first.items.map((row) => row.version)).toEqual([5, 4]);
+    expect(first.hasNextPage).toBe(true);
+    expect(first.nextCursor).toBe(4);
+
+    const second = await repository.listSummaries(sessionId, {
+      limit: 2,
+      after: first.nextCursor
+    });
+    expect(second.items.map((row) => row.version)).toEqual([3, 2]);
+    expect(second.hasNextPage).toBe(true);
+
+    const third = await repository.listSummaries(sessionId, {
+      limit: 2,
+      after: second.nextCursor
+    });
+    expect(third.items.map((row) => row.version)).toEqual([1]);
+    expect(third.hasNextPage).toBe(false);
+    expect(third.nextCursor).toBeNull();
+
+    // Every version appears exactly once, newest first: no overlap, no gap.
+    expect(
+      [...first.items, ...second.items, ...third.items].map((row) => row.version)
+    ).toEqual([5, 4, 3, 2, 1]);
+
+    // Asking for more than exists is one page, and it says so.
+    const everything = await repository.listSummaries(sessionId, { limit: 200 });
+    expect(everything.items).toHaveLength(5);
+    expect(everything.hasNextPage).toBe(false);
+
+    // A page that starts past the oldest version is empty, not an error.
+    const past = await repository.listSummaries(sessionId, { after: 1 });
+    expect(past.items).toEqual([]);
+    expect(past.hasNextPage).toBe(false);
   });
 
   it("reports a cited capture as absent once it is gone, and reads by key and version", async () => {

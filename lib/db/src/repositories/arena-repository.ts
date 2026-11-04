@@ -1,6 +1,5 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
 import {
-  AgentRoleSchema,
   type AgentRole,
   type Challenge,
   type Claim,
@@ -23,6 +22,7 @@ import {
 } from "../schema";
 import { appendEvent, type AppendEventInput, type ReadExecutor } from "./append-event";
 import {
+  parseAgentRoles,
   parseChallenges,
   parseClaims,
   parseConflicts,
@@ -166,7 +166,7 @@ export class ArenaRepository {
         supplementRound: session.supplementRound
       },
       projectInput: project?.input ?? {},
-      roles: AgentRoleSchema.array().parse(
+      roles: parseAgentRoles(
         await this.database.select().from(agentRoles)
       )
     };

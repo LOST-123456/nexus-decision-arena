@@ -2,7 +2,9 @@ import { and, count, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import {
   ConflictStatusSchema,
   decisionWritebackPlan,
+  DEFAULT_PAGE_LIMIT,
   IdSchema,
+  MAX_PAGE_LIMIT,
   newId,
   type ConflictStatus,
   type ExecutionEvent,
@@ -87,9 +89,26 @@ export class HumanDecisionConflictNotEligibleError extends Error {
   }
 }
 
+/**
+ * 补充分析最多跑几轮。
+ *
+ * 上一版写死成 1 轮，理由是"防止无限重跑烧钱"。代价是一个真实项目永远只能
+ * 补一次材料——而一个项目很少一次评审就能定论：第一轮质询说"你拿不出证据"，
+ * 补上证据之后理应再被问一遍。上限保留，但从 1 提到 3，并允许部署方用
+ * `MAX_SUPPLEMENT_ROUNDS` 调整；调用方拿到的拒绝理由会写明还剩几轮。
+ */
+export function maxSupplementRounds(): number {
+  const configured = Number(process.env.MAX_SUPPLEMENT_ROUNDS ?? 3);
+  return Number.isFinite(configured) && configured >= 1
+    ? Math.floor(configured)
+    : 3;
+}
+
 export class SupplementRoundLimitError extends Error {
-  constructor() {
-    super("Only one supplement analysis round is allowed");
+  constructor(readonly limit: number = maxSupplementRounds()) {
+    super(
+      `补充分析最多 ${limit} 轮，这个项目已经用完了。要再往下推进，请新开一次评审，把这一轮补到的材料一起带上。`
+    );
     this.name = "SupplementRoundLimitError";
   }
 }
@@ -147,7 +166,30 @@ export class DecisionSessionRepository {
       .limit(1);
     return row ?? null;
   }
-  async listSummaries(limit = 50) {
+  async listSummaries(limit = DEFAULT_PAGE_LIMIT) {
+    return this.summarize(limit);
+  }
+
+  /**
+   * The same summary shape, restricted to sessions the caller may read.
+   *
+   * The restriction is applied in the query, not after reading everything: a
+   * workspace with ten thousand researches must not send its whole history to
+   * the process only to drop the rows the caller cannot see.
+   *
+   * An empty list returns at once. `IN ()` is not valid SQL, and "this caller
+   * may see nothing" is an answer, not an error to be discovered by the
+   * database.
+   */
+  async listSummariesForSessions(sessionIds: readonly string[], limit = DEFAULT_PAGE_LIMIT) {
+    if (sessionIds.length === 0) return [];
+    return this.summarize(limit, [...sessionIds]);
+  }
+
+  private async summarize(limit: number, sessionIds?: readonly string[]) {
+    // `undefined` means "no restriction": the builder skips the clause, so the
+    // filtered and unfiltered shapes come from one query and cannot drift.
+    const ids = sessionIds === undefined ? undefined : [...sessionIds];
     const rows = await this.database
       .select({
         id: decisionSessions.id,
@@ -161,11 +203,17 @@ export class DecisionSessionRepository {
       })
       .from(decisionSessions)
       .innerJoin(projects, eq(decisionSessions.projectId, projects.id))
+      .where(ids ? inArray(decisionSessions.id, ids) : undefined)
       .orderBy(desc(decisionSessions.updatedAt))
-      .limit(Math.max(1, Math.min(limit, 100)));
+      // Clamped to the shared page contract rather than a private number. The
+      // old local cap of 100 was invisible to clients, so a caller that asked
+      // for 200 got 100 and had no way to tell it had been trimmed — which is
+      // how a UI ends up claiming a window it was never given.
+      .limit(Math.max(1, Math.min(limit, MAX_PAGE_LIMIT)));
     const counts = await this.database
       .select({ sessionId: conflicts.sessionId, total: count(conflicts.id) })
       .from(conflicts)
+      .where(ids ? inArray(conflicts.sessionId, ids) : undefined)
       .groupBy(conflicts.sessionId);
     const bySession = new Map(counts.map((row) => [row.sessionId, Number(row.total)]));
     return rows.map((row) => ({
@@ -179,6 +227,31 @@ export class DecisionSessionRepository {
       createdAt: new Date(row.createdAt).toISOString(),
       updatedAt: new Date(row.updatedAt).toISOString()
     }));
+  }
+
+  /** Session ids recorded as belonging to one account. */
+  async listSessionIdsForOwner(userId: string): Promise<string[]> {
+    const rows = await this.database
+      .select({ id: decisionSessions.id })
+      .from(decisionSessions)
+      .where(eq(decisionSessions.ownerUserId, userId));
+    return rows.map((row) => row.id);
+  }
+
+  /**
+   * Sessions with no recorded owner.
+   *
+   * They predate ownership or were created before a login existed, so nothing
+   * in the data says whose they are. The library already treats them as the
+   * deployment administrator's (see `mayAdministerGrants`); they are listed
+   * here for that role rather than handed to every signed-in account.
+   */
+  async listOwnerlessSessionIds(): Promise<string[]> {
+    const rows = await this.database
+      .select({ id: decisionSessions.id })
+      .from(decisionSessions)
+      .where(sql`${decisionSessions.ownerUserId} IS NULL`);
+    return rows.map((row) => row.id);
   }
 
   async deleteById(sessionId: string): Promise<boolean> {
@@ -205,6 +278,29 @@ export class DecisionSessionRepository {
       .values(input)
       .returning();
     return created ?? null;
+  }
+
+  /**
+   * Sets the question a research set out to answer.
+   *
+   * Only the question: the phase, the status, the conclusion and every claim
+   * and verdict are left exactly as they are. Editing what a research asks is
+   * not editing what it concluded, and a report that was frozen before the
+   * change must keep reading the question it was frozen with.
+   */
+  async setResearchQuestion(
+    id: string,
+    researchQuestion: string
+  ): Promise<{ sessionId: string; researchQuestion: string | null } | null> {
+    const [updated] = await this.database
+      .update(decisionSessions)
+      .set({ researchQuestion, updatedAt: new Date().toISOString() })
+      .where(eq(decisionSessions.id, id))
+      .returning({
+        sessionId: decisionSessions.id,
+        researchQuestion: decisionSessions.researchQuestion
+      });
+    return updated ?? null;
   }
 
   async getById(id: string, executor: ReadExecutor = this.database) {
@@ -326,7 +422,7 @@ export class DecisionSessionRepository {
 
       if (
         input.decision.action === "request_more_analysis" &&
-        currentSession.supplementRound >= 1
+        currentSession.supplementRound >= maxSupplementRounds()
       ) {
         throw new SupplementRoundLimitError();
       }
