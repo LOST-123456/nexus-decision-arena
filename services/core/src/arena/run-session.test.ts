@@ -148,11 +148,31 @@ describe("run session service", () => {
 
     await service.start(sessionId);
     const firstRoundClaimCount = store.claims.length;
+    const agentClaimsBefore = store.claims.filter(
+      (claim) => !claim.respondsToChallengeId
+    ).length;
 
     store.beginSupplementRound();
     await Promise.all([service.start(sessionId), service.start(sessionId)]);
 
-    expect(store.claims).toHaveLength(firstRoundClaimCount);
+    /**
+     * "不重跑 agent 分析"说的是**没有新的 agent 产出**，不是"什么新主张都
+     * 不该有"。
+     *
+     * 补充分析要重新交叉质询一遍，质询的应答就是原主张的新版本——那是质询
+     * 的产物，理应落库并计入主张数。真正不能发生的是五个角色又跑了一遍。
+     *
+     * 顺带记一笔：这条断言原来写的是"主张总数不变"，那是因为固定样例的
+     * 游标在首轮就用完了，补充轮的质询其实一条都没问出来（应答失败、主张
+     * 自然不变）。断言把那个缺陷盖住了，缺陷本身也已经修掉——样例现在按
+     * "谁问的、问的是哪条主张"定位，不再靠调用顺序往下取。
+     */
+    expect(
+      store.claims.filter((claim) => !claim.respondsToChallengeId)
+    ).toHaveLength(agentClaimsBefore);
+    expect(store.claims.length).toBeGreaterThan(firstRoundClaimCount);
+    // 补充轮确实重新质询了，而不是空跑一轮。
+    expect(store.challenges.length).toBeGreaterThan(5);
     expect(store.events.filter((event) => event.type === "HUMAN_REVIEW_REQUIRED"))
       .toHaveLength(2);
     await expect(store.getRunContext(sessionId)).resolves.toMatchObject({

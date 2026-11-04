@@ -17,9 +17,13 @@ import {
   SourceFileRepository,
   SourceIndependenceRepository,
   SourceLibraryRepository,
-  TeamCollaborationRepository
+  NotificationRepository,
+  TeamCollaborationRepository,
+  listSessionPage,
+  loadOversightCounts
 } from "@nexus/db";
 import { OpenAiCompatibleProvider, type LlmProvider } from "@nexus/llm";
+import { materialsFromEvents } from "@nexus/shared";
 import { createApp } from "./app";
 import { PostgresIdempotencyStore } from "./api/plugins/idempotency";
 import { CrossExaminationService } from "./arena/cross-examination";
@@ -34,7 +38,13 @@ import {
 } from "./arena/run-session";
 import type { AgentRunner } from "./arena/agent-runner";
 import { ProviderAgentRunner } from "./arena/provider-agent-runner";
+import {
+  createSearchProviderFromEnv,
+  describeSearch
+} from "./arena/web-search";
 import { EventBus } from "./execution/event-bus";
+import { ModelConfigStore } from "./llm/model-config-store";
+import { ModelNotConfiguredError, ModelRuntime } from "./llm/model-runtime";
 import { CrossReviewService } from "./research/cross-review-service";
 import { AgentRunService } from "./research/agent-run-service";
 import { RunCancellationRegistry } from "./research/run-cancellation";
@@ -173,62 +183,180 @@ const auth = new AuthService({
   allowDemoBootstrap: authConfig.allowDemoBootstrap
 });
 await auth.initialize();
-const mode = process.env.LLM_MODE ?? "mock";
-let agentRunner: AgentRunner;
-let createCrossExamination: () => CrossExaminationService;
-let createChallengePlans:
-  | NonNullable<RunSessionRuntime["createChallengePlans"]>
-  | undefined;
-/** Which model does the claim-extraction pass, and under what name. */
-let extractionProvider: { name: string; model: string; provider: LlmProvider };
+/**
+ * Which model answers. Resolved **per call**, not per process, so a key typed
+ * into the settings page is used by the very next run without a restart.
+ *
+ * Precedence:
+ *   saved settings  >  LLM_* environment  >  fixtures (only when LLM_MODE=mock)  >  refuse
+ *
+ * Fixtures stay reachable because the fixed demo page and the whole test suite
+ * depend on them — but they are now an explicit opt-in through `LLM_MODE=mock`,
+ * never the silent default. A deployment nobody configured refuses to analyse
+ * instead of inventing a conclusion about a project the model never read.
+ */
+const modelConfigStore = new ModelConfigStore(
+  ModelConfigStore.defaultPath(dirname(dirname(authConfig.usersPath)))
+);
+modelConfigStore.load();
+/**
+ * 外部检索只在显式配置时存在。
+ *
+ * 没有 `SEARCH_API_URL` 就是 `null`，提示词里不会再出现"来源"这类词——
+ * 一个没接检索的部署，不能在界面上暗示自己查过。`/api/runtime` 会把这件事
+ * 如实回给前端，谁都能一眼看出这一轮到底有没有联网。
+ */
+const searchProvider = createSearchProviderFromEnv(process.env);
+const searchStatus = describeSearch(searchProvider);
 
-if (mode === "mock") {
-  const fixtures = await loadDeterministicFixtures();
-  const deterministicRunner = new DeterministicAgentRunner(fixtures);
-  agentRunner = deterministicRunner;
-  createCrossExamination = () =>
-    new CrossExaminationService(
+const modelRuntime = new ModelRuntime(modelConfigStore, async (sessionId) => {
+  /**
+   * 材料只从事件流里读。
+   *
+   * 不另设一张 materials 表，是因为"哪一轮之前交的"必须和质询、裁决落在同一条
+   * 序列上；单独一张表迟早会需要一份影子时间线来还原先后顺序。
+   * `events` 在下面才初始化，但这个箭头函数只会在真正质询时执行。
+   */
+  const recorded = await events.listAfter(sessionId, 0);
+  return materialsFromEvents(recorded);
+}, searchProvider);
+
+const legacyMode = process.env.LLM_MODE ?? "mock";
+/**
+ * 固定样例只有在"显式允许"时才装载。
+ *
+ * 之前只要 `LLM_MODE=mock` 就会装上，于是"没配模型"和"配了模型"跑的是同一套
+ * 代码，只是产出真假不同——用户看到的是五个角色跑完、给出一段和项目无关的结论。
+ * 现在多一道 `NEXUS_ALLOW_FIXTURE_RUNS=1`：演示与 E2E 显式打开它，一个真实的
+ * 部署不会因为默认值而"看起来能用"。
+ */
+const fixtureRunsAllowed = process.env.NEXUS_ALLOW_FIXTURE_RUNS === "1";
+const fixtures =
+  legacyMode === "mock" && fixtureRunsAllowed
+    ? await loadDeterministicFixtures()
+    : null;
+const deterministicRunner = fixtures
+  ? new DeterministicAgentRunner(fixtures)
+  : null;
+const deterministicExtraction =
+  legacyMode === "mock" && fixtureRunsAllowed
+    ? new DeterministicExtractionProvider()
+    : null;
+
+const envProvider =
+  legacyMode === "openai-compatible" &&
+  process.env.LLM_BASE_URL &&
+  process.env.LLM_API_KEY &&
+  process.env.LLM_MODEL
+    ? new OpenAiCompatibleProvider({
+        baseUrl: process.env.LLM_BASE_URL,
+        apiKey: process.env.LLM_API_KEY,
+        model: process.env.LLM_MODEL
+      })
+    : null;
+if (
+  legacyMode === "openai-compatible" &&
+  !envProvider &&
+  !modelRuntime.isConfigured()
+) {
+  throw new Error(
+    "openai-compatible mode requires LLM_BASE_URL, LLM_API_KEY, and LLM_MODEL, or a saved model configuration from the settings page."
+  );
+}
+const envRunner = envProvider
+  ? new ProviderAgentRunner(envProvider, undefined, searchProvider)
+  : null;
+
+/**
+ * The concrete provider runner to use right now, or null when this process has
+ * no model at all. Both `ProviderAgentRunner` and `DeterministicAgentRunner`
+ * expose the challenger-side methods the arena needs, so callers below treat
+ * them uniformly.
+ */
+function activeRunner(): ProviderAgentRunner | null {
+  if (modelRuntime.isConfigured()) {
+    return modelRuntime.providerRunner();
+  }
+  return envRunner;
+}
+
+const agentRunner: AgentRunner = {
+  async run(role, projectInput) {
+    const runner = activeRunner();
+    if (runner) {
+      return runner.run(role, projectInput);
+    }
+    if (deterministicRunner) {
+      return deterministicRunner.run(role, projectInput);
+    }
+    throw new ModelNotConfiguredError();
+  }
+};
+
+const createCrossExamination = (): CrossExaminationService => {
+  const runner = activeRunner();
+  if (runner) {
+    return new CrossExaminationService(runner.createChallengeDependencies());
+  }
+  if (deterministicRunner) {
+    return new CrossExaminationService(
       deterministicRunner.createChallengeDependencies()
     );
-  createChallengePlans = (roles, claims, runIdByRoleId) =>
-    deterministicRunner.createChallengePlans(roles, claims, runIdByRoleId);
-  const deterministicExtraction = new DeterministicExtractionProvider();
-  extractionProvider = {
-    name: deterministicExtraction.name,
-    model: deterministicExtraction.model,
-    provider: deterministicExtraction
-  };
-} else if (mode === "openai-compatible") {
-  if (
-    !process.env.LLM_BASE_URL ||
-    !process.env.LLM_API_KEY ||
-    !process.env.LLM_MODEL
-  ) {
-    throw new Error(
-      "openai-compatible mode requires LLM_BASE_URL, LLM_API_KEY, and LLM_MODEL"
+  }
+  throw new ModelNotConfiguredError();
+};
+
+const createChallengePlans: NonNullable<
+  RunSessionRuntime["createChallengePlans"]
+> = (roles, claims, runIdByRoleId) => {
+  const runner = activeRunner();
+  if (runner) {
+    return runner.createChallengePlans(roles, claims, runIdByRoleId);
+  }
+  if (deterministicRunner) {
+    return deterministicRunner.createChallengePlans(
+      roles,
+      claims,
+      runIdByRoleId
     );
   }
-  const provider = new OpenAiCompatibleProvider({
-    baseUrl: process.env.LLM_BASE_URL,
-    apiKey: process.env.LLM_API_KEY,
-    model: process.env.LLM_MODEL
-  });
-  const providerRunner = new ProviderAgentRunner(provider);
-  agentRunner = providerRunner;
-  createCrossExamination = () =>
-    new CrossExaminationService(
-      providerRunner.createChallengeDependencies()
-    );
-  createChallengePlans = (roles, claims, runIdByRoleId) =>
-    providerRunner.createChallengePlans(roles, claims, runIdByRoleId);
-  extractionProvider = {
-    name: "OpenAI-compatible",
-    model: process.env.LLM_MODEL ?? "unknown",
-    provider
+  throw new ModelNotConfiguredError();
+};
+
+/**
+ * Claim extraction and citation review capture their provider when they are
+ * constructed, so they get a stable wrapper whose `generate()` picks the
+ * current model on every call. The getters keep the recorded provider name and
+ * model honest across a key or model change.
+ */
+const switchableExtraction: LlmProvider = {
+  generate(request, signal) {
+    if (modelRuntime.isConfigured()) {
+      return modelRuntime.extractionProvider().generate(request, signal);
+    }
+    if (deterministicExtraction) {
+      return deterministicExtraction.generate(request, signal);
+    }
+    throw new ModelNotConfiguredError();
+  }
+};
+
+const extractionProvider: { name: string; model: string; provider: LlmProvider } =
+  {
+    get name() {
+      if (modelRuntime.isConfigured()) {
+        return modelRuntime.extractionDescriptor().name;
+      }
+      return deterministicExtraction?.name ?? "尚未配置模型";
+    },
+    get model() {
+      if (modelRuntime.isConfigured()) {
+        return modelRuntime.extractionDescriptor().model;
+      }
+      return deterministicExtraction?.model ?? "unconfigured";
+    },
+    provider: switchableExtraction
   };
-} else {
-    throw new Error(`Unsupported LLM_MODE: ${mode}`);
-}
 
 const runSession = new RunSessionService(agentRunner, {
   store: arena,
@@ -370,15 +498,37 @@ const sourceLibrary = new SourceLibraryRepository(database);
  */
 const teamCollaboration = new TeamCollaborationRepository(database);
 
+/**
+ * The notification centre stores read markers and nothing else; every card it
+ * serves is derived from a membership or a run at request time.
+ */
+const notifications = new NotificationRepository(database);
+
 const app = createApp(
   {
     sessions,
     auth,
     sessionHistory: sessions,
+    /**
+     * The paged session list. Curried over `database` here rather than handed
+     * the repository, because the query lives in `session-page.ts` for now
+     * (see `AppDependencies.sessionPages`).
+     */
+    sessionPages: {
+      listPage: (page, sessionIds) => listSessionPage(database, page, sessionIds)
+    },
+    /**
+     * The governance page's counts. Curried over `database` for the same reason
+     * as `sessionPages`: it is a set of queries, not a thing with state.
+     */
+    oversight: {
+      loadCounts: (sessionIds) => loadOversightCounts(database, sessionIds)
+    },
     inspector: new InspectorRepository(database),
     evidence: researchEvidence,
     sourceLibrary,
     teamCollaboration,
+    notifications,
     reviews: researchReviews,
     crossReview,
     /** Agent Operations Center: surfaces `agent_runs`, reusing the same table. */
@@ -487,21 +637,65 @@ const app = createApp(
     reports,
     events,
     runSession,
+    /**
+     * The settings page and the arena share one store, so a saved key is
+     * picked up by the next run without either side reloading from disk.
+     */
+    modelConfig: {
+      store: modelConfigStore,
+      runtime: modelRuntime,
+      auth,
+      canRunAnalysis: () =>
+        modelRuntime.isConfigured() ||
+        envProvider !== null ||
+        fixtureRunsAllowed
+    },
   },  new PostgresIdempotencyStore(database),
   {
     eventBus,
-    runtimeInfo:
-      mode === "openai-compatible"
-        ? {
-            mode,
-            provider: "OpenAI-compatible",
-            model: process.env.LLM_MODEL ?? "unknown"
-          }
-        : {
-            mode: "mock",
-            provider: "MockLlmProvider",
-            model: "deterministic-fixtures"
-          },
+    /**
+     * Read per request: the answer changes the moment a key is saved, and the
+     * UI uses it to decide whether the primary buttons are allowed to do
+     * anything at all.
+     */
+    runtimeInfo: () => {
+      const settings = modelRuntime.settings();
+      const canRun =
+        modelRuntime.isConfigured() || envProvider !== null || fixtureRunsAllowed;
+      if (settings) {
+        return {
+          mode: "openai-compatible" as const,
+          provider: settings.providerLabel,
+          model: settings.model,
+          configured: true,
+          canRunAnalysis: canRun,
+          search: searchStatus
+        };
+      }
+      if (envProvider) {
+        return {
+          mode: "openai-compatible" as const,
+          provider: "OpenAI-compatible",
+          model: process.env.LLM_MODEL ?? "unknown",
+          configured: true,
+          canRunAnalysis: canRun,
+          search: searchStatus
+        };
+      }
+      return {
+        mode: "mock" as const,
+        /*
+         * 没配置、也没显式允许固定样例时，别说自己是 "MockLlmProvider"——
+         * 那会让「运行在 mock 模式」听起来像一件已生效的事，而实际上一个
+         * provider 都没有装载。这里如实说：没有模型。
+         */
+        provider: deterministicExtraction?.name ?? "尚未配置模型",
+        model: deterministicExtraction?.model ?? "none",
+        configured: false,
+        canRunAnalysis: canRun,
+        search: searchStatus
+      };
+    },
     ...(process.env.WEB_ORIGIN
       ? { webOrigin: process.env.WEB_ORIGIN }
       : {}),

@@ -676,7 +676,17 @@ export function registerTeamCollaborationRoutes(
 
   // ----- Activity ------------------------------------------------------------
 
-  app.get<{ Params: { id: string } }>(
+  /**
+   * One page of the collaboration trail, newest first.
+   *
+   * `activity` keeps its name and shape; `nextCursor` / `hasNextPage` are
+   * additive. The cursor is the `sequence` of the last event on the page, so a
+   * comment posted between two requests cannot shift or duplicate a page.
+   */
+  app.get<{
+    Params: { id: string };
+    Querystring: { limit?: string; after?: string };
+  }>(
     "/api/sessions/:id/collaboration/activity",
     async (request, reply) => {
       const { user } = actorOf(request, dependencies);
@@ -685,12 +695,31 @@ export function registerTeamCollaborationRoutes(
       }
       const service = collaborationService(dependencies);
       if (!service) return notConfigured(reply);
+      const limit =
+        request.query.limit === undefined ? undefined : Number(request.query.limit);
+      if (limit !== undefined && !Number.isFinite(limit)) {
+        return reply.code(400).send({ error: "limit must be a number" });
+      }
+      const after =
+        request.query.after === undefined ? undefined : Number(request.query.after);
+      if (after !== undefined && !Number.isFinite(after)) {
+        return reply
+          .code(400)
+          .send({ error: "after must be an event sequence number" });
+      }
       try {
+        const page: { limit?: number; after?: number } = {};
+        if (limit !== undefined) page.limit = limit;
+        if (after !== undefined) page.after = after;
+        const result = await service.listActivity(
+          callerOf(user),
+          request.params.id,
+          page
+        );
         return {
-          activity: await service.listActivity(
-            callerOf(user),
-            request.params.id
-          )
+          activity: result.items,
+          nextCursor: result.nextCursor,
+          hasNextPage: result.hasNextPage
         };
       } catch (error) {
         if (mapServiceError(reply, error)) return;

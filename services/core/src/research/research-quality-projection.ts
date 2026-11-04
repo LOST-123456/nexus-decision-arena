@@ -1396,23 +1396,62 @@ const SEVERITY_ORDER: Record<QualitySeverity, number> = {
   info: 2
 };
 
+/**
+ * Actions whose *subject* is a source rather than a claim or an excerpt.
+ *
+ * These are the recommendations a reader answers by re-reading a source, so the
+ * card belongs to the source. That matters because the rules fire per row they
+ * read: one changed source produces a `stale_source` finding on the source, one
+ * on every affected excerpt and one on every affected claim. Left keyed by
+ * `scope:entityId`, the same source becomes a dozen cards repeating one
+ * sentence.
+ */
+const SOURCE_ANCHORED_ACTIONS = new Set<QualityRecommendationAction>([
+  "open_source_reader",
+  "open_source_relations"
+]);
+
 function buildRecommendations(
   findings: readonly QualityFinding[],
   claimStatements: Map<string, string>,
-  sourceTitles: Map<string, string>
+  sourceTitles: Map<string, string>,
+  evidenceSourceIds: Map<string, string>
 ): QualityRecommendation[] {
+  /**
+   * The source a source-anchored finding is really about, or null when it
+   * cannot be established from persisted rows. Only a finding that resolves to
+   * exactly one source is anchored: an excerpt list spanning two sources is not
+   * evidence that either of them moved, so it stays keyed where it was.
+   */
+  const anchorOf = (finding: QualityFinding): string | null => {
+    if (!SOURCE_ANCHORED_ACTIONS.has(RECOMMENDATION_ACTIONS[finding.category])) {
+      return null;
+    }
+    if (finding.scope === "source") return finding.entityId;
+    const sourceIds = new Set<string>();
+    for (const evidenceId of finding.evidenceReferences) {
+      const sourceId = evidenceSourceIds.get(evidenceId);
+      if (sourceId !== undefined) sourceIds.add(sourceId);
+    }
+    return sourceIds.size === 1 ? [...sourceIds][0] ?? null : null;
+  };
+
   const groups = new Map<
     string,
     {
       category: QualityFindingCategory;
       scope: QualityFinding["scope"];
       entityId: string;
+      anchor: string | null;
       severity: QualitySeverity;
       findings: QualityFinding[];
     }
   >();
   for (const finding of findings) {
-    const key = `${finding.scope}:${finding.entityId}:${finding.category}`;
+    const anchor = anchorOf(finding);
+    const key = anchor
+      ? `${finding.category}:source:${anchor}`
+      : `${finding.scope}:${finding.entityId}:${finding.category}`;
     const current = groups.get(key);
     if (current) {
       current.findings.push(finding);
@@ -1427,30 +1466,35 @@ function buildRecommendations(
       category: finding.category,
       scope: finding.scope,
       entityId: finding.entityId,
+      anchor,
       severity: finding.severity,
       findings: [finding]
     });
   }
 
-  return [...groups.values()]
+  return [...groups.entries()]
     .sort(
-      (left, right) =>
+      ([, left], [, right]) =>
         SEVERITY_ORDER[left.severity] - SEVERITY_ORDER[right.severity] ||
-        left.entityId.localeCompare(right.entityId) ||
+        (left.anchor ?? left.entityId).localeCompare(
+          right.anchor ?? right.entityId
+        ) ||
         left.category.localeCompare(right.category)
     )
-    .map((group) => {
+    .map(([key, group]) => {
       const subject =
-        group.scope === "claim"
-          ? (claimStatements.get(group.entityId) ?? group.entityId)
-          : group.scope === "source"
-            ? (sourceTitles.get(group.entityId) ?? group.entityId)
-            : group.scope === "evidence"
-              ? "材料"
-              : "本研究会话";
-      const reasons = group.findings.map((finding) => finding.reason);
+        group.anchor !== null
+          ? (sourceTitles.get(group.anchor) ?? group.anchor)
+          : group.scope === "claim"
+            ? (claimStatements.get(group.entityId) ?? group.entityId)
+            : group.scope === "source"
+              ? (sourceTitles.get(group.entityId) ?? group.entityId)
+              : group.scope === "evidence"
+                ? "材料"
+                : "本研究会话";
+      const reasons = [...new Set(group.findings.map((finding) => finding.reason))];
       return {
-        id: `recommendation:${group.scope}:${group.entityId}:${group.category}`,
+        id: `recommendation:${key}`,
         title: `${RECOMMENDATION_TITLES[group.category]}：${subject}`,
         detail: reasons.join("；"),
         action: RECOMMENDATION_ACTIONS[group.category],
@@ -1462,9 +1506,7 @@ function buildRecommendations(
         evidenceIds: sortedIds(
           group.findings.flatMap((finding) => finding.evidenceReferences)
         ),
-        sourceIds: sortedIds(
-          group.scope === "source" ? [group.entityId] : []
-        ),
+        sourceIds: sortedIds(group.anchor === null ? [] : [group.anchor]),
         findingIds: sortedIds(group.findings.map((finding) => finding.id))
       };
     });
@@ -1564,7 +1606,17 @@ export function projectResearchQuality(
   const recommendations = buildRecommendations(
     findings,
     new Map(input.claims.map((claim) => [claim.id, claim.statement])),
-    new Map(input.sources.map((source) => [source.id, source.title]))
+    new Map(input.sources.map((source) => [source.id, source.title])),
+    // An excerpt knows which source it was taken from; that link is what lets a
+    // source-anchored recommendation name the source it is about instead of
+    // going out with no target at all.
+    new Map(
+      input.evidence.flatMap((item) =>
+        typeof item.sourceId === "string"
+          ? [[item.id, item.sourceId] as const]
+          : []
+      )
+    )
   );
 
   return ResearchQualityAssessmentSchema.parse({

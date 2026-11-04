@@ -219,8 +219,18 @@ export function registerEventRoutes(
             }
           : {}),
         "content-type": "text/event-stream; charset=utf-8",
-        "cache-control": "no-cache",
-        connection: "keep-alive"
+        connection: "keep-alive",
+        /*
+         * 别让中间层替我们攒消息。
+         *
+         * 事件流的价值全在"立刻到"上。一旦前面坐着一个会缓冲的代理（nginx
+         * 默认会缓冲响应体），一条几十字节的事件就能被攒到连接结束才发出去，
+         * 页面看上去就像卡死了。这两个头是给 nginx 与同类中间层看的：
+         * 显式告诉它们这一路要流式转发，`no-transform` 则是不许任何一层
+         * 再把它压缩或者改写。
+         */
+        "x-accel-buffering": "no",
+        "cache-control": "no-cache, no-transform"
       });
       reply.raw.flushHeaders();
 

@@ -226,6 +226,7 @@ export class SourceLibraryService {
       ...(row.researchQuestion
         ? { researchQuestion: row.researchQuestion }
         : {}),
+      ...(row.projectName ? { projectName: row.projectName } : {}),
       access,
       // The grant that makes it visible, and what that grant allows: a reader
       // must be able to tell "you may browse this" from "you may copy from
