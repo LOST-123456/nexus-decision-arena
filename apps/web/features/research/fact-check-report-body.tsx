@@ -37,12 +37,13 @@ import {
   verdictTone
 } from "./labels";
 import {
-  factCheckReportMarkdownUrl,
   type FactCheckReport,
   type MaterialsTimeRange,
   type ReportCitation
 } from "./api";
+import { ReportExportActions } from "../../components/report-export-actions";
 import { StatusPill } from "./components";
+import { workspaceFocusHref } from "./focus-link";
 
 function rangeText(range: MaterialsTimeRange): string {
   if (range.empty) {
@@ -120,7 +121,31 @@ function ReportGapBlock({
   );
 }
 
-function CitationBlock({ citation }: { citation: ReportCitation }) {
+/**
+ * One citation, with the two ways back into the workspace it quotes from.
+ *
+ * A report is read to be acted on. Before this, a reader who wanted to do
+ * something about a citation — re-read the excerpt, re-check the claim — had to
+ * copy an id out of the page and find the row by hand. The links carry the
+ * target and its id and nothing else, so they open the row instead of a form.
+ */
+function CitationBlock({
+  citation,
+  sessionId,
+  claimId
+}: {
+  citation: ReportCitation;
+  sessionId: string;
+  claimId?: string;
+}) {
+  const evidenceHref = workspaceFocusHref(sessionId, {
+    kind: "evidence",
+    evidenceId: citation.evidenceId
+  });
+  const claimHref = claimId
+    ? workspaceFocusHref(sessionId, { kind: "claim", claimId })
+    : null;
+
   return (
     <div className="research-report-citation" data-direction={citation.direction}>
       <div className="research-claim-meta">
@@ -160,6 +185,24 @@ function CitationBlock({ citation }: { citation: ReportCitation }) {
         可靠度 {citation.reliability.toFixed(2)}
         {citation.verifiedBy ? ` · 核实人 ${citation.verifiedBy}` : ""}
         {citation.verificationNote ? ` · ${citation.verificationNote}` : ""}
+      </div>
+      <div className="research-actions">
+        <Link
+          className="research-button research-button-secondary"
+          data-testid={`report-open-evidence-${citation.evidenceId}`}
+          href={evidenceHref}
+        >
+          在工作台查看这条材料
+        </Link>
+        {claimHref ? (
+          <Link
+            className="research-button research-button-secondary"
+            data-testid={`report-open-claim-${citation.evidenceId}`}
+            href={claimHref}
+          >
+            回到对应主张
+          </Link>
+        ) : null}
       </div>
     </div>
   );
@@ -340,20 +383,14 @@ export function FactCheckReportBody({
           ) : null}
         </div>
         <div className="research-report-actions">
-          <button
-            type="button"
-            className="research-button research-button-secondary"
-            onClick={() => window.print()}
-          >
-            打印 / 导出 PDF
-          </button>
-          <a
-            className="research-button"
-            href={factCheckReportMarkdownUrl(sessionId)}
-            data-testid="report-markdown-download"
-          >
-            下载 Markdown
-          </a>
+          {/*
+            The same three exits the decision report offers, from the same
+            component: print to PDF, the document as Markdown, and the audit
+            package behind it. The report page used to stop at two, so a reader
+            who needed the trail — or a machine-readable copy — had nothing to
+            click.
+          */}
+          <ReportExportActions kind="fact-check" sessionId={sessionId} />
         </div>
       </div>
 
@@ -492,7 +529,12 @@ export function FactCheckReportBody({
                 <p className="research-muted">没有支持该主张的已登记材料。</p>
               ) : (
                 finding.supporting.map((citation) => (
-                  <CitationBlock key={citation.evidenceId} citation={citation} />
+                  <CitationBlock
+                    key={citation.evidenceId}
+                    citation={citation}
+                    sessionId={sessionId}
+                    claimId={finding.claimId}
+                  />
                 ))
               )}
 
@@ -501,7 +543,12 @@ export function FactCheckReportBody({
                 <p className="research-muted">没有反对该主张的已登记材料。</p>
               ) : (
                 finding.opposing.map((citation) => (
-                  <CitationBlock key={citation.evidenceId} citation={citation} />
+                  <CitationBlock
+                    key={citation.evidenceId}
+                    citation={citation}
+                    sessionId={sessionId}
+                    claimId={finding.claimId}
+                  />
                 ))
               )}
 
@@ -510,7 +557,12 @@ export function FactCheckReportBody({
                 <p className="research-muted">没有背景材料。</p>
               ) : (
                 finding.context.map((citation) => (
-                  <CitationBlock key={citation.evidenceId} citation={citation} />
+                  <CitationBlock
+                    key={citation.evidenceId}
+                    citation={citation}
+                    sessionId={sessionId}
+                    claimId={finding.claimId}
+                  />
                 ))
               )}
 
@@ -520,7 +572,12 @@ export function FactCheckReportBody({
                     未参与结论的材料（{finding.excluded.length}）
                   </div>
                   {finding.excluded.map((citation) => (
-                    <CitationBlock key={citation.evidenceId} citation={citation} />
+                    <CitationBlock
+                      key={citation.evidenceId}
+                      citation={citation}
+                      sessionId={sessionId}
+                      claimId={finding.claimId}
+                    />
                   ))}
                 </>
               ) : null}

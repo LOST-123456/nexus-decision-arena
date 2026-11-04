@@ -15,11 +15,11 @@ import { TAB_GROUPS } from "./workspace-nav";
 afterEach(cleanup);
 
 describe("WorkspaceTabBar", () => {
-  it("把 16 个标签渲染成 4 个带标题的分组", () => {
+  it("把 17 个标签渲染成 4 个带标题的分组", () => {
     render(<WorkspaceTabBar panel="content" onSelect={() => {}} />);
 
     expect(screen.getAllByRole("tablist")).toHaveLength(TAB_GROUPS.length);
-    expect(screen.getAllByRole("tab")).toHaveLength(16);
+    expect(screen.getAllByRole("tab")).toHaveLength(17);
   });
 
   it("每个分组以自己可见的标题命名，分组才会被读屏播报", () => {

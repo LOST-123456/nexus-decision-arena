@@ -19,6 +19,7 @@ const EXPECTED_TABS: readonly string[] = [
   "review",
   "cross",
   "citations",
+  "monitoring",
   "independence",
   "quality",
   "map",
@@ -71,7 +72,7 @@ describe("Research Workspace 导航模型", () => {
       "analyze",
       "ops"
     ]);
-    expect(WORKSPACE_TABS.length).toBe(16);
+    expect(WORKSPACE_TABS.length).toBe(17);
   });
 
   it("只有主张与来源详情是窄屏专属标签（宽屏上它们常驻栏位）", () => {

@@ -4,6 +4,7 @@ import { useEffect, useRef, type KeyboardEvent } from "react";
 import Link from "next/link";
 import { createPortal } from "react-dom";
 import { activeHref } from "./app-nav";
+import { UnreadCountBadge } from "../features/notifications/unread-count-badge";
 import { trapTabWithinPanel, useModalFocus } from "./ui/dialog";
 
 /**
@@ -25,6 +26,12 @@ export interface AppNavDrawerProps {
   open: boolean;
   pathname: string;
   links: ReadonlyArray<{ href: string; label: string }>;
+  /**
+   * The same count the desktop strip shows. Passed in rather than fetched here:
+   * the drawer is a second rendering of one set of destinations, not a second
+   * reader of the notification API.
+   */
+  unreadCount?: number | null;
   onClose: () => void;
 }
 
@@ -32,6 +39,7 @@ export function AppNavDrawer({
   open,
   pathname,
   links,
+  unreadCount = null,
   onClose
 }: AppNavDrawerProps) {
   const panelRef = useRef<HTMLDivElement>(null);
@@ -104,6 +112,9 @@ export function AppNavDrawer({
                   onClick={onClose}
                 >
                   {link.label}
+                  {link.href === "/notifications" ? (
+                    <UnreadCountBadge count={unreadCount} />
+                  ) : null}
                 </Link>
               </li>
             ))}

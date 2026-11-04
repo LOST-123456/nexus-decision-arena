@@ -15,9 +15,16 @@ import type { ReactNode } from "react";
  *    section has no contextual links.
  */
 
-const mocks = vi.hoisted(() => ({ usePathname: vi.fn<() => string>() }));
+const mocks = vi.hoisted(() => ({
+  usePathname: vi.fn<() => string>(),
+  push: vi.fn<(href: string) => void>()
+}));
 
-vi.mock("next/navigation", () => ({ usePathname: mocks.usePathname }));
+vi.mock("next/navigation", () => ({
+  usePathname: mocks.usePathname,
+  // The bar now carries the quick session switcher, which navigates on Enter.
+  useRouter: () => ({ push: mocks.push })
+}));
 
 vi.mock("next/link", async () => {
   const { createElement } = await import("react");
@@ -126,12 +133,12 @@ describe("AppSubNav", () => {
         links={[
           { href: "/research", label: "研究首页" },
           { href: "/research/session-1", label: "研究工作台" },
-          { href: "/research/session-1/evidence", label: "证据地图" }
+          { href: "/research/session-1/evidence", label: "证据清单" }
         ]}
       />
     );
 
-    expect(screen.getByRole("link", { name: "证据地图" }).getAttribute("aria-current")).toBe(
+    expect(screen.getByRole("link", { name: "证据清单" }).getAttribute("aria-current")).toBe(
       "page"
     );
     expect(

@@ -24,6 +24,7 @@ import {
   recordClaimReview,
   runCrossReview,
   setVerification,
+  updateResearchQuestion,
   type CrossReviewResult,
   type EvidenceContext,
   type ImportSourceCommand,
@@ -43,6 +44,7 @@ import {
 import { ClaimForm, EvidenceForm, ImportSourceForm, SourceForm } from "./forms";
 import { ClaimCandidatesPanel } from "./claim-candidates";
 import { CitationReviewPanel } from "./citation-review";
+import { SourceMonitoringPanel } from "./source-monitoring";
 import { SourceIndependencePanel } from "./source-independence";
 import { ResearchPlanPanel } from "./research-plan";
 import { ResearchQualityPanel } from "./research-quality";
@@ -127,7 +129,8 @@ function isResearchMode(panel: Panel): boolean {
 
 export function ResearchWorkspace({
   sessionId,
-  initialIntent
+  initialIntent,
+  initialFocus
 }: {
   sessionId: string;
   /**
@@ -138,6 +141,16 @@ export function ResearchWorkspace({
     action: EvidenceGapAction;
     claimId: string;
     evidenceIds: string[];
+  } | null;
+  /**
+   * A link that just wants a row opened — a citation in the report pointing
+   * back at the excerpt it quotes. Applied once, and only when the id is really
+   * in this research: a stale link must not open an empty panel.
+   */
+  initialFocus?: {
+    panel: "review" | "detail";
+    claimId?: string;
+    evidenceId?: string;
   } | null;
 }) {
   const [workspace, setWorkspace] = useState<ResearchWorkspace | null>(null);
@@ -158,6 +171,12 @@ export function ResearchWorkspace({
   const [readerFileId, setReaderFileId] = useState<string | null>(null);
   /** Which source the AI candidate review is working on. */
   const [analyzeSourceId, setAnalyzeSourceId] = useState<string | null>(null);
+  /**
+   * The source a quality recommendation sent the reader to. The independence
+   * panel lists every source in the research, so arriving from a card about one
+   * of them without saying which left the reader to search the list themselves.
+   */
+  const [locatedSourceId, setLocatedSourceId] = useState<string | null>(null);
   const [importRows, setImportRows] = useState<ImportRow[] | null>(null);
   const [importBusy, setImportBusy] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
@@ -218,6 +237,16 @@ export function ResearchWorkspace({
    */
   const [copyLineage, setCopyLineage] = useState<Record<string, SourceCopyRecord>>({});
   const [intentApplied, setIntentApplied] = useState(false);
+  /** Same once-only rule for a plain "open this row" link. */
+  const [focusApplied, setFocusApplied] = useState(false);
+  /**
+   * The open question editor. `null` = closed; a string is the text being
+   * edited. Held apart from the workspace so a reload mid-edit cannot silently
+   * overwrite what the user is typing.
+   */
+  const [questionDraft, setQuestionDraft] = useState<string | null>(null);
+  const [questionBusy, setQuestionBusy] = useState(false);
+  const [questionError, setQuestionError] = useState<string | null>(null);
 
   // Cross-examination: real agent runs, so both progress and outcome are kept.
   const [crossRunning, setCrossRunning] = useState(false);
@@ -288,7 +317,8 @@ export function ResearchWorkspace({
             toLoadFailure(
               cause,
               "找不到这项研究（HTTP 404）。",
-              "Research workspace unavailable"
+              "无法加载研究工作台",
+              "需要登录才能查看这项研究。"
             )
           );
         }
@@ -323,7 +353,7 @@ export function ResearchWorkspace({
           setContext(null);
           setContextLoading(false);
           setContextError(
-            cause instanceof Error ? cause.message : "Failed to load detail"
+            cause instanceof Error ? cause.message : "加载详情失败"
           );
         }
       });
@@ -391,6 +421,30 @@ export function ResearchWorkspace({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [intentApplied, initialIntent, workspace]);
 
+  // A "just show me this row" link is applied the same way and under the same
+  // rule: once, and only if the row is really here. A stale bookmark then opens
+  // the workspace instead of an empty panel that says nothing is selected.
+  useEffect(() => {
+    if (focusApplied || !initialFocus || !workspace) return;
+    if (
+      initialFocus.claimId &&
+      !workspace.claims.some((claim) => claim.id === initialFocus.claimId)
+    ) {
+      return;
+    }
+    if (
+      initialFocus.evidenceId &&
+      !workspace.evidence.some((item) => item.id === initialFocus.evidenceId)
+    ) {
+      return;
+    }
+    setFocusApplied(true);
+    if (initialFocus.claimId) setSelectedClaimId(initialFocus.claimId);
+    if (initialFocus.evidenceId) setSelectedEvidenceId(initialFocus.evidenceId);
+    setPanel(initialFocus.panel);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusApplied, initialFocus, workspace]);
+
   const claimsById = useMemo(
     () => new Map((workspace?.claims ?? []).map((claim) => [claim.id, claim])),
     [workspace]
@@ -410,7 +464,21 @@ export function ResearchWorkspace({
     return all.filter((item) => item.claimIds.includes(selectedClaimId));
   }, [workspace, selectedClaimId]);
 
-  const canEdit = user === null || user.role !== "viewer";
+  /**
+   * Whether this account may change anything.
+   *
+   * It used to read `user === null || user.role !== "viewer"`, which made the
+   * answer "yes" for anyone who was not signed in — and also for anyone whose
+   * `/api/auth/me` call failed, because the failure was caught into the same
+   * `null`. The result was a button that could only ever fail: it rendered
+   * for anonymous visitors and for viewers, and the request behind it was
+   * answered with 401 or 403.
+   *
+   * Now the answer comes from the role alone. An anonymous visitor gets no
+   * edit affordance to click in the first place, which is the same thing the
+   * backend would have said, said before the click instead of after it.
+   */
+  const canEdit = user?.role === "owner" || user?.role === "reviewer";
 
   async function run(action: () => Promise<unknown>, failureHint: string) {
     setBusy(true);
@@ -426,6 +494,34 @@ export function ResearchWorkspace({
       return false;
     } finally {
       setBusy(false);
+    }
+  }
+
+  /**
+   * Saves the question the research asks.
+   *
+   * A trimmed, empty string is refused here as well as on the server: blanking
+   * the question would leave the workspace and every report saying "（未填写研究
+   * 问题）" with nothing to recover from.
+   */
+  async function saveQuestion(next: string) {
+    const trimmed = next.trim();
+    if (trimmed.length === 0) {
+      setQuestionError("研究问题不能为空");
+      return;
+    }
+    setQuestionBusy(true);
+    setQuestionError(null);
+    try {
+      await updateResearchQuestion(sessionId, trimmed);
+      await reload();
+      setQuestionDraft(null);
+    } catch (cause) {
+      setQuestionError(
+        cause instanceof Error ? cause.message : "保存研究问题失败"
+      );
+    } finally {
+      setQuestionBusy(false);
     }
   }
 
@@ -581,13 +677,24 @@ export function ResearchWorkspace({
   }
 
   if (loadFailure) {
-    const notFound = loadFailure.status === 404;
+    // Same three-way branch as the arena workspace: a dead link, a signed-out
+    // visitor and a service outage need different words and different exits.
+    // Reads are owner-scoped, so 401 is now a routine answer here rather than
+    // an exotic one, and "请确认后端已启动" would be the wrong thing to say.
+    const notFound = loadFailure.kind === "not-found";
+    const needsSignIn = loadFailure.kind === "sign-in";
     return (
       <div className="research-body">
         <div className="research-column">
           <section
             className="research-panel"
-            data-testid={notFound ? "research-not-found" : "research-load-error"}
+            data-testid={
+              notFound
+                ? "research-not-found"
+                : needsSignIn
+                  ? "research-sign-in-required"
+                  : "research-load-error"
+            }
           >
             <p className="research-error" role="alert">
               {loadFailure.message}
@@ -595,10 +702,16 @@ export function ResearchWorkspace({
             <p className="research-muted" style={{ marginTop: 8 }}>
               {notFound
                 ? "它可能已被删除，或者这个链接有误。"
-                : "无法读取研究工作台。请确认后端已启动并完成 0005 迁移。"}
+                : needsSignIn
+                  ? "登录后即可查看这项研究。如果已经登录过，你的会话可能已过期。"
+                  : "无法读取研究工作台。请确认后端已启动并完成 0005 迁移。"}
             </p>
             <div className="research-actions" style={{ marginTop: 12 }}>
-              {notFound ? null : (
+              {notFound ? null : needsSignIn ? (
+                <Link className="research-button" href="/login">
+                  去登录
+                </Link>
+              ) : (
                 /* Only a service failure is worth retrying: a deleted research
                    will still be deleted on the second try, and a retry button
                    that cannot help is a lie with a cursor. */
@@ -691,7 +804,17 @@ export function ResearchWorkspace({
 
   // The bar lives in workspace-tab-bar.tsx: it needs nothing but the navigation
   // model, so its grouping can be asserted on directly.
-  const tabs = <WorkspaceTabBar panel={panel} onSelect={setPanel} />;
+  const tabs = (
+    <WorkspaceTabBar
+      panel={panel}
+      onSelect={(next) => {
+        // A tab click is a fresh start: the marker belongs to the card the
+        // reader arrived from, not to their next visit.
+        if (next === "independence") setLocatedSourceId(null);
+        setPanel(next);
+      }}
+    />
+  );
 
   // Reading a stored page is a surface of its own, not a column: it gets the
   // full width so long text is not squeezed, and it keeps the tab bar so the
@@ -805,6 +928,16 @@ export function ResearchWorkspace({
                 ])
               )}
               canEdit={canEdit}
+              navigation={{
+                onOpenEvidence: (evidenceId) => {
+                  setSelectedEvidenceId(evidenceId);
+                  setPanel("detail");
+                },
+                onOpenClaim: (claimId) => {
+                  setSelectedClaimId(claimId);
+                  setPanel("review");
+                }
+              }}
               onChanged={async () => {
                 await reload();
                 await refreshHistory();
@@ -812,6 +945,26 @@ export function ResearchWorkspace({
             />
           </div>
         </div>
+      </>
+    );
+  }
+
+  // Source monitoring: whether the pages a conclusion rests on have moved.
+  // Reads stay available to every account; the check and the task moves are
+  // reviewer-only, and the panel says so instead of failing on click.
+  if (panel === "monitoring") {
+    return (
+      <>
+        {tabs}
+        <SourceMonitoringPanel
+          sessionId={sessionId}
+          sources={workspace.sources.map((source) => ({
+            id: source.id,
+            title: source.title,
+            kind: source.kind
+          }))}
+          canEdit={canEdit}
+        />
       </>
     );
   }
@@ -831,6 +984,7 @@ export function ResearchWorkspace({
             <SourceIndependencePanel
               sessionId={sessionId}
               canEdit={canEdit}
+              initialSourceId={locatedSourceId}
               onChanged={async () => {
                 await reload();
                 await refreshHistory();
@@ -894,7 +1048,10 @@ export function ResearchWorkspace({
                   setSelectedEvidenceId(evidenceId);
                   setPanel("detail");
                 },
-                onOpenSource: () => setPanel("independence"),
+                onOpenSource: (sourceId) => {
+                  setLocatedSourceId(sourceId);
+                  setPanel("independence");
+                },
                 onOpenReader: (sourceId) => {
                   setReaderSourceId(sourceId);
                   setPanel("reader");
@@ -1199,14 +1356,16 @@ export function ResearchWorkspace({
             they also carry the open/close state — and a second button for the
             same action in the header would be two controls doing one job, the
             kind of duplicate affordance that makes a reader guess which one is
-            the real one. The evidence map, by contrast, is a page of its own and
-            has no in-panel entry.
+            the real one. The evidence explorer, by contrast, is a page of its
+            own and has no in-panel entry. It is not the evidence *map*: the map
+            is the 证据地图 tab below, drawn from this session; this page is the
+            list-and-source reader that a URL can address directly.
           */}
           <Link
             className="research-button research-button-secondary"
             href={`/research/${sessionId}/evidence`}
           >
-            证据地图
+            证据清单
           </Link>
           <Link
             className="research-button"
@@ -1233,13 +1392,84 @@ export function ResearchWorkspace({
           <section className="research-panel">
             <div className="research-panel-head">
               <span className="research-panel-title">研究问题</span>
-              <StatusPill tone="research-pill-neutral">
-                {workflowLabel(workspace.session.phase)}
-              </StatusPill>
+              {/* Grouped so the header stays "title left, controls right"
+                  instead of spreading three children across the row. */}
+              <div className="research-actions">
+                <StatusPill tone="research-pill-neutral">
+                  {workflowLabel(workspace.session.phase)}
+                </StatusPill>
+                {canEdit && questionDraft === null ? (
+                  <button
+                    type="button"
+                    className="research-button research-button-secondary"
+                    data-testid="edit-research-question"
+                    onClick={() =>
+                      setQuestionDraft(workspace.session.researchQuestion ?? "")
+                    }
+                  >
+                    {workspace.session.researchQuestion ? "修改" : "填写研究问题"}
+                  </button>
+                ) : null}
+              </div>
             </div>
-            <p className="research-question">
-              {workspace.session.researchQuestion ?? "（未填写研究问题）"}
-            </p>
+            {questionDraft === null ? (
+              <p className="research-question">
+                {workspace.session.researchQuestion ?? "（未填写研究问题）"}
+              </p>
+            ) : (
+              <form
+                className="research-form"
+                data-testid="research-question-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void saveQuestion(questionDraft);
+                }}
+              >
+                <div className="research-field">
+                  <label className="research-label" htmlFor="research-question">
+                    这项研究要回答的问题
+                  </label>
+                  <textarea
+                    id="research-question"
+                    className="research-textarea"
+                    data-testid="research-question-input"
+                    rows={3}
+                    maxLength={1000}
+                    value={questionDraft}
+                    onChange={(event) => {
+                      setQuestionDraft(event.target.value);
+                      setQuestionError(null);
+                    }}
+                  />
+                </div>
+                <div className="research-actions">
+                  <button
+                    type="submit"
+                    className="research-button"
+                    data-testid="save-research-question"
+                    disabled={questionBusy}
+                  >
+                    {questionBusy ? "保存中…" : "保存"}
+                  </button>
+                  <button
+                    type="button"
+                    className="research-button research-button-secondary"
+                    data-testid="cancel-research-question"
+                    onClick={() => {
+                      setQuestionDraft(null);
+                      setQuestionError(null);
+                    }}
+                  >
+                    取消
+                  </button>
+                </div>
+                {questionError ? (
+                  <p className="research-error" role="alert" data-testid="research-question-error">
+                    {questionError}
+                  </p>
+                ) : null}
+              </form>
+            )}
             <p className="research-muted" style={{ marginTop: 6 }}>
               {pendingVerificationLabel(workspace.summary.unverified)} ·{" "}
               {workspace.summary.openVerdicts} 条主张仍有待处理材料
@@ -1422,6 +1652,7 @@ export function ResearchWorkspace({
                   busy={importBusy}
                   error={importError}
                   onSubmit={(commands) => void submitImport(commands)}
+                  onInvalid={setImportError}
                 />
               ) : null}
 
@@ -1618,7 +1849,7 @@ export function ResearchWorkspace({
               <div className="research-panel-head">
                 <span className="research-panel-title">最近操作</span>
                 <Link className="research-muted" href={`/research/${sessionId}/evidence`}>
-                  打开 Evidence Explorer →
+                  打开证据清单 →
                 </Link>
               </div>
               {history.length === 0 ? (

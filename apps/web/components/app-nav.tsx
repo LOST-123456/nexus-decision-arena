@@ -6,6 +6,11 @@ import { useState, type ReactNode } from "react";
 import { AppNavHeightObserver } from "./app-nav-height";
 import { AppNavDrawer } from "./app-nav-drawer";
 import { AuthUserBadge } from "./auth-user-badge";
+import {
+  UnreadCountBadge,
+  useUnreadNotificationCount
+} from "../features/notifications/unread-count-badge";
+import { QuickSwitcher } from "./quick-switcher";
 import { ThemeToggle } from "./theme-toggle";
 
 /**
@@ -19,10 +24,12 @@ import { ThemeToggle } from "./theme-toggle";
  */
 const PRIMARY_LINKS: ReadonlyArray<{ href: string; label: string }> = [
   { href: "/history", label: "最近会话" },
+  { href: "/notifications", label: "消息" },
   { href: "/sessions/new", label: "新建评审" },
   { href: "/sessions/demo", label: "固定演示" },
   { href: "/research", label: "研究与事实核查" },
   { href: "/research/library", label: "资料库" },
+  { href: "/settings/model", label: "模型设置" },
   { href: "/security", label: "安全治理" }
 ];
 
@@ -48,6 +55,13 @@ export function AppNav({ context }: { context?: ReactNode }) {
   const pathname = usePathname() ?? "/";
   const current = activeHref(pathname, PRIMARY_LINKS);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  /*
+   * Read once, in the bar, and handed to both variants. The drawer is a second
+   * rendering of the same destinations; letting each fetch its own count would
+   * mean two requests on every page that happens to mount both, and two numbers
+   * that can disagree while one of them is stale.
+   */
+  const unreadCount = useUnreadNotificationCount();
 
   return (
     <header className="app-nav" data-testid="app-nav">
@@ -89,12 +103,16 @@ export function AppNav({ context }: { context?: ReactNode }) {
             aria-current={current === link.href ? "page" : undefined}
           >
             {link.label}
+            {link.href === "/notifications" ? (
+              <UnreadCountBadge count={unreadCount} />
+            ) : null}
           </Link>
         ))}
       </nav>
 
       <div className="app-nav-actions">
         {context}
+        <QuickSwitcher />
         <ThemeToggle />
         <AuthUserBadge />
       </div>
@@ -103,6 +121,7 @@ export function AppNav({ context }: { context?: ReactNode }) {
         open={drawerOpen}
         pathname={pathname}
         links={PRIMARY_LINKS}
+        unreadCount={unreadCount}
         onClose={() => setDrawerOpen(false)}
       />
     </header>

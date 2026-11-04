@@ -1,3 +1,5 @@
+import { OversightPanel } from "../../features/security/oversight-panel";
+
 const controls = [
   ["数据位置", "项目、审计事件和报告保存在本地 PostgreSQL；模型保存在 E 盘。"],
   ["密钥边界", "模型 API Key 仅由服务端环境变量读取，不进入浏览器代码和导出文件。"],
@@ -24,6 +26,27 @@ export default function SecurityPage() {
               <p>{body}</p>
             </article>
           ))}
+        </div>
+
+        {/*
+          The six cards above are assertions, and an assertion cannot be
+          checked. This section makes the page's own claim falsifiable: the two
+          promises that leave a trace in the database — "a person decides the
+          risky conflicts" and "runs are recorded honestly" — are counted from
+          the rows themselves.
+
+          Kept on this page rather than given its own route on purpose. A
+          separate "governance dashboard" would be a second place asserting
+          things about governance, and the first place to drift.
+        */}
+        <div className="security-measured">
+          <p className="eyebrow">MEASURED, NOT ASSERTED</p>
+          <h2>上面这些主张，在这个部署里的实际数据</h2>
+          <p className="lead">
+            六条里有两类会留下可核对的痕迹：人工裁决与运行记录。下面把它们数出来，
+            而不是再声明一遍。
+          </p>
+          <OversightPanel />
         </div>
       </section>
     </main>

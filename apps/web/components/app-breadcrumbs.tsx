@@ -26,7 +26,7 @@ const SEGMENT_LABELS: Record<string, string> = {
   report: "报告",
   research: "研究与事实核查",
   library: "资料库",
-  evidence: "证据地图",
+  evidence: "证据清单",
   security: "安全治理",
   login: "登录"
 };

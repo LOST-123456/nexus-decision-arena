@@ -303,7 +303,19 @@ export function SourceLibraryPanel({
 
   const submitGrant = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!managedSessionId || !grantSubjectId.trim()) return;
+    // 缺前置条件直接 return 会让按钮看起来是坏的：不报错、不提示、也不发请求。
+    if (!managedSessionId) {
+      setError("请先选择要授权的研究。");
+      return;
+    }
+    if (!grantSubjectId.trim()) {
+      setError(
+        grantSubjectType === "user"
+          ? "请填写要授权的账号用户名或 ID。"
+          : "请填写要授权的角色名（owner、reviewer 或 viewer）。"
+      );
+      return;
+    }
     setBusy(true);
     setError(null);
     setMessage(null);
@@ -477,7 +489,7 @@ export function SourceLibraryPanel({
                     {session.access === "own"
                       ? "自有"
                       : `被授权/${grantScopeLabel(session.grantScope ?? "read")}`}{" "}
-                    · {session.researchQuestion ?? session.sessionId.slice(0, 8)}
+                    · {session.projectName ?? session.researchQuestion ?? session.sessionId.slice(0, 8)}
                   </option>
                 ))}
               </select>
@@ -496,7 +508,7 @@ export function SourceLibraryPanel({
                 <option value="">选择目标研究</option>
                 {ownSessions.map((session) => (
                   <option key={session.sessionId} value={session.sessionId}>
-                    自有 · {session.researchQuestion ?? session.sessionId.slice(0, 8)}
+                    自有 · {session.projectName ?? session.researchQuestion ?? session.sessionId.slice(0, 8)}
                   </option>
                 ))}
               </select>
@@ -523,7 +535,7 @@ export function SourceLibraryPanel({
             {sessions.map((session) => (
               <li key={session.sessionId} className="research-plain-list-item">
                 <span className="research-source-title">
-                  {session.researchQuestion ?? "未命名研究"}
+                  {session.projectName ?? session.researchQuestion ?? "未命名研究"}
                 </span>
                 <span className="research-muted">
                   {session.access === "own"
@@ -722,7 +734,7 @@ export function SourceLibraryPanel({
                 <option value="">选择研究</option>
                 {ownSessions.map((session) => (
                   <option key={session.sessionId} value={session.sessionId}>
-                    {session.researchQuestion ?? session.sessionId.slice(0, 8)}
+                    {session.projectName ?? session.researchQuestion ?? session.sessionId.slice(0, 8)}
                   </option>
                 ))}
               </select>

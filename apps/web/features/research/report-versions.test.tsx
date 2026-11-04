@@ -344,6 +344,67 @@ describe("ReportVersionsPanel", () => {
     expect(items[1]?.textContent).toContain("Alice Reviewer (alice)");
   });
 
+  /**
+   * The history grows by one row per save and is read a page at a time, so
+   * "there is more" has to be visible and reachable. Appending rather than
+   * reloading is the point: reloading would replace the list with the newest
+   * page and quietly drop the older versions the reader just asked for.
+   */
+  it("appends the next page of versions instead of replacing the list", async () => {
+    listReportSnapshots
+      .mockResolvedValueOnce({
+        snapshots: [
+          summary({ snapshotId: SNAPSHOT_A, version: 3 }),
+          summary({ snapshotId: SNAPSHOT_B, version: 2 })
+        ],
+        nextCursor: 2,
+        hasNextPage: true
+      })
+      .mockResolvedValueOnce({
+        snapshots: [summary({ snapshotId: "snapshot-c", version: 1 })],
+        nextCursor: null,
+        hasNextPage: false
+      });
+    render(<ReportVersionsPanel sessionId={SESSION_ID} currentFingerprint="0000000000000000" />);
+
+    await waitFor(() =>
+      expect(screen.getAllByTestId("report-snapshot-item")).toHaveLength(2)
+    );
+    fireEvent.click(screen.getByTestId("report-versions-load-more"));
+
+    await waitFor(() =>
+      expect(screen.getAllByTestId("report-snapshot-item")).toHaveLength(3)
+    );
+    // The cursor travels as the last version already on screen.
+    expect(listReportSnapshots).toHaveBeenLastCalledWith(SESSION_ID, { after: 2 });
+    // Nothing older left: the control removes itself rather than lying.
+    expect(screen.queryByTestId("report-versions-load-more")).toBeNull();
+  });
+
+  it("keeps the versions already on screen when the next page fails", async () => {
+    listReportSnapshots
+      .mockResolvedValueOnce({
+        snapshots: [summary({ snapshotId: SNAPSHOT_B, version: 2 }), summary()],
+        nextCursor: 1,
+        hasNextPage: true
+      })
+      .mockRejectedValueOnce(new Error("network down"));
+    render(<ReportVersionsPanel sessionId={SESSION_ID} currentFingerprint="0000000000000000" />);
+
+    await waitFor(() =>
+      expect(screen.getAllByTestId("report-snapshot-item")).toHaveLength(2)
+    );
+    fireEvent.click(screen.getByTestId("report-versions-load-more"));
+
+    // The rows that loaded are still true, so they stay; only the failed
+    // extension is reported, and the control stays so it can be retried.
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toContain("network down")
+    );
+    expect(screen.getAllByTestId("report-snapshot-item")).toHaveLength(2);
+    expect(screen.getByTestId("report-versions-load-more")).toBeTruthy();
+  });
+
   it("saves the current report through the API and reports the new version", async () => {
     listReportSnapshots
       .mockResolvedValueOnce({ snapshots: [] })

@@ -387,7 +387,7 @@ export function DemoArena() {
             </dd>
           </div>
           <div>
-            <dt>反方 Claim</dt>
+            <dt>反方主张</dt>
             <dd data-testid="opposing-claim-count">{opposingClaimCount}</dd>
           </div>
           <div>

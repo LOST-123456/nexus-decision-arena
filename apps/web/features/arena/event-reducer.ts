@@ -97,6 +97,15 @@ function applyContiguousEvent(
         lastSequence: event.sequence
       };
     }
+    /**
+     * 一轮质询开始，带总数。
+     *
+     * 它不是主张、不是证据、也不是裁决：它只回答"接下来会有多少条质询"。
+     * 折叠它不会产生任何结论，但页面要靠它把进度显示成"N/M"。
+     */
+    case "CHALLENGE_BATCH_STARTED": {
+      return { ...current, lastSequence: event.sequence };
+    }
     case "CONFLICT_DETECTED": {
       const conflict = event.payload as Conflict;
       return {
@@ -239,7 +248,19 @@ function applyContiguousEvent(
     case "REVIEW_REQUEST_CREATED":
     case "REVIEW_REQUEST_ASSIGNED":
     case "REVIEW_REQUEST_DECIDED":
-    case "REVIEW_REQUEST_CANCELLED": {
+    case "REVIEW_REQUEST_CANCELLED":
+    /**
+     * 补材料只改变"下一轮能读到什么"，不改变当前阶段和结论。放进这一组是
+     * 有意的：材料不该让已经作出的裁决看起来被推翻了。
+     */
+    case "MATERIAL_ADDED": {
+      return { ...current, lastSequence: event.sequence };
+    }
+    /**
+     * 候选来源不进会话投影：它不是结论、不是材料，也不改变阶段。
+     * 面板单独从原始事件里读它们（见 `web-sources.ts`），这里只把序号推进。
+     */
+    case "WEB_SOURCES_FOUND": {
       return { ...current, lastSequence: event.sequence };
     }
     default: {

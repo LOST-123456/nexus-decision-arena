@@ -310,4 +310,41 @@ describe("CitationReviewPanel", () => {
     expect(screen.queryByTestId("check-citations")).toBeNull();
     expect(screen.queryByTestId(`correct-integrity-${EVIDENCE_ID}`)).toBeNull();
   });
+
+  /**
+   * The panel used to be a dead end: it reported that a citation no longer
+   * resolved and offered no way to reach the excerpt or the claim it was
+   * talking about. Reading a finding is the start of acting on it.
+   */
+  it("leads to the excerpt and the claim it is reporting on", async () => {
+    const onOpenEvidence = vi.fn();
+    const onOpenClaim = vi.fn();
+    render(
+      <CitationReviewPanel
+        sessionId={SESSION_ID}
+        evidence={[evidence()]}
+        claims={[{ id: CLAIM_ID, statement: PAGE_TEXT }]}
+        sourcesById={new Map()}
+        canEdit
+        navigation={{ onOpenEvidence, onOpenClaim }}
+      />
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId(`open-evidence-${EVIDENCE_ID}`)).toBeTruthy()
+    );
+
+    fireEvent.click(screen.getByTestId(`open-evidence-${EVIDENCE_ID}`));
+    expect(onOpenEvidence).toHaveBeenCalledWith(EVIDENCE_ID);
+
+    fireEvent.click(screen.getByTestId(`open-claim-${ASSESSMENT_ID}`));
+    expect(onOpenClaim).toHaveBeenCalledWith(CLAIM_ID);
+  });
+
+  it("renders no navigation controls when the caller has nowhere to send them", async () => {
+    renderPanel();
+    await waitFor(() => expect(screen.getByTestId("citation-review")).toBeTruthy());
+
+    expect(screen.queryByTestId(`open-evidence-${EVIDENCE_ID}`)).toBeNull();
+    expect(screen.queryByTestId(`open-claim-${ASSESSMENT_ID}`)).toBeNull();
+  });
 });

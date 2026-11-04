@@ -339,8 +339,27 @@ function recommendationActionFor(
         ? { label, run: () => navigation.onOpenClaim?.(claimId) }
         : null;
     case "open_source_reader":
-      return firstSource && navigation.onOpenReader
-        ? { label, run: () => navigation.onOpenReader?.(firstSource) }
+      // A source id is attached only when the finding was scoped to a source.
+      // A stale citation or a changed capture is recorded against the excerpt
+      // or the claim, and the group then carries no source id at all — which
+      // used to leave the most directly actionable recommendation with no
+      // button while the same issue had one in the findings list. Fall back
+      // the way the finding row does, most specific target first, and label
+      // the surface that is actually opened.
+      if (firstSource && navigation.onOpenReader) {
+        return { label, run: () => navigation.onOpenReader?.(firstSource) };
+      }
+      if (firstEvidence && navigation.onOpenEvidence) {
+        return {
+          label: qualityActionLabel("open_evidence_detail"),
+          run: () => navigation.onOpenEvidence?.(firstEvidence)
+        };
+      }
+      return claimId && navigation.onOpenClaim
+        ? {
+            label: qualityActionLabel("open_claim_detail"),
+            run: () => navigation.onOpenClaim?.(claimId)
+          }
         : null;
     case "open_source_relations":
       return firstSource && navigation.onOpenSource

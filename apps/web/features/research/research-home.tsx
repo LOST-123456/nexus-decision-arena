@@ -1,15 +1,24 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import {
   createSession,
   deleteSession,
   listSessions,
   type CreateSessionCommand,
+  type SessionRelation,
   type SessionSummary
 } from "../arena/api-client";
+import { SessionRelationFilter } from "../arena/session-relation-filter";
+import {
+  presentRelations,
+  RELATION_LABELS,
+  visibleRelations
+} from "../arena/session-relation";
 import { workflowLabel } from "./labels";
+import { toLoadFailure, type LoadFailure } from "../../lib/load-failure";
 
 const emptyProject = {
   name: "",
@@ -35,13 +44,29 @@ const UNFILLED = "（未填写）";
  * them is a lie: "we could not reach the server" must never render as "you
  * have no research yet". A dead core used to fall through to the empty state
  * because the loader swallowed every failure into `[]`.
+ *
+ * `ready` carries the page cursor as well as the rows, because "these are all
+ * of them" and "these are the first fifty of them" are different claims and the
+ * header used to make the first one for a window of either size.
  */
 type SessionsState =
   | { status: "loading" }
-  | { status: "ready"; sessions: SessionSummary[] }
-  | { status: "error"; message: string };
+  | {
+      status: "ready";
+      sessions: SessionSummary[];
+      nextCursor: string | null;
+      hasNextPage: boolean;
+    }
+  /**
+   * Carries the `kind`, not just a message. This read is account-scoped, so an
+   * unauthenticated visitor is answered 401 — and the old single-message form
+   * told that visitor to go and check that the core was running on 4100, then
+   * offered a retry button that could only fail again.
+   */
+  | { status: "error"; failure: LoadFailure };
 
 export function ResearchHome() {
+  const router = useRouter();
   const [project, setProject] = useState(emptyProject);
   const [researchQuestion, setResearchQuestion] = useState("");
   const [sessions, setSessions] = useState<SessionsState>({ status: "loading" });
@@ -53,23 +78,92 @@ export function ResearchHome() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   /** Failure of the last delete attempt, shown instead of being swallowed. */
   const [listError, setListError] = useState<string | null>(null);
+  /** A `loadMore` request is in flight; the button says so rather than repeating. */
+  const [loadingMore, setLoadingMore] = useState(false);
+  /**
+   * Which reason is selected, and which ones this list has seen.
+   *
+   * Narrowed on the server: two people's researches interleave by `updated_at`,
+   * so filtering the loaded window in the browser would report "none shared
+   * with you" whenever the shared ones happen to sit beyond the first page.
+   */
+  const [relation, setRelation] = useState<SessionRelation | null>(null);
+  const [relations, setRelations] = useState<SessionRelation[]>([]);
 
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (filter: SessionRelation | null) => {
     setSessions({ status: "loading" });
     try {
-      const loaded = await listSessions();
-      setSessions({ status: "ready", sessions: loaded });
+      const page = await listSessions(
+        filter === null ? {} : { relation: filter }
+      );
+      setSessions({
+        status: "ready",
+        sessions: page.sessions,
+        nextCursor: page.nextCursor,
+        hasNextPage: page.hasNextPage
+      });
+      // Accumulated, never rebuilt from the filtered page: that page holds one
+      // relation only, so rebuilding would erase the tabs needed to switch
+      // back. `visibleRelations` re-sorts from the canonical order.
+      setRelations((current) => {
+        const merged = new Set<SessionRelation>(current);
+        for (const item of presentRelations(page.sessions)) merged.add(item);
+        return [...merged];
+      });
     } catch (cause) {
       setSessions({
         status: "error",
-        message: cause instanceof Error ? cause.message : "无法读取研究列表"
+        failure: toLoadFailure(cause, "研究列表不存在", "无法读取研究列表")
       });
     }
   }, []);
 
   useEffect(() => {
-    void reload();
-  }, [reload]);
+    void reload(relation);
+  }, [reload, relation]);
+
+  /**
+   * The next window, appended.
+   *
+   * Appended and not replaced: the rows already on screen are pages the user
+   * has already read, and swapping them out would make "load more" scroll the
+   * list back to the top. No de-duplication is done here because the cursor is
+   * a strict `(updated_at, id) <` comparison — pages cannot overlap. A session
+   * edited between two requests moves ahead of the cursor and is therefore
+   * missed, not repeated, which is the failure mode a cursor list is supposed
+   * to have.
+   */
+  const loadMore = useCallback(async () => {
+    if (sessions.status !== "ready") return;
+    const { nextCursor, hasNextPage } = sessions;
+    if (!hasNextPage || nextCursor === null) return;
+    setLoadingMore(true);
+    setListError(null);
+    try {
+      // Same filter as the first page: a cursor followed under a different
+      // filter cuts page two out of another set, so rows repeat and others are
+      // never reached.
+      const page = await listSessions(
+        relation === null ? { after: nextCursor } : { after: nextCursor, relation }
+      );
+      setSessions((current) =>
+        current.status === "ready"
+          ? {
+              status: "ready",
+              sessions: [...current.sessions, ...page.sessions],
+              nextCursor: page.nextCursor,
+              hasNextPage: page.hasNextPage
+            }
+          : current
+      );
+    } catch (cause) {
+      setListError(
+        cause instanceof Error ? cause.message : "加载更多失败，请重试。"
+      );
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [sessions, relation]);
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -103,7 +197,11 @@ export function ResearchHome() {
       setCreatedId(created.id);
       setProject(emptyProject);
       setResearchQuestion("");
-      await reload();
+      // The button is labelled 创建并进入工作台, so it has to actually enter.
+      // It used to only set `createdId` and render a small "已创建研究" link,
+      // which left the page looking unchanged after a successful 201.
+      router.push(`/research/${created.id}`);
+      await reload(relation);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "创建研究失败");
     } finally {
@@ -122,7 +220,7 @@ export function ResearchHome() {
     try {
       await deleteSession(sessionId);
       setPendingDeleteId(null);
-      await reload();
+      await reload(relation);
     } catch (cause) {
       setListError(cause instanceof Error ? cause.message : "删除失败，请重试。");
     } finally {
@@ -240,7 +338,7 @@ export function ResearchHome() {
           <section className="research-panel">
             <p className="research-muted">
               已创建研究。
-              <Link href={`/research/${createdId}`}> 打开 Research Workspace →</Link>
+              <Link href={`/research/${createdId}`}> 进入研究工作台 →</Link>
             </p>
           </section>
         ) : null}
@@ -252,12 +350,27 @@ export function ResearchHome() {
             <span className="research-panel-title">最近研究</span>
             <span className="research-muted" data-testid="research-list-count">
               {sessions.status === "ready"
-                ? `${sessions.sessions.length} 项`
+                ? sessions.hasNextPage
+                  ? `已加载 ${sessions.sessions.length} 项`
+                  : `共 ${sessions.sessions.length} 项`
                 : sessions.status === "loading"
                   ? "载入中"
                   : "读取失败"}
             </span>
           </div>
+
+          {/*
+            Why a research is on this list. Every row says it in a badge too;
+            this is the same fact made actionable, because "which of these did
+            I make" is a question about the whole list rather than one row.
+          */}
+          {sessions.status === "error" ? null : (
+            <SessionRelationFilter
+              relations={visibleRelations(relations, relation)}
+              value={relation}
+              onChange={setRelation}
+            />
+          )}
 
           {listError ? (
             <p
@@ -279,23 +392,63 @@ export function ResearchHome() {
               role="alert"
               data-testid="research-list-error"
             >
-              <p className="research-empty-title">无法读取研究列表</p>
-              <p>{sessions.message}</p>
-              <p className="research-muted">
-                请确认核心 API 正在运行（默认 4100 端口），然后重试。
+              <p className="research-empty-title">
+                {sessions.failure.kind === "sign-in"
+                  ? "需要登录"
+                  : "无法读取研究列表"}
               </p>
-              <button
-                type="button"
-                className="research-button"
-                onClick={() => void reload()}
-              >
-                重新加载
-              </button>
+              <p>
+                {sessions.failure.kind === "sign-in"
+                  ? "研究按账户隔离，登录后只能看到你有权查看的那些。"
+                  : sessions.failure.message}
+              </p>
+              <p className="research-muted">
+                {sessions.failure.kind === "sign-in"
+                  ? "登录后回到这里，列表会自己加载。"
+                  : "如果是刚启动，等几秒再试一次。"}
+              </p>
+              {sessions.failure.kind === "sign-in" ? (
+                <Link className="research-button" href="/login">
+                  去登录
+                </Link>
+              ) : (
+                <button
+                  type="button"
+                  className="research-button"
+                  onClick={() => void reload(relation)}
+                >
+                  重新加载
+                </button>
+              )}
             </div>
           ) : sessions.sessions.length === 0 ? (
-            <div className="research-empty" data-testid="research-list-empty">
-              还没有研究任务。
-            </div>
+            relation === null ? (
+              <div className="research-empty" data-testid="research-list-empty">
+                <p className="research-empty-title">还没有研究任务</p>
+                <p className="research-muted">
+                  在左边写下第一个研究问题，创建后会出现在这里。
+                </p>
+              </div>
+            ) : (
+              /*
+               * A filtered list that came back empty is not an empty
+               * workspace. Saying「还没有研究任务」here would contradict the
+               * rows the user was reading one click earlier.
+               */
+              <div className="research-empty" data-testid="research-list-filter-empty">
+                <p className="research-empty-title">
+                  没有「{RELATION_LABELS[relation]}」的研究
+                </p>
+                <p className="research-muted">换一个来源看看，或者清除筛选。</p>
+                <button
+                  type="button"
+                  className="research-button"
+                  onClick={() => setRelation(null)}
+                >
+                  清除筛选
+                </button>
+              </div>
+            )
           ) : (
             <div className="research-table-scroll">
               <table className="research-table">
@@ -318,6 +471,21 @@ export function ResearchHome() {
                             {session.projectName}
                           </Link>
                           <div className="research-muted">{session.id}</div>
+                          {/*
+                            On the row, not only in the filter: a single row
+                            must still answer "is this mine?". Absent when the
+                            deployment has no identities, where there is nobody
+                            to attribute a research to.
+                          */}
+                          {session.relation ? (
+                            <span
+                              className="relation-badge"
+                              data-testid="relation-badge"
+                              data-relation={session.relation}
+                            >
+                              {RELATION_LABELS[session.relation]}
+                            </span>
+                          ) : null}
                         </td>
                         <td>{workflowLabel(session.phase)}</td>
                         <td>{session.conflictCount}</td>
@@ -327,7 +495,7 @@ export function ResearchHome() {
                               className="research-button research-button-secondary"
                               href={`/research/${session.id}/evidence`}
                             >
-                              证据
+                              证据清单
                             </Link>
                             {confirming ? (
                               <>
@@ -374,6 +542,29 @@ export function ResearchHome() {
               </table>
             </div>
           )}
+
+          {/*
+            Only while there is genuinely another page. The label does not say
+            "加载更多" alone on purpose: the list is newest-first, so this
+            fetches older researches, and a user who reads it as "more recent
+            ones" would conclude the button did nothing.
+          */}
+          {sessions.status === "ready" && sessions.hasNextPage ? (
+            <div className="research-actions" data-testid="research-list-more-row">
+              <button
+                type="button"
+                className="research-button research-button-secondary"
+                data-testid="research-list-more"
+                disabled={loadingMore}
+                onClick={() => void loadMore()}
+              >
+                {loadingMore ? "载入中…" : "加载更早的研究"}
+              </button>
+              <span className="research-muted">
+                列表按最近更新排序，继续加载更早的记录。
+              </span>
+            </div>
+          ) : null}
         </section>
       </div>
     </div>

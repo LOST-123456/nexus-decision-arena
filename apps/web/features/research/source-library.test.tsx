@@ -504,6 +504,20 @@ describe("cross-research library panel", () => {
     expect(revokeShareGrant).not.toHaveBeenCalled();
   });
 
+  it("空授权对象不静默返回，而是说明缺什么", async () => {
+    primeLibrary();
+
+    render(<SourceLibraryPanel currentSessionId={OWN_SESSION} />);
+    await settle();
+
+    // 以前这里直接 return：不发请求、不报错，按钮看起来就是坏的。
+    fireEvent.submit(screen.getByTestId("library-grant-form"));
+
+    const error = await screen.findByRole("alert");
+    expect(error.textContent).toContain("请填写要授权的账号");
+    expect(createShareGrant).not.toHaveBeenCalled();
+  });
+
   it("asks for a username and says an unresolvable subject is refused, not filed", async () => {
     primeLibrary();
     createShareGrant.mockResolvedValue(grantFixture({ id: GRANT_ID, scope: "read" }));
