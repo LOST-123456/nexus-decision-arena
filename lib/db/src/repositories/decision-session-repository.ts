@@ -2,7 +2,9 @@ import { and, count, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import {
   ConflictStatusSchema,
   decisionWritebackPlan,
+  DEFAULT_PAGE_LIMIT,
   IdSchema,
+  MAX_PAGE_LIMIT,
   newId,
   type ConflictStatus,
   type ExecutionEvent,
@@ -147,7 +149,30 @@ export class DecisionSessionRepository {
       .limit(1);
     return row ?? null;
   }
-  async listSummaries(limit = 50) {
+  async listSummaries(limit = DEFAULT_PAGE_LIMIT) {
+    return this.summarize(limit);
+  }
+
+  /**
+   * The same summary shape, restricted to sessions the caller may read.
+   *
+   * The restriction is applied in the query, not after reading everything: a
+   * workspace with ten thousand researches must not send its whole history to
+   * the process only to drop the rows the caller cannot see.
+   *
+   * An empty list returns at once. `IN ()` is not valid SQL, and "this caller
+   * may see nothing" is an answer, not an error to be discovered by the
+   * database.
+   */
+  async listSummariesForSessions(sessionIds: readonly string[], limit = DEFAULT_PAGE_LIMIT) {
+    if (sessionIds.length === 0) return [];
+    return this.summarize(limit, [...sessionIds]);
+  }
+
+  private async summarize(limit: number, sessionIds?: readonly string[]) {
+    // `undefined` means "no restriction": the builder skips the clause, so the
+    // filtered and unfiltered shapes come from one query and cannot drift.
+    const ids = sessionIds === undefined ? undefined : [...sessionIds];
     const rows = await this.database
       .select({
         id: decisionSessions.id,
@@ -161,11 +186,17 @@ export class DecisionSessionRepository {
       })
       .from(decisionSessions)
       .innerJoin(projects, eq(decisionSessions.projectId, projects.id))
+      .where(ids ? inArray(decisionSessions.id, ids) : undefined)
       .orderBy(desc(decisionSessions.updatedAt))
-      .limit(Math.max(1, Math.min(limit, 100)));
+      // Clamped to the shared page contract rather than a private number. The
+      // old local cap of 100 was invisible to clients, so a caller that asked
+      // for 200 got 100 and had no way to tell it had been trimmed — which is
+      // how a UI ends up claiming a window it was never given.
+      .limit(Math.max(1, Math.min(limit, MAX_PAGE_LIMIT)));
     const counts = await this.database
       .select({ sessionId: conflicts.sessionId, total: count(conflicts.id) })
       .from(conflicts)
+      .where(ids ? inArray(conflicts.sessionId, ids) : undefined)
       .groupBy(conflicts.sessionId);
     const bySession = new Map(counts.map((row) => [row.sessionId, Number(row.total)]));
     return rows.map((row) => ({
@@ -179,6 +210,31 @@ export class DecisionSessionRepository {
       createdAt: new Date(row.createdAt).toISOString(),
       updatedAt: new Date(row.updatedAt).toISOString()
     }));
+  }
+
+  /** Session ids recorded as belonging to one account. */
+  async listSessionIdsForOwner(userId: string): Promise<string[]> {
+    const rows = await this.database
+      .select({ id: decisionSessions.id })
+      .from(decisionSessions)
+      .where(eq(decisionSessions.ownerUserId, userId));
+    return rows.map((row) => row.id);
+  }
+
+  /**
+   * Sessions with no recorded owner.
+   *
+   * They predate ownership or were created before a login existed, so nothing
+   * in the data says whose they are. The library already treats them as the
+   * deployment administrator's (see `mayAdministerGrants`); they are listed
+   * here for that role rather than handed to every signed-in account.
+   */
+  async listOwnerlessSessionIds(): Promise<string[]> {
+    const rows = await this.database
+      .select({ id: decisionSessions.id })
+      .from(decisionSessions)
+      .where(sql`${decisionSessions.ownerUserId} IS NULL`);
+    return rows.map((row) => row.id);
   }
 
   async deleteById(sessionId: string): Promise<boolean> {
