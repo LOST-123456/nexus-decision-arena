@@ -50,12 +50,32 @@ export type FetchJsonInit = RequestInit & {
 };
 
 function unavailableMessage(): string {
-  return "无法连接到核心 API。请确认服务仍在运行，然后重新检查。";
+  /*
+   * 这句话是这台机器上最常被看到的一条报错，因为站点是两个进程，
+   * 而它经常是被"关掉那个黑窗口"结束的。所以除了让人重试，还要说清
+   * 怎么把它起回来——否则用户只会反复刷新。
+   */
+  return "无法连接到核心 API。站点由根目录的 start-site.cmd 启动，那个窗口关掉就会停；重新双击它，等窗口里出现 Ready 之后再重试。";
 }
 
 function timeoutMessage(timeoutMs: number): string {
   const seconds = Math.max(1, Math.round(timeoutMs / 1000));
   return `请求超时（${seconds} 秒）。核心 API 可能繁忙或已停止响应，请稍后重试。`;
+}
+
+/**
+ * The first non-blank string, or null.
+ *
+ * Core used to answer a 5xx with Fastify's default body, whose `message` is an
+ * empty string. `??` does not skip `""`, so the operator's screen showed a
+ * blank error instead of the fallback copy below. A blank string carries no
+ * more information than a missing one, so both are treated the same here.
+ */
+function firstNonBlank(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim() !== "") return value;
+  }
+  return null;
 }
 
 function httpFallbackMessage(status: number): string {
@@ -75,6 +95,23 @@ function httpFallbackMessage(status: number): string {
     return `没有权限执行该操作（${status}）。请重新登录或联系管理员。`;
   }
   return `请求失败（${status}）。`;
+}
+
+/**
+ * The one server-side condition worth translating rather than forwarding.
+ *
+ * Core answers `503 database_unavailable` when the database is down or still
+ * replaying its log. That is not a fault in the page and not something an
+ * operator can fix by retrying in five seconds — it is usually a Docker
+ * Desktop that was closed, or PostgreSQL still recovering (it took three and a
+ * half minutes the last time). Saying so beats both the raw English and the
+ * generic "core returned 503".
+ */
+const DATABASE_UNAVAILABLE_MESSAGE =
+  "数据库暂时连不上。多半是 Docker Desktop 没开，或者数据库在重启后还在恢复（有时要几分钟）。启动器窗口会自己重试；恢复后刷新本页即可，不用重新登录。";
+
+function databaseUnavailable(payload: Record<string, unknown> | null): boolean {
+  return payload?.code === "database_unavailable";
 }
 
 /**
@@ -129,11 +166,9 @@ export async function fetchJson<T>(
       // status the operator-facing copy must win over the server's words.
       response.status === 501
         ? null
-        : typeof payload?.message === "string"
-          ? payload.message
-          : typeof payload?.error === "string"
-            ? payload.error
-            : null;
+        : databaseUnavailable(payload)
+          ? DATABASE_UNAVAILABLE_MESSAGE
+          : firstNonBlank(payload?.message, payload?.error);
     throw new ApiTransportError(
       "http",
       serverMessage ?? httpFallbackMessage(response.status),

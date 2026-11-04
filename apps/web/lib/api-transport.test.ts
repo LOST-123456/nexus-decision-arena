@@ -132,6 +132,41 @@ describe("fetchJson", () => {
     expect((error as ApiTransportError).message).not.toContain("Internal Server Error");
   });
 
+  it("does not let an empty body message swallow the fallback copy", async () => {
+    // Fastify's default 5xx body carries `message: ""`. `??` does not skip an
+    // empty string, so this used to render as a blank error line.
+    stubFetch(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ message: "", error: "" }), { status: 500 })
+      )
+    );
+
+    const error = await fetchJson("/api/sessions").catch((caught: unknown) => caught);
+    expect((error as ApiTransportError).message).toContain("核心 API 返回 500");
+    expect((error as ApiTransportError).message.trim()).not.toBe("");
+  });
+
+  it("turns database_unavailable into recovery steps, not a raw server string", async () => {
+    stubFetch(() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            error: "Database unavailable",
+            code: "database_unavailable"
+          }),
+          { status: 503 }
+        )
+      )
+    );
+
+    const error = await fetchJson("/api/sessions").catch((caught: unknown) => caught);
+    expect((error as ApiTransportError).status).toBe(503);
+    expect((error as ApiTransportError).message).toContain("数据库暂时连不上");
+    // The form the operator can act on: start the thing, wait, then refresh.
+    expect((error as ApiTransportError).message).toContain("Docker");
+    expect((error as ApiTransportError).message).not.toContain("503");
+  });
+
   it("turns a 501 into 尚未启用 copy instead of echoing the developer string", async () => {
     stubFetch(() =>
       Promise.resolve(
