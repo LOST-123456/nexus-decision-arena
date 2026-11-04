@@ -364,48 +364,85 @@ describe("DecisionSessionRepository.recordHumanDecision", () => {
     ).resolves.toHaveLength(0);
   });
 
-  it("allows only one supplement round per session", async () => {
-    const { sessionId, conflictId, claimId } = await seedCheckpoint();
-    const requestDecision: HumanDecision = {
-      ...decision(sessionId, conflictId, [claimId], "Supplement requested"),
-      action: "request_more_analysis",
-      rationale: "Provide the missing evidence once"
-    };
+  it("keeps letting the project iterate until the configured round cap", async () => {
+    /**
+     * 上限从 1 提到可配置，是因为一个项目很少一次评审就能定论：第一轮质询
+     * 说"拿不出证据"，补上证据之后理应再被问一遍。这里把上限压到 2，验证
+     * 的是"第二轮回得去、第三轮明确拒绝"，而不是只钉住一个数字。
+     */
+    const previousLimit = process.env.MAX_SUPPLEMENT_ROUNDS;
+    process.env.MAX_SUPPLEMENT_ROUNDS = "2";
+    try {
+      const { sessionId, conflictId, claimId } = await seedCheckpoint();
 
-    const first = await repository.recordHumanDecision({
-      decision: requestDecision,
-      transition: {
-        phase: "REASSESSING",
-        operationalStatus: "ACTIVE",
-        conclusion: requestDecision.newConclusion
-      },
-      event: {
-        correlationId: requestDecision.id,
-        type: "SESSION_STATE_CHANGED",
-        payload: {
-          phase: "REASSESSING",
-          operationalStatus: "ACTIVE",
-          currentConclusion: requestDecision.newConclusion,
-          humanDecision: requestDecision
-        }
+      const supplement = async (label: string, index: number) => {
+        const requestDecision: HumanDecision = {
+          ...decision(sessionId, conflictId, [claimId], label),
+          action: "request_more_analysis",
+          rationale: label
+        };
+        const result = await repository.recordHumanDecision({
+          decision: requestDecision,
+          transition: {
+            phase: "REASSESSING",
+            operationalStatus: "ACTIVE",
+            conclusion: requestDecision.newConclusion
+          },
+          event: {
+            correlationId: requestDecision.id,
+            type: "SESSION_STATE_CHANGED",
+            payload: {
+              phase: "REASSESSING",
+              operationalStatus: "ACTIVE",
+              currentConclusion: requestDecision.newConclusion,
+              humanDecision: requestDecision
+            }
+          }
+        });
+        expect(result.session.supplementRound).toBe(index);
+        // 一轮跑完回到人工复核，才有下一次裁决可点。
+        await database
+          .update(decisionSessions)
+          .set({ phase: "HUMAN_REVIEW", operationalStatus: "PAUSED" })
+          .where(eq(decisionSessions.id, sessionId));
+      };
+
+      await supplement("Supplement requested", 1);
+      await supplement("Supplement again", 2);
+
+      const thirdDecision: HumanDecision = {
+        ...decision(sessionId, conflictId, [claimId], "Supplement once more"),
+        action: "request_more_analysis",
+        rationale: "Request a third round"
+      };
+
+      await expect(
+        repository.recordHumanDecision({
+          decision: thirdDecision,
+          transition: {
+            phase: "REASSESSING",
+            operationalStatus: "ACTIVE",
+            conclusion: thirdDecision.newConclusion
+          },
+          event: {
+            correlationId: thirdDecision.id,
+            type: "SESSION_STATE_CHANGED",
+            payload: {
+              phase: "REASSESSING",
+              operationalStatus: "ACTIVE",
+              currentConclusion: thirdDecision.newConclusion,
+              humanDecision: thirdDecision
+            }
+          }
+        })
+      ).rejects.toBeInstanceOf(SupplementRoundLimitError);
+    } finally {
+      if (previousLimit === undefined) {
+        delete process.env.MAX_SUPPLEMENT_ROUNDS;
+      } else {
+        process.env.MAX_SUPPLEMENT_ROUNDS = previousLimit;
       }
-    });
-
-    expect(first.session.supplementRound).toBe(1);
-
-    await database
-      .update(decisionSessions)
-      .set({ phase: "HUMAN_REVIEW", operationalStatus: "PAUSED" })
-      .where(eq(decisionSessions.id, sessionId));
-    const secondDecision: HumanDecision = {
-      ...decision(sessionId, conflictId, [claimId], "Supplement again"),
-      action: "request_more_analysis",
-      rationale: "Request a second round"
-    };
-
-    await expect(
-      record(sessionId, secondDecision)
-    ).rejects.toBeInstanceOf(SupplementRoundLimitError);
+    }
   });
 });
 
@@ -569,5 +606,95 @@ describe("DecisionSessionRepository.recordHumanDecision write-back", () => {
         .from(claims)
         .where(eq(claims.id, untouched.claimId))
     ).resolves.toMatchObject([{ status: "contested" }]);
+  });
+});
+
+describe("DecisionSessionRepository.getView · shared role roster", () => {
+  // `agent_roles` is a global template table that every session reads in full,
+  // so any writer can add a key outside `AgentRoleKeySchema`. Strict array
+  // parsing turned that into a 500 on `GET /api/sessions/:id` for *every*
+  // session; the roster has to survive one row it does not understand.
+  it("keeps the roles it understands when the roster holds an unknown key", async () => {
+    const projectId = newId();
+    const sessionId = newId();
+    const promptVersionId = newId();
+    await database.insert(projects).values({
+      id: projectId,
+      name: "Demo",
+      input: {}
+    });
+    await repository.create({
+      id: sessionId,
+      projectId,
+      locale: "zh-CN",
+      phase: "ANALYSIS",
+      operationalStatus: "RUNNING",
+      currentConclusion: null
+    });
+    await database.insert(promptVersions).values({
+      id: promptVersionId,
+      name: "risk",
+      version: `v-${promptVersionId}`,
+      content: "prompt"
+    });
+    await database.insert(agentRoles).values([
+      {
+        id: newId(),
+        key: "risk_auditor",
+        name: "Risk auditor",
+        goal: "Challenge the assumptions",
+        perspective: "Skeptical",
+        evaluationCriteria: ["evidence"],
+        evidenceRequired: ["source"],
+        conflictPreference: ["evidence_gap"],
+        lenses: ["risk"],
+        promptVersionId
+      },
+      {
+        id: newId(),
+        key: `challenger-${newId()}`,
+        name: "Leaked fixture",
+        goal: "Fixture written by another writer",
+        perspective: "None",
+        evaluationCriteria: ["evidence"],
+        evidenceRequired: ["source"],
+        conflictPreference: ["evidence_gap"],
+        lenses: ["risk"],
+        promptVersionId
+      }
+    ]);
+
+    const view = await repository.getView(sessionId);
+
+    expect(view?.agents.map((role) => role.key)).toEqual(["risk_auditor"]);
+  });
+});
+
+describe("DecisionSessionRepository.setResearchQuestion", () => {
+  it("rewrites the question and leaves everything else alone", async () => {
+    const { sessionId } = await seedCheckpoint();
+    const before = await repository.getById(sessionId);
+
+    const updated = await repository.setResearchQuestion(
+      sessionId,
+      "第四季度出货量是否真实增长？"
+    );
+
+    expect(updated).toEqual({
+      sessionId,
+      researchQuestion: "第四季度出货量是否真实增长？"
+    });
+    const after = await repository.getById(sessionId);
+    // The phase, the status and the conclusion are not this method's business:
+    // editing what a research asks must never read as editing what it found.
+    expect(after?.phase).toBe(before?.phase);
+    expect(after?.operationalStatus).toBe(before?.operationalStatus);
+    expect(after?.currentConclusion).toBe(before?.currentConclusion);
+  });
+
+  it("returns null for a session that does not exist", async () => {
+    await expect(
+      repository.setResearchQuestion(newId(), "不存在的研究")
+    ).resolves.toBeNull();
   });
 });
