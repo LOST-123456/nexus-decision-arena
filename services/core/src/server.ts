@@ -510,6 +510,19 @@ const app = createApp(
       secureCookies: authConfig.secureCookies,
       loginThrottle: new LoginThrottle(),
       auditSink: createConsoleAuditSink()
+    },
+    /**
+     * The response body no longer says why a 5xx happened, so this is the
+     * only record of it. stderr is where the launcher's log already collects
+     * the process output (`scripts/serve-public.mjs`).
+     */
+    reportError: (error, context) => {
+      const message = error instanceof Error ? error.message : String(error);
+      const stack = error instanceof Error ? error.stack : undefined;
+      process.stderr.write(
+        `[error] ${context.method} ${context.url} -> ${context.statusCode}: ${message}\n` +
+          (stack ? `${stack}\n` : "")
+      );
     }
   }
 );

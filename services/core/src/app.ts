@@ -233,6 +233,36 @@ export type AppDependencies = {
   };
 };
 
+/**
+ * What "the database is not there" looks like from here.
+ *
+ * SQLSTATE class 08 is the connection exception family; 53 is insufficient
+ * resources; `57P03` is `cannot_connect_now`, which is exactly what PostgreSQL
+ * answers while it is still replaying its WAL after a restart — the case that
+ * took three and a half minutes last time. The socket errors are what the
+ * driver reports when the container is simply not up.
+ */
+const DATABASE_UNAVAILABLE_CODES = new Set([
+  "57P03",
+  "53300",
+  "08000",
+  "08001",
+  "08003",
+  "08004",
+  "08006",
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "EHOSTUNREACH",
+  "ENOTFOUND",
+  "ETIMEDOUT"
+]);
+
+function isDatabaseUnavailable(code: unknown): boolean {
+  return (
+    typeof code === "string" && DATABASE_UNAVAILABLE_CODES.has(code.toUpperCase())
+  );
+}
+
 export type AppOptions = {
   eventBus?: EventBus;
   /**
@@ -264,6 +294,16 @@ export type AppOptions = {
     loginThrottle?: LoginThrottle;
     auditSink?: AuthAuditSink;
   };
+  /**
+   * Where an unexpected failure is written down. The response body cannot
+   * carry it (see the error handler in `createApp`), so this is the only
+   * place the operator can still find out what actually broke. Left unset
+   * nothing is written, which is what a test app wants.
+   */
+  reportError?: (
+    error: unknown,
+    context: { method: string; url: string; statusCode: number }
+  ) => void;
 };
 
 export function createApp(
@@ -278,6 +318,58 @@ export function createApp(
     resolveOriginPolicy(process.env, {
       webOriginOverride: options.webOrigin ?? ""
     });
+
+  /**
+   * One place decides what a failure looks like on the wire.
+   *
+   * Fastify's default body is `{ statusCode, code, error, message }`, and it
+   * fills `code` from whatever was thrown — which is how "ECONNREFUSED",
+   * "57P03" and a driver's internal wording ended up in a response the
+   * browser renders. A 4xx is the caller's problem and its message is meant
+   * to be read; a 5xx is this machine's problem and leaves as one sentence.
+   * The detail goes to `reportError` instead, where an operator can find it.
+   */
+  app.setErrorHandler((error, request, reply) => {
+    if (reply.sent) return;
+    const statusCode =
+      typeof error.statusCode === "number" && error.statusCode >= 400
+        ? error.statusCode
+        : 500;
+    if (statusCode < 500) {
+      // Business codes that routes attach themselves (`session_not_found`)
+      // survive, because a client switches on them.
+      const code = (error as { code?: unknown }).code;
+      return reply
+        .code(statusCode)
+        .send(
+          typeof code === "string" && /^[a-z0-9_]+$/.test(code)
+            ? { error: error.message, code }
+            : { error: error.message }
+        );
+    }
+    options.reportError?.(error, {
+      method: request.method,
+      url: request.url,
+      statusCode
+    });
+    /**
+     * "The database is not reachable right now" is different from "this
+     * request blew up": nothing is broken in this process, and the operator's
+     * next move is to wait or to start the container, not to read a stack
+     * trace. It gets its own status and a stable code, so the page can say so
+     * — without naming the driver that said it.
+     */
+    const code = (error as { code?: unknown }).code;
+    if (isDatabaseUnavailable(code)) {
+      return reply
+        .code(503)
+        .send({ error: "Database unavailable", code: "database_unavailable" });
+    }
+    // Deliberately no `message` key: a client that prefers `message` over
+    // `error` (apps/web/lib/api-transport.ts) would otherwise render an
+    // empty string instead of its own operator-facing copy.
+    return reply.code(statusCode).send({ error: "Internal server error" });
+  });
 
   /**
    * CORS and CSRF share this one policy. Installing them before any route
