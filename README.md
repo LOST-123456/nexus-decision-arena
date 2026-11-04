@@ -285,8 +285,8 @@ corepack pnpm --version
 artifacts/submission/Nexus-Decision-Arena-Technical-Document.pdf
 ```
 
-当前为 28 页 A4，正文覆盖意图控制策略、架构设计、错误处理、可复现性论证、实际测试结果、三条核心
-AI 协作链和投稿索引。
+当前为 29 页 A4（门槛是不超过 30 页），正文覆盖意图控制策略、架构设计、错误处理、可复现性论证、
+实际测试结果、三条核心 AI 协作链和投稿索引。
 
 在 Windows 上安装 Chrome 或 Edge 后，可由 HTML 源文件重复渲染：
 
