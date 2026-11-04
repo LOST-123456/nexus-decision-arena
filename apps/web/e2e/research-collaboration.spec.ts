@@ -7,6 +7,7 @@ import {
   type BrowserContext,
   type Page
 } from "@playwright/test";
+import { OWNER } from "./support/credentials";
 
 /**
  * Team collaboration & human review, checked in a real browser against a real
@@ -28,8 +29,6 @@ import {
  * UI controls, with independent browser contexts so each account really is its
  * own account. No captured text is fetched from the internet.
  */
-
-const OWNER = { username: "owner", password: "nexus-owner" };
 
 function unique(prefix: string): string {
   return `${prefix}-${randomUUID().slice(0, 8)}`;

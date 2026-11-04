@@ -3,6 +3,7 @@ import { createServer, type Server } from "node:http";
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
+import { OWNER } from "./support/credentials";
 
 /**
  * CSRF and origin handling, exercised by a real browser against the real app.
@@ -31,7 +32,7 @@ import { expect, test, type Page } from "@playwright/test";
  * tracked `artifacts/playwright` set.
  */
 
-const CREDENTIALS = { username: "owner", password: "nexus-owner" };
+const CREDENTIALS = OWNER;
 const CSRF_BODY = { error: "Request origin rejected", code: "csrf_origin_rejected" };
 
 async function loginAsOwner(page: Page): Promise<void> {
