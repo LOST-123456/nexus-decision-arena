@@ -19,7 +19,22 @@ const dependencies = {
   runSession: {} as never
 };
 
-function failWith(error: Error & { statusCode?: number; code?: string }) {
+/** The two extras Fastify reads off a thrown value. */
+type Wiring = { statusCode?: number; code?: string };
+
+/**
+ * An Error carrying a status and/or a code.
+ *
+ * Written as one helper rather than `const failure = new Error(...)` followed
+ * by `failure.code = ...`, because the latter does not typecheck: `Error` has
+ * no such property. Vitest runs without type checking, so this only shows up
+ * in `tsc --noEmit`.
+ */
+function failure(message: string, wiring: Wiring = {}): Error & Wiring {
+  return Object.assign(new Error(message), wiring);
+}
+
+function failWith(error: Error & Wiring) {
   return () => {
     throw error;
   };
@@ -29,9 +44,7 @@ describe("core error handler", () => {
   it("answers a 5xx in one sentence, without the driver's code or wording", async () => {
     const reportError = vi.fn();
     const app = createApp(dependencies, undefined, { reportError });
-    const failure = new Error("Cannot read properties of undefined (reading 'rows')");
-    failure.code = "EPIPE";
-    app.get("/boom", failWith(failure));
+    app.get("/boom", failWith(failure("Cannot read properties of undefined (reading 'rows')", { code: "EPIPE" })));
 
     const response = await app.inject({ method: "GET", url: "/boom" });
 
@@ -59,10 +72,10 @@ describe("core error handler", () => {
 
   it("keeps a 4xx readable, along with the business code a client switches on", async () => {
     const app = createApp(dependencies);
-    const failure = new Error("Session not found");
-    failure.statusCode = 404;
-    failure.code = "session_not_found";
-    app.get("/missing", failWith(failure));
+    app.get(
+      "/missing",
+      failWith(failure("Session not found", { statusCode: 404, code: "session_not_found" }))
+    );
 
     const response = await app.inject({ method: "GET", url: "/missing" });
 
@@ -76,11 +89,11 @@ describe("core error handler", () => {
 
   it("drops an internal-looking code from a 4xx rather than forwarding it", async () => {
     const app = createApp(dependencies);
-    const failure = new Error("Invalid request body");
-    failure.statusCode = 400;
     // Fastify's own parser failures look like this; they are not ours to name.
-    failure.code = "FST_ERR_VALIDATION";
-    app.get("/bad", failWith(failure));
+    app.get(
+      "/bad",
+      failWith(failure("Invalid request body", { statusCode: 400, code: "FST_ERR_VALIDATION" }))
+    );
 
     const response = await app.inject({ method: "GET", url: "/bad" });
 
@@ -105,10 +118,8 @@ describe("core error handler", () => {
   it("names an unreachable database rather than answering a generic 500", async () => {
     const reportError = vi.fn();
     const app = createApp(dependencies, undefined, { reportError });
-    const failure = new Error("the database system is starting up");
     // Exactly what PostgreSQL answers while replaying its log after a restart.
-    failure.code = "57P03";
-    app.get("/db", failWith(failure));
+    app.get("/db", failWith(failure("the database system is starting up", { code: "57P03" })));
 
     const response = await app.inject({ method: "GET", url: "/db" });
 
@@ -125,9 +136,7 @@ describe("core error handler", () => {
 
   it("treats a refused socket as the same condition", async () => {
     const app = createApp(dependencies);
-    const failure = new Error("connect ECONNREFUSED 127.0.0.1:5433");
-    failure.code = "ECONNREFUSED";
-    app.get("/db", failWith(failure));
+    app.get("/db", failWith(failure("connect ECONNREFUSED 127.0.0.1:5433", { code: "ECONNREFUSED" })));
 
     const response = await app.inject({ method: "GET", url: "/db" });
 
@@ -138,8 +147,8 @@ describe("core error handler", () => {
 
   it("keeps a 5xx that is not about the database as a plain 500", async () => {
     const app = createApp(dependencies);
-    const failure = new Error("unexpected null in report builder");
-    app.get("/bug", failWith(failure));
+    // No status, no code: the plainest possible internal failure.
+    app.get("/bug", failWith(new Error("unexpected null in report builder")));
 
     const response = await app.inject({ method: "GET", url: "/bug" });
 
