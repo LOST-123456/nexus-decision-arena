@@ -21,3 +21,15 @@ class NoopResizeObserver implements ResizeObserver {
 if (!("ResizeObserver" in globalThis)) {
   globalThis.ResizeObserver = NoopResizeObserver as unknown as typeof ResizeObserver;
 }
+
+/**
+ * jsdom implements no scrolling at all: `Element.prototype.scrollIntoView` is
+ * simply absent, so any component that keeps an active row in view throws the
+ * moment a list renders. A browser has it, and the no-op is the honest stand-in
+ * for "there is no viewport here to scroll".
+ */
+if (typeof Element.prototype.scrollIntoView !== "function") {
+  Element.prototype.scrollIntoView = function scrollIntoView(): void {
+    /* nothing to scroll in jsdom */
+  };
+}
