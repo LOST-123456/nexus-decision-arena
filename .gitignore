@@ -4,11 +4,21 @@ node_modules/
 .models/
 .tools/
 .next/
+.next-old*/
+.next.bak*/
+.next.dev-*/
+.next.prev-*/
+apps/next-old-backup*/
 dist/
 coverage/
 playwright-report/
 artifacts/playwright/*-repeat-*
-test-results/
+# 每轮专项验收的截图目录（p12/p13/p24/p29/t03b4 …）。截图是运行产物，
+# 不是交付物；放进来只会让 diff 里全是二进制。
+artifacts/playwright-*/
+test-results*/
+# 本地临时脚本与中间产物（探针、一次性数据）。不属于任何一次提交。
+_tmp/
 artifacts/submission/video-build/
 .data/
 .env
@@ -16,3 +26,4 @@ artifacts/submission/video-build/
 *.log
 *.tsbuildinfo
 .DS_Store
+logs/

@@ -45,12 +45,12 @@ macOS/Linux:
 cp .env.example .env
 ```
 
-默认本地演示账号：
+`AUTH_DEFAULT_OWNER_PASSWORD` / `AUTH_DEFAULT_VIEWER_PASSWORD` 留空时，首次启动会用源码内置的演示口令创建两个账户：
 
 - Owner：`owner / nexus-owner`
 - Viewer：`viewer / nexus-viewer`
 
-首次启动会创建 `.data/users.json`。`.data/` 已加入 `.gitignore`，不会进入仓库。
+首次启动会创建 `.data/users.json`。`.data/` 已加入 `.gitignore`，不会进入仓库。**账户文件一旦存在，这两个值就不再起作用**——之后换口令走下面的「轮换口令」。
 
 #### 本地开发与公开部署是两种模式，不会互相冒充
 
@@ -73,6 +73,21 @@ cp .env.example .env
 - **登录审计**：每次登录成功、失败、被限流，以及每次新建账户，都会写一行结构化 JSON 到标准输出（含用户名、来源地址、时间、原因；**绝不含口令**），容器日志可直接收集。
 
 `.data/users.json` 是账户的唯一存储。文件**解析失败或权限不可读时服务拒绝启动并原样保留该文件**，不会把账户清空后改用内置账户——这是为了防止一次截断写入或手改失误静默摧毁全部账号。写入采用「临时文件 + 重命名」的原子替换，避免半写文件；同一时刻的并发建号请求会被串行化，不会互相覆盖。
+
+#### 轮换口令（对公网开放前必须做一次）
+
+上面的默认口令是**给刚 clone 下来的本机**用的。一旦这台机器能从公网访问，第一件事就是把它们换掉：
+
+```bash
+node scripts/rotate-password.mjs owner
+node scripts/rotate-password.mjs viewer
+```
+
+脚本会生成 24 位随机口令、就地更新该账户的 salt 与哈希，并把明文写进 `.data/owner-password.txt` / `.data/viewer-password.txt`（`.data/` 已被忽略）。
+
+**改完要重启 core**：账户文件只在启动时读一次，进程里是内存副本；不重启的话旧口令照样能登进去，新口令会被拒。已登录的会话不受影响——Cookie 里是 `{sub, role, exp}` 的 HMAC 签名，不含口令哈希，所以重启前后都不用重新登录。
+
+为什么需要脚本：`AUTH_DEFAULT_OWNER_PASSWORD` 只在账户**首次创建**时读一次，服务跑起来之后改环境变量不会再作用于已有账户。这两个明文文件同时也是 `pnpm --filter @nexus/web test:e2e` 的口令来源（见 `apps/web/e2e/support/credentials.ts`），所以 E2E 永远不会因为换口令而静默失效——找不到口令时会直接报错并说明该设什么。
 
 ### 5. 执行迁移
 

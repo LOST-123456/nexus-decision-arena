@@ -677,11 +677,11 @@
       <div class="cover-meta">
         <div>
           <b>交付版本</b>
-          v1.0 · 2026-09-13
+          v1.1 · 2026-11-04
         </div>
         <div>
           <b>证据基线</b>
-          Git commit 2f91a71
+          Git commit 2f91a71（正文）<br />演进说明见 P03
         </div>
         <div>
           <b>公开仓库</b>
@@ -753,9 +753,65 @@
   </section>
 
   <section class="page">
+    <div class="kicker">Baseline &amp; Evolution</div>
+    <h1>本文档基线与后续演进</h1>
+    <p class="lead">
+      正文的技术叙述、性能数字与用例计数对应证据基线 <code>2f91a71</code>。此后仓库继续演进，
+      本页说明哪些内容仍然成立、哪些规模已经变化——避免读者把正文的 80 个用例读成当前规模。
+    </p>
+
+    <h3>基线之后新增的能力</h3>
+    <div class="grid-2">
+      <div class="card wash">
+        <h4>安全与可运维</h4>
+        <ul class="checklist small">
+          <li>公开部署配置 fail-closed，不安全配置拒绝启动</li>
+          <li>登录限流（账户 + 来源地址双维）、登录审计</li>
+          <li>Cookie 写入强制 CSRF / Origin 校验</li>
+          <li>Agent 运行中心：取消、重试血缘（事务化）、失败诊断</li>
+        </ul>
+      </div>
+      <div class="card wash">
+        <h4>研究能力</h4>
+        <ul class="checklist small">
+          <li>研究质量评分引擎与证据缺口诊断</li>
+          <li>可执行研究计划、来源监控与影响分析</li>
+          <li>跨研究资料库与证据复用</li>
+          <li>报告快照、版本比较与多语言忠实度核查</li>
+        </ul>
+      </div>
+    </div>
+
+    <h3>当前实测规模（正文数字对应基线，本节对应最新提交）</h3>
+    <table>
+      <tr><th>项目</th><th>基线 2f91a71</th><th>当前</th></tr>
+      <tr><td>核心单元测试</td><td>见正文</td><td>847 通过</td></tr>
+      <tr><td>核心集成测试（真库）</td><td>见正文</td><td>282 通过</td></tr>
+      <tr><td>数据层集成测试（真库）</td><td>见正文</td><td>195 通过</td></tr>
+      <tr><td>Playwright 用例</td><td>80/80（重复运行）</td><td>76 用例 × 2 视口，0 失败</td></tr>
+      <tr><td>Git 提交</td><td>40</td><td>101（基线之后 61）</td></tr>
+    </table>
+
+    <h3>v1.1 修正（本轮）</h3>
+    <ul class="checklist small">
+      <li><b>错误出口统一</b>：5xx 不再回传驱动错误码（<code>ECONNREFUSED</code> / SQLSTATE），
+        数据库不可用时单独回 <code>503 database_unavailable</code>，页面给出可执行的恢复说明</li>
+      <li><b>凭据外置</b>：登录页不再打印口令；口令改为随机值，轮换走
+        <code>scripts/rotate-password.mjs</code>；E2E 从环境变量或本地文件读取</li>
+      <li><b>账号清理</b>：删除 329 个 E2E 泄漏账号（331 → 2）</li>
+      <li><b>E2E 可复现性</b>：容器名按端口自动推导、测试与被测服务固定同一数据库，
+        <code>agent-retry</code> 由 1/4 变为 4/4</li>
+      <li><b>窄屏溢出</b>：长研究问题不再撑破 390px 视口（<code>407 → 390</code>），
+        此前被 <code>overflow-x: hidden</code> 掩盖为「看不到滚动条」</li>
+      <li><b>运行期守护</b>：启动器每 60 秒探测数据库，掉线写日志并尝试拉起</li>
+    </ul>
+  </section>
+
+  <section class="page">
     <div class="kicker">Contents & Evidence Baseline</div>
     <h1>目录与证据基线</h1>
     <div class="toc">
+      <div class="toc-row"><b>00</b><span>本文档基线与后续演进</span><span>P03</span></div>
       <div class="toc-row"><b>01</b><span>问题与作品定义</span><span>P04</span></div>
       <div class="toc-row"><b>02</b><span>五角色决策模型与核心对象</span><span>P06</span></div>
       <div class="toc-row"><b>03</b><span>Cross Examination 协议</span><span>P09</span></div>
