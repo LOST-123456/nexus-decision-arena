@@ -149,11 +149,11 @@ describe("FinalReportRepository", () => {
       claimIds: [claimId],
       challengeIds: [challengeId],
       type: "evidence",
-      summary: "Expansion conflicts with missing evidence",
+      summary: "Expansion conflicts with missing evidence。",
       severity: 5,
       status: "human_review",
       humanDecisionRequired: true,
-      resolutionSuggestion: "Run a limited pilot",
+      resolutionSuggestion: "Provide: Run a limited pilot",
       impactScope: {
         analysisAreas: ["market"],
         stakeholders: ["Project team"]
@@ -201,6 +201,33 @@ describe("FinalReportRepository", () => {
       requiredNextActions: ["Signed procurement pipeline"]
     });
     await expect(reports.getBySessionId(sessionId)).resolves.toEqual(report);
+
+    // 采纳建议必须是有内容的分析，不能退回成「A -> B; C; final: D.」这种一行拼接。
+    expect(report.humanAction).toBe("采纳关键质询");
+    expect(report.executiveSummary.length).toBeGreaterThan(120);
+    expect(report.executiveSummary).toContain("Live report project");
+    expect(report.executiveSummary).toContain("建议立项");
+    expect(report.executiveSummary).toContain("有限立项");
+    expect(report.executiveSummary).toContain("5/5");
+    expect(report.executiveSummary).toContain("证据缺口");
+    expect(report.executiveSummary).toContain("已人工核实 1 条");
+    expect(report.executiveSummary).not.toContain("->");
+    expect(report.executiveSummary).not.toContain("final:");
+
+    expect(report.decisionExplanation.length).toBeGreaterThan(60);
+    expect(report.decisionExplanation).toContain("裁决理由：");
+    expect(report.decisionExplanation).toContain("关键分歧：");
+    expect(report.decisionExplanation).toContain("处置方向：");
+    expect(report.decisionExplanation).toContain("证据分歧");
+
+    // 拼接不能制造双标点，也不能把模型给的英文动词前缀原样吐出来。
+    expect(report.decisionExplanation).not.toContain("。；");
+    expect(report.decisionExplanation).not.toContain("？。");
+    expect(report.decisionExplanation).not.toMatch(/Provide\s*[:：]/i);
+    // 「处置方向：」已经承担了动词的语义，所以建议正文里不该再有 Provide。
+    expect(report.decisionExplanation).toContain("处置方向：Run a limited pilot");
+    // 有裁决时，摘要要说清数字是「与本次裁决相关」的子集。
+    expect(report.executiveSummary).toContain("与本次裁决直接相关的");
   });
   it("refuses to generate a report while a supplement round is still reassessing", async () => {
     const projectId = newId();
@@ -290,7 +317,7 @@ describe("FinalReportRepository", () => {
       sessionId,
       projectName: "Auto report",
       finalConclusion: "建议立项",
-      humanAction: "No human intervention required"
+      humanAction: "无需人工介入"
     });
     expect(report.humanDecisionId).toBeUndefined();
   });
