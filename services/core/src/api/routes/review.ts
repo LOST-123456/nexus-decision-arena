@@ -8,7 +8,7 @@ import {
   deriveClaimVerdicts,
   type ExecutionEvent
 } from "@nexus/shared";
-import type { FastifyInstance, FastifyRequest } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { AppDependencies } from "../../app";
 import {
@@ -18,6 +18,11 @@ import {
 } from "../../research/cross-review-service";
 import { buildFactCheckReport } from "../../research/fact-check-report";
 import { renderFactCheckReportMarkdown } from "../../research/fact-check-report-markdown";
+import {
+  AUDIT_SCOPE_VALUES,
+  resolveAuditScope,
+  scopeFactCheckReport
+} from "../../reports/audit-delivery";
 import { buildMultilingualReportBlock } from "../../research/multilingual-report";
 import { deriveUuidV7 } from "../plugins/deterministic-id";
 import type { EventBus } from "../../execution/event-bus";
@@ -386,7 +391,7 @@ export function registerReviewRoutes(
    */
   app.get<{
     Params: { id: string };
-    Querystring: { format?: string; download?: string };
+    Querystring: { format?: string; download?: string; scope?: string };
   }>("/api/sessions/:id/fact-check-report", async (request, reply) => {
     if (!guard(request, reply, "read")) return;
     if (
@@ -487,18 +492,86 @@ export function registerReviewRoutes(
         : {})
     });
 
-    const format = request.query.format === "markdown" ? "markdown" : "json";
+    /*
+     * Three files, one report. `markdown` is the document a reader is looking
+     * at; `json` is the same document as data; `audit` is everything the
+     * document rests on, including the append-only event log this session
+     * produced. They are all built from the `report` object above, so the
+     * three can never disagree about a conclusion.
+     *
+     * `audit` exists because the research path had no way to hand an outside
+     * reader the trail behind a report — the arena has had one all along, and
+     * a due-diligence reader who is told "checked" needs the sequence of
+     * events that led there, not just the verdict.
+     */
+    const format =
+      request.query.format === "markdown"
+        ? "markdown"
+        : request.query.format === "audit"
+          ? "audit"
+          : "json";
+    const scope = resolveAuditScope(request.query.scope);
+    if (scope === null) {
+      return reply.code(400).send({
+        error: `Unknown audit scope. Expected one of ${AUDIT_SCOPE_VALUES.join(", ")}`
+      });
+    }
+    const stem = `fact-check-report-${report.materialsFingerprint}`;
+    const downloadable = request.query.download === "1";
+
     if (format === "markdown") {
-      const filename = `fact-check-report-${report.materialsFingerprint}.md`;
-      if (request.query.download === "1") {
-        reply.header(
-          "content-disposition",
-          `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`
-        );
+      if (downloadable) {
+        sendAttachment(reply, `${stem}.md`);
       }
       reply.type("text/markdown; charset=utf-8");
       return renderFactCheckReportMarkdown(report);
     }
+
+    if (format === "audit") {
+      if (downloadable) {
+        sendAttachment(reply, `${stem}-审计包.json`);
+      }
+      /*
+       * The delivery scope says what happened to material nobody verified.
+       *
+       * Default is `all`: everything stays, each excerpt carries its own
+       * status, and the package states that unverified material is retained
+       * and labelled rather than withheld. `verified` drops only the excerpts,
+       * never the claims, and reports in numbers what it left out — a package
+       * that quietly omitted unchecked material would read as "all of this was
+       * checked". No scope recomputes a verdict: the conclusions were derived
+       * from all the material and redrawing them from a subset would invent a
+       * different answer.
+       */
+      const scoped = scopeFactCheckReport(report, scope);
+      reply.type("application/json; charset=utf-8");
+      return reply.send({
+        generatedAt: new Date().toISOString(),
+        materialsFingerprint: report.materialsFingerprint,
+        session: {
+          id: sessionId,
+          researchQuestion: session.researchQuestion ?? null,
+          phase: session.phase,
+          operationalStatus: session.operationalStatus,
+          currentConclusion: session.currentConclusion ?? null
+        },
+        delivery: { disclosure: scoped.disclosure, claims: scoped.claims },
+        report: scoped.report,
+        events
+      });
+    }
+
+    if (downloadable) {
+      sendAttachment(reply, `${stem}.json`);
+    }
     return reply.send(report);
   });
+}
+
+/** Sets the download filename, so two reports never overwrite one file. */
+function sendAttachment(reply: FastifyReply, filename: string): void {
+  reply.header(
+    "content-disposition",
+    `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`
+  );
 }

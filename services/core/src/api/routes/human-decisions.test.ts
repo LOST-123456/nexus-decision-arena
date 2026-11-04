@@ -208,14 +208,131 @@ describe("human decision route", () => {
 
     expect(response.statusCode).toBe(201);
     expect(start).toHaveBeenCalledTimes(1);
+    /**
+     * 响应描述的是"裁决落库之后"的状态，不是"分析跑完之后"的状态。
+     * 这一轮已经交给后台，此刻会话必然是 REASSESSING / ACTIVE；页面靠这个
+     * 立刻切到进行中面板，而不是等模型把整轮跑完。
+     */
     expect(response.json().session).toMatchObject({
-      phase: "HUMAN_REVIEW",
-      operationalStatus: "PAUSED",
+      phase: "REASSESSING",
+      operationalStatus: "ACTIVE",
       currentConclusion: "Reassess procurement evidence"
     });
   });
 
-  it("returns 409 when a second supplement round is requested", async () => {
+  it("returns before the supplement round finishes", async () => {
+    const sessionId = newId();
+    let currentSession = {
+      id: sessionId,
+      phase: "HUMAN_REVIEW",
+      operationalStatus: "PAUSED",
+      currentConclusion: "Hold scale-up"
+    };
+    const baseRecord = recordingRepository(sessionId);
+    const recordHumanDecision = vi.fn(async (input: CapturedInput) => {
+      currentSession = {
+        ...currentSession,
+        phase: input.transition.phase,
+        operationalStatus: input.transition.operationalStatus,
+        currentConclusion: input.transition.conclusion
+      };
+      return baseRecord(input);
+    });
+    // 真实模型下这一轮是分钟级。永远不 resolve 就等于"最坏情况"：
+    // 只要路由还在 await 它，这个 inject 就会挂到用例超时。
+    const start = vi.fn(() => new Promise<void>(() => {}));
+    const app = createApp({
+      sessions: {
+        getById: vi.fn(async () => ({ ...currentSession })),
+        recordHumanDecision
+      } as never,
+      inspector: {} as never,
+      events: {} as never,
+      runSession: { start } as never
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/sessions/${sessionId}/human-decisions`,
+      headers: { "idempotency-key": "decision-more-analysis-slow" },
+      payload: {
+        ...decisionBody,
+        action: "request_more_analysis",
+        rationale: "Request more evidence",
+        newConclusion: "Reassess procurement evidence"
+      }
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(start).toHaveBeenCalledTimes(1);
+  });
+
+  it("records a failed supplement round instead of swallowing it", async () => {
+    const sessionId = newId();
+    let currentSession = {
+      id: sessionId,
+      phase: "HUMAN_REVIEW",
+      operationalStatus: "PAUSED",
+      currentConclusion: "Hold scale-up"
+    };
+    const baseRecord = recordingRepository(sessionId);
+    const recordHumanDecision = vi.fn(async (input: CapturedInput) => {
+      currentSession = {
+        ...currentSession,
+        phase: input.transition.phase,
+        operationalStatus: input.transition.operationalStatus,
+        currentConclusion: input.transition.conclusion
+      };
+      return baseRecord(input);
+    });
+    const append = vi.fn(async (input: { type: string }) => ({
+      id: newId(),
+      sessionId,
+      sequence: 8,
+      occurredAt: new Date().toISOString(),
+      correlationId: "corr",
+      payload: {},
+      ...input
+    }));
+    const app = createApp({
+      sessions: {
+        getById: vi.fn(async () => ({ ...currentSession })),
+        recordHumanDecision
+      } as never,
+      inspector: {} as never,
+      events: { append } as never,
+      runSession: {
+        start: vi.fn(async () => {
+          throw new Error("model unreachable");
+        })
+      } as never
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/sessions/${sessionId}/human-decisions`,
+      headers: { "idempotency-key": "decision-more-analysis-fails" },
+      payload: {
+        ...decisionBody,
+        action: "request_more_analysis",
+        rationale: "Request more evidence",
+        newConclusion: "Reassess procurement evidence"
+      }
+    });
+
+    expect(response.statusCode).toBe(201);
+    await vi.waitFor(() => {
+      expect(append).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sessionId,
+          type: "AGENT_RUN_FAILED",
+          payload: expect.objectContaining({ stage: "supplement_round" })
+        })
+      );
+    });
+  });
+
+  it("returns 409 with the remaining-rounds reason when the cap is reached", async () => {
     const sessionId = newId();
     const app = createApp({
       sessions: {
@@ -226,7 +343,7 @@ describe("human decision route", () => {
         }),
         recordHumanDecision: vi
           .fn()
-          .mockRejectedValue(new SupplementRoundLimitError())
+          .mockRejectedValue(new SupplementRoundLimitError(3))
       } as never,
       inspector: {} as never,
       events: {} as never,
@@ -245,9 +362,10 @@ describe("human decision route", () => {
     });
 
     expect(response.statusCode).toBe(409);
-    expect(response.json()).toEqual({
-      error: "Only one supplement analysis round is allowed"
-    });
+    // 拒绝理由要说清上限是多少、出口在哪——"只允许一轮"那种说法用户无从下手。
+    const message = response.json().error as string;
+    expect(message).toContain("最多 3 轮");
+    expect(message).toContain("新开一次评审");
   });
 
   it("publishes the committed event to subscribers", async () => {

@@ -211,6 +211,9 @@ function buildApp(options: {
                 operationalStatus: "ACTIVE",
                 researchQuestion: "Did shipments grow last quarter?",
                 currentConclusion: null,
+                // The research belongs to the signed-in account: session access
+                // is decided from the recorded owner, never from the request.
+                ownerUserId: "user-1",
                 ...(options.session ?? {})
               }
         )
@@ -804,6 +807,188 @@ describe("fact-check report route", () => {
     expect(body).toContain("交叉审查后仍未确定");
     expect(body).toContain("Q4 shipment statistics");
     expect(body).toContain("没有登记为证据");
+  });
+
+  it("exports the audit package with the event trail behind the report", async () => {
+    const response = await reportApp({}).inject({
+      method: "GET",
+      url: `/api/sessions/${SESSION_ID}/fact-check-report?format=audit&download=1`
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["content-type"]).toContain("application/json");
+    expect(String(response.headers["content-disposition"])).toContain(
+      "-%E5%AE%A1%E8%AE%A1%E5%8C%85.json"
+    );
+
+    const bundle = response.json<{
+      generatedAt: string;
+      materialsFingerprint: string;
+      session: { id: string; phase: string };
+      report: { materialsFingerprint: string; provenance: { lastEventSequence: number } };
+      events: Array<{ type: string; sequence: number }>;
+    }>();
+
+    expect(bundle.session.id).toBe(SESSION_ID);
+    expect(bundle.events.map((event) => event.sequence)).toEqual([7]);
+    // The package carries the report itself, not a second rendering of it.
+    expect(bundle.report.materialsFingerprint).toBe(bundle.materialsFingerprint);
+    expect(bundle.report.provenance.lastEventSequence).toBe(7);
+  });
+
+  it("agrees with the JSON report it packages", async () => {
+    const app = reportApp({});
+    const json = await app.inject({
+      method: "GET",
+      url: `/api/sessions/${SESSION_ID}/fact-check-report?format=json`
+    });
+    const audit = await app.inject({
+      method: "GET",
+      url: `/api/sessions/${SESSION_ID}/fact-check-report?format=audit`
+    });
+
+    const direct = json.json<{ materialsFingerprint: string; summary: unknown }>();
+    const bundled = audit.json<{
+      report: { materialsFingerprint: string; summary: unknown };
+    }>();
+    expect(bundled.report.materialsFingerprint).toBe(direct.materialsFingerprint);
+    expect(bundled.report.summary).toEqual(direct.summary);
+  });
+
+  it("delivers every excerpt with a label by default, withholding nothing", async () => {
+    const response = await reportApp({}).inject({
+      method: "GET",
+      url: `/api/sessions/${SESSION_ID}/fact-check-report?format=audit`
+    });
+
+    expect(response.statusCode).toBe(200);
+    const bundle = response.json<{
+      delivery: {
+        disclosure: {
+          policy: string;
+          scope: string;
+          statement: string;
+          withheld: { citations: number; materials: number };
+        };
+        claims: Array<{ claimId: string; verification: string }>;
+      };
+    }>();
+
+    expect(bundle.delivery.disclosure.policy).toBe("retain-and-label");
+    expect(bundle.delivery.disclosure.scope).toBe("all");
+    expect(bundle.delivery.disclosure.withheld.citations).toBe(0);
+    expect(bundle.delivery.disclosure.statement).toContain("保留在包内");
+    // Every claim says where it stands, so nothing has to be inferred.
+    expect(bundle.delivery.claims).toHaveLength(1);
+    expect(bundle.delivery.claims[0]?.claimId).toBe(CLAIM_ID);
+  });
+
+  it("withholds unverified excerpts only when asked, and reports the count", async () => {
+    const unverified = evidenceFixture({
+      id: newId(),
+      title: "Unchecked forum post",
+      verificationStatus: "unverified",
+      verifiedBy: undefined,
+      verifiedAt: undefined,
+      verificationNote: undefined
+    });
+    const app = reportApp({
+      evidence: {
+        listEvidence: vi
+          .fn()
+          .mockResolvedValue([evidenceFixture(), unverified]),
+        listSources: vi.fn().mockResolvedValue([sourceFixture()])
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/sessions/${SESSION_ID}/fact-check-report?format=audit&scope=verified`
+    });
+
+    const bundle = response.json<{
+      delivery: { disclosure: { scope: string; statement: string; withheld: { citations: number } } };
+      report: { findings: Array<{ supporting: Array<{ verificationStatus: string }> }> };
+    }>();
+
+    expect(bundle.delivery.disclosure.scope).toBe("verified");
+    expect(bundle.delivery.disclosure.withheld.citations).toBeGreaterThan(0);
+    expect(bundle.delivery.disclosure.statement).toContain(
+      String(bundle.delivery.disclosure.withheld.citations)
+    );
+    for (const finding of bundle.report.findings) {
+      for (const citation of finding.supporting) {
+        expect(citation.verificationStatus).toBe("verified");
+      }
+    }
+  });
+
+  it("does not recompute a verdict from the withheld subset", async () => {
+    // The conclusion is a fact about all the material. Filtering what a
+    // recipient may see must not change what the research concluded.
+    const app = reportApp({
+      evidence: {
+        listEvidence: vi
+          .fn()
+          .mockResolvedValue([
+            evidenceFixture(),
+            evidenceFixture({
+              id: newId(),
+              verificationStatus: "unverified",
+              verifiedBy: undefined,
+              verifiedAt: undefined,
+              verificationNote: undefined
+            })
+          ]),
+        listSources: vi.fn().mockResolvedValue([sourceFixture()])
+      }
+    });
+
+    const all = await app.inject({
+      method: "GET",
+      url: `/api/sessions/${SESSION_ID}/fact-check-report?format=audit&scope=all`
+    });
+    const filtered = await app.inject({
+      method: "GET",
+      url: `/api/sessions/${SESSION_ID}/fact-check-report?format=audit&scope=verified`
+    });
+
+    const read = (body: string) =>
+      JSON.parse(body) as {
+        report: {
+          summary: unknown;
+          findings: Array<{ verdict: { status: string } }>;
+        };
+      };
+
+    expect(read(filtered.body).report.summary).toEqual(
+      read(all.body).report.summary
+    );
+    expect(
+      read(filtered.body).report.findings.map((finding) => finding.verdict.status)
+    ).toEqual(read(all.body).report.findings.map((finding) => finding.verdict.status));
+  });
+
+  it("refuses an audit scope it does not implement", async () => {
+    const response = await reportApp({}).inject({
+      method: "GET",
+      url: `/api/sessions/${SESSION_ID}/fact-check-report?format=audit&scope=verified-only`
+    });
+    expect(response.statusCode).toBe(400);
+  });
+
+  it("names each downloaded file after its own material fingerprint", async () => {
+    const app = reportApp({});
+    const json = await app.inject({
+      method: "GET",
+      url: `/api/sessions/${SESSION_ID}/fact-check-report?format=json&download=1`
+    });
+    const fingerprint = json.json<{ materialsFingerprint: string }>()
+      .materialsFingerprint;
+
+    expect(String(json.headers["content-disposition"])).toContain(
+      `fact-check-report-${fingerprint}.json`
+    );
   });
 
   it("never emits a citation for material with no source record", async () => {

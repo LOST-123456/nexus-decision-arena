@@ -4,7 +4,9 @@ import {
   type CollaborationRole,
   type Comment,
   type CommentDraft,
+  type CursorPage,
   type MembershipStatus,
+  type PageRequest,
   type ReviewDecision,
   type ReviewRequest,
   type ReviewRequestDecision,
@@ -783,9 +785,10 @@ export class TeamCollaborationService {
   /** The collaboration activity feed, projected from `executionEvents`. */
   async listActivity(
     caller: CollaborationCaller,
-    sessionId: string
-  ): Promise<CollaborationActivity[]> {
+    sessionId: string,
+    page: PageRequest = {}
+  ): Promise<CursorPage<CollaborationActivity>> {
     await this.requireReader(caller, sessionId);
-    return this.repo.listActivity(sessionId, COLLABORATION_EVENT_TYPES);
+    return this.repo.listActivity(sessionId, COLLABORATION_EVENT_TYPES, page);
   }
 }

@@ -8,10 +8,12 @@ import type {
   ResearchPlanRepository,
   ResearchSearchRepository,
   ReviewRepository,
+  SessionSummaryRecord,
   SourceLibraryRepository,
   TerminologyRepository,
   TranslationRepository
 } from "@nexus/db";
+import type { CursorPage, PageRequest } from "@nexus/shared";
 import Fastify, { type FastifyInstance } from "fastify";
 import {
   InMemoryIdempotencyStore,
@@ -29,6 +31,7 @@ import { registerInspectorRoutes } from "./api/routes/inspector";
 import { registerReportRoutes } from "./api/routes/reports";
 import { registerReviewRoutes } from "./api/routes/review";
 import { registerSessionRoutes } from "./api/routes/sessions";
+import { registerSessionAccessGuard } from "./api/security/session-access";
 import { registerClaimExtractionRoutes } from "./api/routes/claim-extraction";
 import { registerCitationReviewRoutes } from "./api/routes/citation-review";
 import { registerResearchPlanRoutes } from "./api/routes/research-plan";
@@ -105,8 +108,34 @@ export type AppDependencies = {
   >;
   sessionHistory?: Pick<
     DecisionSessionRepository,
-    "listSummaries" | "deleteById"
+    | "listSummaries"
+    | "listSummariesForSessions"
+    | "listSessionIdsForOwner"
+    | "listOwnerlessSessionIds"
+    | "deleteById"
+    | "setResearchQuestion"
   >;
+  /**
+   * The session list, one page at a time.
+   *
+   * Injected separately from `sessionHistory` for a mundane reason: the paged
+   * query lives in its own module (`lib/db/src/repositories/session-page.ts`)
+   * rather than on the repository, because `decision-session-repository.ts`
+   * could not be opened for writing in this working copy. The two
+   * `listSummaries*` methods on `sessionHistory` above are therefore
+   * superseded — nothing calls them for the list route any more. When that
+   * file is writable again the method moves onto the repository, and this
+   * entry and those two methods disappear together.
+   *
+   * The cursor is opaque to callers on purpose: the list is ordered by
+   * `(updated_at, id)`, so only the query knows how to read its own token.
+   */
+  sessionPages?: {
+    listPage(
+      page: PageRequest,
+      sessionIds?: readonly string[]
+    ): Promise<CursorPage<SessionSummaryRecord>>;
+  };
   inspector: Pick<InspectorRepository, "getInspector">;
   /** Research evidence and source management. */
   evidence?: EvidenceRepository;
@@ -380,6 +409,15 @@ export function createApp(
     enforce: options.enforceOriginGuard !== false
   });
   const allowedOrigins = originPolicy.allowed;
+
+  /**
+   * Who may read which research, enforced before any session-scoped handler
+   * runs. Installed here — ahead of every route — so a new endpoint cannot
+   * inherit the omission that let one account read another's workspace. See
+   * `api/security/session-access.ts` for the rule and its legacy-session
+   * compatibility decision.
+   */
+  registerSessionAccessGuard(app, dependencies);
 
   app.get("/health", async () => ({ status: "ok" }));
 

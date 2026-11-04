@@ -42,7 +42,10 @@ function getIdempotencyKey(request: FastifyRequest): string | null {
 
 export function registerHumanDecisionRoutes(
   app: FastifyInstance,
-  dependencies: Pick<AppDependencies, "sessions" | "runSession" | "auth">,
+  dependencies: Pick<
+    AppDependencies,
+    "sessions" | "runSession" | "auth" | "events"
+  >,
   idempotency: IdempotencyStore,
   eventBus: EventBus
 ): void {
@@ -157,15 +160,46 @@ export function registerHumanDecisionRoutes(
           sessionId
         );
         if (currentAfterDecision?.phase === "REASSESSING") {
-          await dependencies.runSession.start(sessionId);
+          /**
+           * 不在这里等这一轮跑完。
+           *
+           * 上一版是 `await runSession.start(...)`，于是整轮补充分析（逐条重新
+           * 质询 + 作答）全部压在这一次 HTTP 请求上：真实模型下几分钟，浏览器
+           * 一直转圈，用户看到的就是"点了要求补充分析就卡住"。裁决其实早在
+           * 打开这个请求之前就已经落库了——把它挂在响应上没有任何好处。
+           *
+           * 现在立刻返回 201（会话已经是 REASSESSING，前端据此显示进行中与
+           * 计时），分析在后台继续。失败不再能"返回给谁"，所以写一条
+           * AGENT_RUN_FAILED 事件：审计包和时间线里还看得见，而不是静默消失。
+           */
+          void dependencies.runSession.start(sessionId).catch(async (error) => {
+            request.log.error(
+              { err: error, sessionId },
+              "supplement round failed to start"
+            );
+            try {
+              await eventBus.publishAfterCommit({
+                append: () =>
+                  dependencies.events.append({
+                    sessionId,
+                    correlationId: result.response.decision.id,
+                    type: "AGENT_RUN_FAILED",
+                    payload: {
+                      stage: "supplement_round",
+                      message:
+                        error instanceof Error ? error.message : String(error)
+                    }
+                  })
+              });
+            } catch (publishError) {
+              request.log.error(
+                { err: publishError },
+                "failed to record supplement failure"
+              );
+            }
+          });
         }
-        const finalSession =
-          (await dependencies.sessions.getById(sessionId)) ??
-          currentAfterDecision ??
-          result.response.session;
-        return reply
-          .code(201)
-          .send({ ...result.response, session: finalSession });
+        return reply.code(201).send(result.response);
       } catch (error) {
         if (
           error instanceof IdempotencyConflictError ||
