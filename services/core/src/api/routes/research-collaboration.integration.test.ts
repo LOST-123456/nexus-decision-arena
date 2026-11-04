@@ -321,6 +321,59 @@ describe("team collaboration: member lifecycle", () => {
     expect((response.json() as { status: string }).status).toBe("removed");
   });
 
+  /**
+   * The trail is append-only: every invite, acceptance, role change and
+   * removal adds a row that is never deleted, so "the activity" is an
+   * unbounded history. It is paged on `sequence`, which is dense and monotonic
+   * per session, so a page boundary is a value comparison rather than a
+   * position that a new event could shift.
+   */
+  it("pages the activity trail on the event sequence without repeating one", async () => {
+    const sessionId = await createResearch("activity-paging");
+    asUser(USER_ONE, "owner", "Owner One");
+    expect((await invite(sessionId, USER_TWO, "editor")).statusCode).toBe(201);
+    asUser(USER_TWO, "reviewer", "Reviewer Two");
+    expect((await accept(sessionId, USER_TWO)).statusCode).toBe(200);
+    asUser(USER_ONE, "owner", "Owner One");
+    expect((await changeRole(sessionId, USER_TWO, "reviewer")).statusCode).toBe(200);
+
+    const firstPage = await app.inject({
+      method: "GET",
+      url: `/api/sessions/${sessionId}/collaboration/activity?limit=2`
+    });
+    expect(firstPage.statusCode).toBe(200);
+    const first = firstPage.json() as {
+      activity: Array<{ sequence: number }>;
+      nextCursor: number | null;
+      hasNextPage: boolean;
+    };
+    expect(first.activity).toHaveLength(2);
+    expect(first.hasNextPage).toBe(true);
+    // Newest first, and the cursor is the last sequence actually returned.
+    expect(first.activity[0]!.sequence).toBeGreaterThan(first.activity[1]!.sequence);
+    expect(first.nextCursor).toBe(first.activity[1]!.sequence);
+
+    const secondPage = await app.inject({
+      method: "GET",
+      url: `/api/sessions/${sessionId}/collaboration/activity?limit=2&after=${first.nextCursor}`
+    });
+    expect(secondPage.statusCode).toBe(200);
+    const second = secondPage.json() as typeof first;
+    expect(second.activity.length).toBeGreaterThan(0);
+    // No event appears on both pages: everything after the cursor is older.
+    for (const item of second.activity) {
+      expect(item.sequence).toBeLessThan(first.nextCursor!);
+    }
+
+    // A cursor that is not a number is refused rather than ignored, which
+    // would otherwise loop a paging client on page one forever.
+    const broken = await app.inject({
+      method: "GET",
+      url: `/api/sessions/${sessionId}/collaboration/activity?after=abc`
+    });
+    expect(broken.statusCode).toBe(400);
+  });
+
   it("lets the invitee decline, and a second accept finds nothing pending", async () => {
     const sessionId = await createResearch("decline");
     asUser(USER_ONE, "owner", "Owner One");

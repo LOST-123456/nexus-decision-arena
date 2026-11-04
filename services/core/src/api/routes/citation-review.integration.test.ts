@@ -105,8 +105,8 @@ beforeEach(async () => {
   });
   for (const sessionId of [SESSION_ID, OTHER_SESSION_ID]) {
     await database.execute(
-      `INSERT INTO decision_sessions (id, project_id, locale, phase, operational_status, next_event_sequence, research_question)
-       VALUES ('${sessionId}', '${PROJECT_ID}', 'zh-CN', 'ANALYZING', 'ACTIVE', 1, 'Did shipments grow?')`
+      `INSERT INTO decision_sessions (id, project_id, locale, phase, operational_status, next_event_sequence, research_question, owner_user_id)
+       VALUES ('${sessionId}', '${PROJECT_ID}', 'zh-CN', 'ANALYZING', 'ACTIVE', 1, 'Did shipments grow?', 'user-1')`
     );
   }
 });

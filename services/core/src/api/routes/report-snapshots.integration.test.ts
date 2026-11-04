@@ -131,7 +131,10 @@ async function seededSession(): Promise<string> {
     locale: "zh-CN",
     phase: "EVIDENCE",
     operationalStatus: "ACTIVE",
-    currentConclusion: null
+    currentConclusion: null,
+    // The research belongs to the signed-in reviewer: access is decided from
+    // the recorded owner, never from the request.
+    ownerUserId: "user-1"
   });
   return sessionId;
 }
@@ -258,6 +261,57 @@ describe("report snapshot routes", () => {
     expect(summaries[0]?.claimCount).toBe(1);
     expect(summaries[0]?.evidenceCount).toBe(1);
     expect(summaries[0]?.sourceCount).toBe(1);
+  });
+
+  /**
+   * The history is the one list here that grows without bound — one row per
+   * save, never removed — so it is the one that needs paging. The shape stays
+   * additive: `snapshots` is still the array every existing reader expects,
+   * and `nextCursor` / `hasNextPage` are what a caller opts into.
+   */
+  it("pages the history on the version cursor, refusing a cursor that is not a number", async () => {
+    const sessionId = await seededSession();
+    await seedMaterial(sessionId);
+    // Fresh keys per save: the idempotency store is shared across the suite,
+    // so a reused key with a different request hash is a conflict, not a save.
+    for (let version = 1; version <= 3; version += 1) {
+      expect((await saveSnapshot(sessionId, { key: newId() })).status).toBe(201);
+    }
+
+    const firstPage = await app.inject({
+      method: "GET",
+      url: `${listUrl(sessionId)}?limit=2`
+    });
+    expect(firstPage.statusCode).toBe(200);
+    const first = firstPage.json() as {
+      snapshots: Array<{ version: number }>;
+      nextCursor: number | null;
+      hasNextPage: boolean;
+    };
+    expect(first.snapshots.map((item) => item.version)).toEqual([3, 2]);
+    expect(first.hasNextPage).toBe(true);
+    expect(first.nextCursor).toBe(2);
+
+    const secondPage = await app.inject({
+      method: "GET",
+      url: `${listUrl(sessionId)}?limit=2&after=${first.nextCursor}`
+    });
+    const second = secondPage.json() as typeof first;
+    expect(second.snapshots.map((item) => item.version)).toEqual([1]);
+    expect(second.hasNextPage).toBe(false);
+    expect(second.nextCursor).toBeNull();
+
+    // A client that asks for nothing still gets page one, not everything.
+    const defaulted = await app.inject({ method: "GET", url: listUrl(sessionId) });
+    expect((defaulted.json() as typeof first).snapshots).toHaveLength(3);
+
+    // A cursor that is not a number is refused instead of silently ignored:
+    // answering "page one" to a broken cursor would loop a paging client.
+    const broken = await app.inject({
+      method: "GET",
+      url: `${listUrl(sessionId)}?after=not-a-version`
+    });
+    expect(broken.statusCode).toBe(400);
   });
 
   it("replays a repeated save as the same version instead of writing a second one", async () => {

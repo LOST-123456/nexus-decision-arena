@@ -169,7 +169,10 @@ beforeEach(async () => {
     locale: "zh-CN",
     phase: "EVIDENCE",
     operationalStatus: "ACTIVE",
-    currentConclusion: null
+    currentConclusion: null,
+    // The research belongs to the signed-in reviewer: access is decided from
+    // the recorded owner, never from the request.
+    ownerUserId: "user-1"
   });
   await sessions.create({
     id: SESSION_B_ID,
@@ -177,7 +180,10 @@ beforeEach(async () => {
     locale: "zh-CN",
     phase: "EVIDENCE",
     operationalStatus: "ACTIVE",
-    currentConclusion: null
+    currentConclusion: null,
+    // Same owner on purpose: these tests prove that a projection never mixes
+    // two researches, which is a different layer from who may open them.
+    ownerUserId: "user-1"
   });
 });
 
