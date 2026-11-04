@@ -27,3 +27,6 @@ artifacts/submission/video-build/
 *.tsbuildinfo
 .DS_Store
 logs/
+
+# 本机生成的公网快捷方式：地址每次启动都会变，不该进版本库
+Nexus-公网地址.url
