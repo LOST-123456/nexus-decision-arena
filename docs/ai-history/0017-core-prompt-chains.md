@@ -1,11 +1,14 @@
-# 三条核心 AI Prompt 链
+# 五条核心 AI Prompt 链
 
-> 日期：2026-09-13  
-> AI 工具：Codex Desktop  
-> 主线程导出：`docs/ai-history/0016-codex-conversation-export.md`  
+> 日期：2026-09-13（链路 1–4）、2026-11-04（链路 5）  
+> AI 工具：Codex Desktop（链路 1–4）、WorkBuddy（链路 5）  
+> 主线程导出：`docs/ai-history/0016-codex-conversation-export.md`、
+> `docs/ai-history/0028-workbuddy-2026-W45.md`  
 > 结构化导出：`docs/ai-history/exports/codex-session-curated.jsonl`
 
-本文只保留与核心功能迭代有关的内容，过滤了问候、状态确认、工具输出和重复进度消息。三条链路均包含用户 Prompt、AI 建议、人工纠偏、Bug 修复、验证结果和 Commit。
+本文只保留与核心功能迭代有关的内容，过滤了问候、状态确认、工具输出和重复进度消息。五条链路均包含用户 Prompt、AI 建议、人工纠偏、Bug 修复、验证结果和 Commit。
+
+链路 1–4 的原始对话见 `0016`；链路 5 的原始对话见 `0018`–`0028`（WorkBuddy 会话导出，逐条带时间戳，按周/按天分文件）。
 
 ---
 
@@ -278,6 +281,107 @@ Next.js 15.5.25 构建：通过
 ```
 
 
+## 链路 5：把三个「整层打包」的提交拆细——策略反转与拆分撞墙
+
+> 原始对话：`0028-workbuddy-2026-W45.md`，2026-11-04 10:29–11:37（编号 3364–3390）
+
+### 1. 用户 Prompt
+
+用户第三次贴出大赛 2.1 原文，只问一句：
+
+```text
+2.1代码仓库与演进记录 托管平台:GitHub/ Gitee (须设为Public或提供评审访问权限)。
+Git提交日志(关键):必须保留完整的、细粒度的Git提交历史。禁止一次性提交
+(”initialcommit"即包含全部功能)。每次提交应对应一次与AI的核心对话或一个功能
+模块的落地。……你直接告诉我，你什么没完成
+```
+
+AI 列出缺口后，用户只回了三个字，依次是：
+
+```text
+改啊
+干
+干
+```
+
+**这里没有给出任何技术方案。** 用户给的是授权，方向是被编译器和测试逼出来的。
+
+### 2. AI 初始建议（以及它错在哪）
+
+AI 的第一版计划是「按层拆」：先拆数据层 39 个文件，再拆接口层 59 个，最后界面层 103 个。理由是三层各自内聚。
+
+这个判断是错的，两个反例立刻出现：
+
+```text
+src/research/report-snapshot-service.ts(175,5): error TS2740:
+  Type 'CursorPage<{...}>' is missing the following properties from type '{...}[]':
+  length, pop, push, concat, and 29 more.
+
+src/api/routes/sessions.test.ts: expected 403 to be 404
+```
+
+第一处：数据库层把 `listSnapshots` 的返回改成游标分页后，接口层两个服务仍按数组用，**任何中间提交都编译不过**。
+第二处：给 `/api/sessions/` 装一个全局 `preHandler` 之后，所有会话作用域路由的旧测试期望 403、新规则返回 404，**一整批测试同时变红**。
+
+### 3. 人工纠偏
+
+用户没有参与方案调整，也没有必要——纠偏来自验证反馈。AI 在原始对话里写下结论：
+
+```text
+这说明「按层拆」本身是错的：db 改了类型，core 必须同一提交跟上，否则任何中间
+提交都编译不过。真正能过的是按功能纵向拆——一个功能把 db、core、web 三层一起提交。
+```
+
+后续又修正了一次：真正卡人的不是「层」，而是**跨文件的类型契约半径**。
+
+### 4. 发现并修复的 Bug
+
+拆分过程本身暴露了五个问题，都不是产品代码的缺陷，但每一个都会让拆分「看起来成功、实际不可用」：
+
+1. **hunk 级切分不可靠**：`app.ts` 的一个 import 块同时带进了 5 个新路由，按 hunk 挑会把后续功能的依赖一起提交。改为**手工增量编辑**——每一刀只加该功能需要的 import、依赖字段和注册调用。
+2. **补丁格式错误**：`patch fragment without header`——拼 hunk 时在片段之间插了空行。去掉分隔行后应用成功。
+3. **放错目录**：`e2e-manual/` 的手动脚本被放进 `e2e/` 下，导致仓库里多出一份、正确位置少一份。单独一个提交修正。
+4. **`tsc` 被旧构建产物污染**：`apps/web/.next/types` 里残留着引用未生成页面的类型，报一堆 `Cannot find module '../../app/healthz/route.js'`。移走 `.next` 后才能看到真实错误。
+5. **`next dev` 覆盖生产构建**：端到端套件起的是 dev server，跑完后 `.next` 里没有 `BUILD_ID`，`next start` 直接拒绝启动。必须重新 `next build`（首次 EPERM 是已知现象，重试一次即过）。
+
+### 5. 验证结果
+
+```text
+代码树：与拆分前的 d4defec 逐字节一致（git diff --stat 为 0 行）
+类型检查：shared / db / llm / core / web 五包 tsc --noEmit 全部通过
+单元测试：core 56 文件、web 62 文件、shared 256 例、db 52 例、llm 7 例，全绿
+提交规模：126 个提交，单次改动文件数中位数 9，超过 30 个文件的 12 个
+对比拆分前：数据层 39 文件 → 9 个提交；接口层 59 文件 → 3 个提交
+```
+
+界面层的 103 个文件最终收成 98 个，**没有再往下切**，原因是实测的：会话列表的取数形状一改，工作台、快速切换、报告页与首页同时跟着变；报告页引用的导出按钮又要求传整份报告。任何按页面的切法都留下编译不过的中间态。这一条在 README 里也写了。
+
+### 6. Commit
+
+```text
+9686d1e  fix(core): type the thrown-error helper so tsc accepts it
+ef32b6a  feat(shared): research materials, evidence coverage and the state machine
+a06ba41  feat(db): keep only read markers for the notification centre
+cf72e50  feat(db): count what people decided, never score it
+ee34d49  feat(db): page the session list by cursor, and restrict it to what the caller may read
+68b7e78  feat(db): let a research question be corrected without touching the conclusion
+c5b63cb  feat(db): allow three supplement rounds, configurable, instead of exactly one
+eb3aeec  feat(db): resolve a library session's visibility once, and label it by project
+c11acba  feat(db): find the researches a member was invited to, and page the comments
+f0811aa  test(db): cover the round cap, the unknown role key and the question edit
+81c6f85  feat(db): assemble the report a person would read, and freeze the snapshot it came from
+3558b39  feat(core): one guard decides who may read which research
+3df23c6  feat(core): wire the remaining research endpoints, and the runners they call
+ac19b64  test(core): exercise the new surfaces against a real database
+d25dba4  feat(web): read the new event kinds, and keep the stream un-compressed
+d355ce6  feat(web): the research workspace, the notification centre and the model settings page
+4b36231  test(e2e): start the site from the suite instead of assuming it is up
+37f5a76  feat(ops): 双击就能开、就能关，开机也不用再记命令
+1ee9aa0  docs: 提交历史说明改准，并把成片基线与文档口径分开写
+4af99f4  chore: 忽略本机公网地址快捷方式
+```
+
+
 ## 证据映射
 
 | 核心链路 | 对话导出 | 详细快照 | 验证 | Commit |
@@ -286,10 +390,15 @@ Next.js 15.5.25 构建：通过
 | 并行 Agent 状态竞争 | `0016-codex-conversation-export.md` | `0008-cross-examination.md` | Core 回归测试 | `c7b0c8b`、`e47c016`、`cfad589` |
 | SSE 事件丢失与幂等 | `0016-codex-conversation-export.md` | `0011-sse-events.md` | Core、DB、Playwright | `ac90dbe`、`39f8ce7`、`c77551a`、`79f7e25` |
 | 真实模型、人工理由与导出 | `0016-codex-conversation-export.md` | 本文链路 4 | 157 tests、真实模型 E2E、Next build | `e9822d2` |
+| 提交历史拆分与策略反转 | `0028-workbuddy-2026-W45.md`（2026-11-04 10:29–11:37） | 本文链路 5 | 五包 typecheck、单测全绿、代码树 diff 0 行 | `9686d1e`…`4af99f4` |
 
-所有 Commit 均可在 GitHub 和 Gitee 的公开仓库中查询：
+所有 Commit 均可在公开仓库中查询。**以 Gitee 为准**：
 
 ```text
-https://github.com/LOST-123456/nexus-decision-arena
 https://gitee.com/lost666666/nexus-decision-arena
+https://github.com/LOST-123456/nexus-decision-arena
 ```
+
+GitHub 镜像在最后一段历史之前与本仓库一致；链路 5 那 20 个提交因本机网络无法连到
+`github.com`（`api.github.com` 可达、`github.com` 与 `ssh.github.com:443` 均不可达）而未能推送，
+一旦网络恢复会补推。**需要核对最新提交历史时请以 Gitee 为准**。
