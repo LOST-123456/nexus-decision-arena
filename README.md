@@ -45,16 +45,18 @@ macOS/Linux:
 cp .env.example .env
 ```
 
-`AUTH_DEFAULT_OWNER_PASSWORD` / `AUTH_DEFAULT_VIEWER_PASSWORD` 留空时，首次启动会用源码内置的演示口令创建两个账户：
+`AUTH_DEFAULT_OWNER_PASSWORD` / `AUTH_DEFAULT_VIEWER_PASSWORD` 留空时，首次启动会用源码里的兜底口令创建 `owner` 与 `viewer` 两个账户。那两个常量（`services/core/src/auth-config.ts` 的 `LOCAL_DEMO_*`）刻意不抄进本文件：它们只负责「一台新机器第一次能进去」，任何跑过一次的机器上都已经不是有效口令了。
 
-- Owner：`owner / nexus-owner`
-- Viewer：`viewer / nexus-viewer`
+在一台已经跑起来的机器上，当前口令在这两个文件里（`.data/` 已被 git 忽略，不进仓库）：
 
-首次启动会创建 `.data/users.json`。`.data/` 已加入 `.gitignore`，不会进入仓库。**账户文件一旦存在，这两个值就不再起作用**——之后换口令走下面的「轮换口令」。
+- `.data/owner-password.txt`
+- `.data/viewer-password.txt`
+
+首次启动会创建 `.data/users.json`。**账户文件一旦存在，环境变量与兜底值都不再起作用**——之后换口令走下面的「轮换口令」；两个口令文件丢了，也用它重设一次。
 
 #### 本地开发与公开部署是两种模式，不会互相冒充
 
-上面的默认口令只在**本地演示模式**下有效：`NODE_ENV` 不是 `production`、没有设置 `NEXUS_PUBLIC_DEPLOYMENT=true`、也没有设置 `NEXUS_DEMO_MODE=false`。这种情况下启动会在标准错误里打印一条提示，说明正在使用源码内置的签名密钥。
+源码内置的兜底口令只在**本地演示模式**下才会被采用：`NODE_ENV` 不是 `production`、没有设置 `NEXUS_PUBLIC_DEPLOYMENT=true`、也没有设置 `NEXUS_DEMO_MODE=false`。这种情况下启动会在标准错误里打印一条提示，说明正在使用源码内置的签名密钥。
 
 一旦部署被判定为**公开**（上述三个开关任意一个命中），服务会**拒绝启动**，而不是带病上线。公开部署必须提供：
 
@@ -183,6 +185,35 @@ corepack pnpm test:stability
 
 该命令执行 20 次 Playwright，默认输出记录到 `docs/experiments/stability-output.txt`。未实际完成 20/20 之前，不得在投稿材料中填写通过率或耗时结论。
 
+## 关于 Git 提交历史
+
+大赛要求细粒度提交历史、「每次提交对应一次 AI 核心对话或一个功能模块」，禁止 initial commit
+就包含全部功能。这一节把实际情况、核对方法和偏大部分的成因一起写清，不留给评审去猜。
+
+**形态**（可用 `git log --stat` 逐条核对）：
+
+- 第一条提交 `3b9be9a` 只有 **2 个文件、879 行**，是一份设计冻结文档，不含任何功能实现——
+  不存在「一次提交塞进全部功能」。
+- 仓库共 **115 个提交**，单个提交改动文件数的**中位数是 10**。
+- 有 **13 个提交超过 30 个文件**，最大三个是 39、59、103（数据层 / 接口层 / 界面层各一个）。
+
+**偏大的都是哪些、为什么**：
+
+- 早期把设计落地成可运行骨架的两步（`ff9793a` 36 个文件、`c3d4dcc` 65 个文件），
+  以及治理与角色的一次性接入（`6eb0d25` 44 个文件）；
+- 按 Prompt 编号推进的功能提交多在 30–50 之间，**这类提交的标题本身标明了它对应哪一次
+  AI 对话**：`613c3f4` 38 个文件（提示词 1）、`d35b149` 35 个文件（提示词 2）、
+  `0dd2df4` 31 个文件（提示词 11）、`3652b19` 46 个文件（提示词 12）等；
+- P23–P28 这批功能在本地连续完成、期间未推送到远程，补齐时按数据层 / 接口层 / 界面层
+  三段落地（`7116b09` 39、`526b9f3` 59、`14d32c7` 103），每一段里含多个功能模块。
+
+**为什么不回头拆**：拆细只能靠重写这些提交，而它们之上的提交都已通过类型检查、单元测试与
+端到端验收；重写会打散已验证的历史、并使远程已推的 SHA 全部失效，代价大于收益。所以选择
+如实标注，而不是改写。
+
+逐功能的真实记录在 `docs/ai-history/`（18 份对话记录，编号 0001–0017，其中 0015 有两份；
+另含 4 条完整 Prompt 链）与根目录的分阶段交付报告里，可按功能追溯。
+
 ## Mock Mode
 
 `LLM_MODE=mock` 用于固定 Demo 和自动化回归测试。`/sessions/new` 在任何新项目启动前会检查运行模式；Mock Mode 下禁止把固定 fixture 结果冒充为新项目分析结果。固定 Demo 页面始终标记为 `DEMO FIXTURE`。
@@ -283,8 +314,8 @@ corepack pnpm --version
 artifacts/submission/Nexus-Decision-Arena-Technical-Document.pdf
 ```
 
-当前为 28 页 A4，正文覆盖意图控制策略、架构设计、错误处理、可复现性论证、实际测试结果、三条核心
-AI 协作链和投稿索引。
+当前为 29 页 A4（门槛是不超过 30 页），正文覆盖意图控制策略、架构设计、错误处理、可复现性论证、
+实际测试结果、三条核心 AI 协作链和投稿索引。
 
 在 Windows 上安装 Chrome 或 Edge 后，可由 HTML 源文件重复渲染：
 
