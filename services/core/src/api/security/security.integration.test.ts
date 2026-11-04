@@ -220,7 +220,15 @@ afterAll(async () => {
 
 let PROJECT_ID = newId();
 
-async function seedSession(): Promise<{
+/**
+ * Seeds a research row directly.
+ *
+ * `ownerUserId` is optional so that the blocks which deliberately exercise a
+ * *legacy* ownerless session can still seed one; everything that stands in for
+ * a research created through the route passes the identity that will act on it,
+ * because a research created through the route always carries an owner.
+ */
+async function seedSession(ownerUserId?: string): Promise<{
   sessionId: string;
   roleId: string;
   promptVersionId: string;
@@ -258,7 +266,8 @@ async function seedSession(): Promise<{
     locale: "zh-CN",
     phase: "HUMAN_REVIEW",
     operationalStatus: "PAUSED",
-    currentConclusion: null
+    currentConclusion: null,
+    ...(ownerUserId === undefined ? {} : { ownerUserId })
   });
   return { sessionId, roleId, promptVersionId };
 }
@@ -637,7 +646,12 @@ describe("file import", () => {
   }
 
   beforeEach(async () => {
-    const ids = await seedSession();
+    // The researcher uploads into a research that is theirs. An ownerless
+    // session is a legacy row and belongs to the administrator — that rule is
+    // asserted in `session-access.integration.test.ts`, and it is not what this
+    // block is about: here the subject is the origin policy, so the caller must
+    // get past ownership to reach it.
+    const ids = await seedSession(USER_ONE);
     UPLOAD_SESSION_ID = ids.sessionId;
     asUser(USER_ONE, "reviewer", "Researcher One");
   });

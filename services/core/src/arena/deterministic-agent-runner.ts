@@ -110,6 +110,15 @@ function asExecutionContext(value: unknown): AgentExecutionContext {
 }
 
 export class DeterministicAgentRunner implements AgentRunner {
+  /**
+   * 目标主张在 claims 数组里的下标。
+   *
+   * fixture 是按"第几条主张"写的，而质询是按主张对象来的，两者之间要有
+   * 一张对照表。`createChallengePlans` 每次都会用当轮真实的 claims 重建它，
+   * 所以补充轮换了主张集合也不会指错。
+   */
+  #targetIndexByClaimId = new Map<string, number>();
+
   constructor(private readonly fixtures: DeterministicFixtures) {}
 
   async run(role: AgentRole, projectInput: unknown): Promise<AgentAnalysis> {
@@ -192,6 +201,11 @@ export class DeterministicAgentRunner implements AgentRunner {
     claims: Claim[],
     runIdByRoleId: ReadonlyMap<string, string>
   ): CrossExaminationPlan[] {
+    // 当轮的主张集合先记下来：后面的质询要靠它把"这条主张"换算回
+    // fixture 里用的第几条。
+    this.#targetIndexByClaimId = new Map(
+      claims.map((claim, index) => [claim.id, index])
+    );
     return this.fixtures.challenges.flatMap((fixture) => {
       const target = claims[fixture.targetIndex];
       const challenger = roles.find(
@@ -229,8 +243,23 @@ export class DeterministicAgentRunner implements AgentRunner {
       signal?: AbortSignal
     ) => Promise<"resolved" | "unresolved">;
   } {
-    let index = 0;
-    let expectedStatus: "resolved" | "unresolved" = "unresolved";
+    /**
+     * 这一轮每条质询该有的判定，按"质询者 + 目标主张"记下来。
+     *
+     * 之前这里是一个共享的 `expectedStatus` 变量，靠"提问 → 应答 → 判定"
+     * 三步紧挨着执行来保证它没被换掉。质询改成并发之后就不成立了：下一条
+     * 质询一提问就把这个变量改了，上一条的应答读到的就成了别人的判定——
+     * 质询与它的应答对不上，冲突检测自然一条都出不来。
+     *
+     * 改成按这一条质询自己的身份去取，谁都不会串。键是"质询者 + 目标
+     * 主张"，在 fixture 里唯一。
+     */
+    const expectedStatusByPair = new Map<
+      string,
+      "resolved" | "unresolved"
+    >();
+    const pairKey = (challengerRoleId: string, targetClaimId: string): string =>
+      `${challengerRoleId}::${targetClaimId}`;
     /**
      * The deterministic runner is fast, so it never blocks long enough for an
      * abort to arrive mid-call. It still honours the signal at every step: a
@@ -243,14 +272,30 @@ export class DeterministicAgentRunner implements AgentRunner {
       }
     };
     return {
-      generateChallenge: async (_challenger, target, signal) => {
+      generateChallenge: async (challenger, target, signal) => {
         stopIfCancelled(signal);
-        const fixture = this.fixtures.challenges[index];
+        /*
+         * 按"谁问的、问的是哪条主张"找 fixture，而不是按调用顺序往下取。
+         *
+         * 顺序取法在并发下会错位：谁先跑到这一行，谁就拿到哪一条 fixture，
+         * 提问的问题和目标主张就对不上了。认准身份才不会错。
+         */
+        const targetIndex = this.#targetIndexByClaimId.get(target.id);
+        const fixture = this.fixtures.challenges.find(
+          (candidate) =>
+            candidate.challengerRole === challenger.key &&
+            (targetIndex === undefined ||
+              candidate.targetIndex === targetIndex)
+        );
         if (!fixture) {
-          throw new Error("No deterministic challenge fixture remains");
+          throw new Error(
+            `No deterministic challenge fixture for ${challenger.key} against claim ${target.id}`
+          );
         }
-        index += 1;
-        expectedStatus = fixture.expectedStatus;
+        expectedStatusByPair.set(
+          pairKey(challenger.id, target.id),
+          fixture.expectedStatus
+        );
         return {
           type: fixture.type,
           question: fixture.question,
@@ -265,6 +310,10 @@ export class DeterministicAgentRunner implements AgentRunner {
       },
       respondToChallenge: async (challenge, target, signal) => {
         stopIfCancelled(signal);
+        const expectedStatus =
+          expectedStatusByPair.get(
+            pairKey(challenge.challengerRoleId, challenge.targetClaimId)
+          ) ?? "unresolved";
         const status =
           expectedStatus === "resolved" ? "supported" : "contested";
         return ClaimSchema.parse({
@@ -285,9 +334,13 @@ export class DeterministicAgentRunner implements AgentRunner {
           updatedAt: new Date().toISOString()
         });
       },
-      evaluateResponse: async (_challenge, _responseClaim, signal) => {
+      evaluateResponse: async (challenge, _responseClaim, signal) => {
         stopIfCancelled(signal);
-        return expectedStatus;
+        return (
+          expectedStatusByPair.get(
+            pairKey(challenge.challengerRoleId, challenge.targetClaimId)
+          ) ?? "unresolved"
+        );
       }
     };
   }

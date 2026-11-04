@@ -172,15 +172,46 @@ export function registerReportSnapshotRoutes(
     }
   });
 
-  /** Every saved version of a session, newest first, without payloads. */
-  app.get<{ Params: { id: string } }>(
+  /**
+   * One page of a session's saved versions, newest first, without payloads.
+   *
+   * `snapshots` keeps its name and shape so every existing reader of this
+   * endpoint keeps working; `nextCursor` / `hasNextPage` are additive. The
+   * cursor is the `version` of the last item on the page — a value, not an
+   * offset, so a version saved between two requests cannot shift a page.
+   */
+  app.get<{ Params: { id: string }; Querystring: { limit?: string; after?: string } }>(
     "/api/sessions/:id/report-snapshots",
     async (request, reply) => {
       const actor = guard(request, reply, "read");
       if (!actor) return;
       if (!service) return notConfigured(reply);
+      const limit = request.query.limit === undefined
+        ? undefined
+        : Number(request.query.limit);
+      if (limit !== undefined && !Number.isFinite(limit)) {
+        return reply.code(400).send({ error: "limit must be a number" });
+      }
+      const after = request.query.after === undefined
+        ? undefined
+        : Number(request.query.after);
+      if (after !== undefined && !Number.isFinite(after)) {
+        return reply.code(400).send({ error: "after must be a version number" });
+      }
       try {
-        return { snapshots: await service.listSnapshots(request.params.id) };
+        // Built field by field rather than passed as `{ limit, after }`:
+        // `exactOptionalPropertyTypes` treats an explicit `undefined` as a
+        // different thing from an absent key, and "the client said nothing"
+        // must mean "page defaults", not "undefined".
+        const page: { limit?: number; after?: number } = {};
+        if (limit !== undefined) page.limit = limit;
+        if (after !== undefined) page.after = after;
+        const result = await service.listSnapshots(request.params.id, page);
+        return {
+          snapshots: result.items,
+          nextCursor: result.nextCursor,
+          hasNextPage: result.hasNextPage
+        };
       } catch (error) {
         if (mapServiceError(reply, error)) return undefined;
         throw error;

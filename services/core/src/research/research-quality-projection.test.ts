@@ -1051,6 +1051,80 @@ describe("research quality · the overall score is only shown when it can be", (
   });
 });
 
+/**
+ * A recommendation the reader answers by re-reading a source has to name that
+ * source. Without it the card is inert: the UI has nothing to open, so the
+ * button for "re-read this citation" disappears and the finding is a sentence
+ * with no way to act on it.
+ */
+describe("research quality · source actions point at the source", () => {
+  it("carries the source behind an excerpt whose citation no longer resolves", () => {
+    const claims = [claimFixture()];
+    const evidence = [evidenceFixture({ locatorStatus: "missing" })];
+    const verdicts = deriveClaimVerdicts(claims, evidence, { now: NOW });
+    const assessment = projectResearchQuality(
+      baseInput({
+        claims,
+        evidence,
+        verdicts,
+        sources: [sourceFixture(SOURCE_A)]
+      })
+    );
+
+    const recommendation = assessment.recommendations.find(
+      (item) => item.action === "open_source_reader"
+    );
+    expect(recommendation?.sourceIds).toEqual([SOURCE_A]);
+    expect(recommendation?.claimId).toBe(CLAIM_ID);
+  });
+
+  it("files one changed source once, not once per claim and per excerpt", () => {
+    const claims = [claimFixture()];
+    const evidence = [evidenceFixture()];
+    const sources = [sourceFixture(SOURCE_A)];
+    const snapshots = [snapshotFixture(SOURCE_A, "c".repeat(64))];
+    const verdicts = deriveClaimVerdicts(claims, evidence, { now: NOW });
+    const tasks = [
+      monitoringTaskFixture({
+        status: "open",
+        affectedEvidenceIds: [evidence[0]!.id],
+        affectedClaimIds: [CLAIM_ID]
+      })
+    ];
+    const assessment = projectResearchQuality(
+      baseInput({
+        claims,
+        evidence,
+        verdicts,
+        sources,
+        monitoring: {
+          tasks,
+          warnings: deriveRevalidationWarnings({
+            tasks,
+            claims,
+            evidence,
+            sources,
+            latestSnapshots: snapshots
+          })
+        }
+      })
+    );
+
+    // The rule fires on the source, on the excerpt and on the claim; the reader
+    // owes one re-read of one source, so the list says it once.
+    expect(
+      assessment.findings.filter((item) => item.category === "stale_source")
+    ).toHaveLength(2);
+    const reRead = assessment.recommendations.filter(
+      (item) => item.action === "open_source_reader"
+    );
+    expect(reRead).toHaveLength(1);
+    expect(reRead[0]?.sourceIds).toEqual([SOURCE_A]);
+    expect(reRead[0]?.claimId).toBe(CLAIM_ID);
+    expect(reRead[0]?.findingIds).toHaveLength(2);
+  });
+});
+
 describe("research quality · the sources it lists stay inside the session", () => {
   it("keeps a relation that points outside the session out of the reading", () => {
     const outside = newId();

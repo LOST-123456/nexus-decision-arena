@@ -8,16 +8,22 @@ import type {
   ResearchPlanRepository,
   ResearchSearchRepository,
   ReviewRepository,
+  SessionSummaryRecord,
   SourceLibraryRepository,
   TerminologyRepository,
   TranslationRepository
 } from "@nexus/db";
+import type { CursorPage, OversightCounts, PageRequest } from "@nexus/shared";
 import Fastify, { type FastifyInstance } from "fastify";
 import {
   InMemoryIdempotencyStore,
   type IdempotencyStore
 } from "./api/plugins/idempotency";
 import { registerAuthRoutes } from "./api/routes/auth";
+import {
+  registerModelConfigRoutes,
+  type ModelConfigDependencies
+} from "./api/routes/model-config";
 import type { AuthAuditSink } from "./auth-audit";
 import { LoginThrottle } from "./login-rate-limit";
 import { registerEvidenceRoutes } from "./api/routes/evidence";
@@ -25,8 +31,11 @@ import { registerEvidenceMapRoutes } from "./api/routes/evidence-map";
 import { registerEventRoutes } from "./api/routes/events";
 import { registerFileRoutes } from "./api/routes/files";
 import { registerHumanDecisionRoutes } from "./api/routes/human-decisions";
+import { registerMaterialRoutes } from "./api/routes/materials";
 import { registerInspectorRoutes } from "./api/routes/inspector";
 import { registerReportRoutes } from "./api/routes/reports";
+import { registerNotificationRoutes } from "./api/routes/notifications";
+import { registerOversightRoutes } from "./api/routes/oversight";
 import { registerReviewRoutes } from "./api/routes/review";
 import { registerSessionRoutes } from "./api/routes/sessions";
 import { registerClaimExtractionRoutes } from "./api/routes/claim-extraction";
@@ -46,6 +55,7 @@ import { EventBus } from "./execution/event-bus";
 import {
   registerBrowserSecurity
 } from "./api/security/browser-security";
+import { registerSessionAccessGuard } from "./api/security/session-access";
 import {
   resolveOriginPolicy,
   type OriginPolicy
@@ -58,7 +68,10 @@ import type { SourceImportService } from "./research/source-import-service";
 import type { FileIngestionService } from "./research/file-ingestion-service";
 import type { SourceIndependenceService } from "./research/source-independence-service";
 import type { SourceMonitorService } from "./research/source-monitor-service";
-import type { TeamCollaborationRepository } from "@nexus/db";
+import type {
+  NotificationRepository,
+  TeamCollaborationRepository
+} from "@nexus/db";
 import type { ResearchReportSnapshotService } from "./research/report-snapshot-service";
 import type { ResearchQualityService } from "./research/research-quality-service";
 
@@ -95,6 +108,11 @@ export type SessionRecord = NonNullable<
 import type { AuthService } from "./auth";
 export type AppDependencies = {
   auth?: AuthService;
+  /**
+   * The model configuration. Present in the real service, absent in unit tests
+   * that never touch a provider — hence optional rather than required.
+   */
+  modelConfig?: ModelConfigDependencies;
   sessions: Pick<
     DecisionSessionRepository,
     | "createWithProject"
@@ -105,8 +123,34 @@ export type AppDependencies = {
   >;
   sessionHistory?: Pick<
     DecisionSessionRepository,
-    "listSummaries" | "deleteById"
+    | "listSummaries"
+    | "listSummariesForSessions"
+    | "listSessionIdsForOwner"
+    | "listOwnerlessSessionIds"
+    | "deleteById"
+    | "setResearchQuestion"
   >;
+  /**
+   * The session list, one page at a time.
+   *
+   * Injected separately from `sessionHistory` for a mundane reason: the paged
+   * query lives in its own module (`lib/db/src/repositories/session-page.ts`)
+   * rather than on the repository, because `decision-session-repository.ts`
+   * could not be opened for writing in this working copy. The two
+   * `listSummaries*` methods on `sessionHistory` above are therefore
+   * superseded — nothing calls them for the list route any more. When that
+   * file is writable again the method moves onto the repository, and this
+   * entry and those two methods disappear together.
+   *
+   * The cursor is opaque to callers on purpose: the list is ordered by
+   * `(updated_at, id)`, so only the query knows how to read its own token.
+   */
+  sessionPages?: {
+    listPage(
+      page: PageRequest,
+      sessionIds?: readonly string[]
+    ): Promise<CursorPage<SessionSummaryRecord>>;
+  };
   inspector: Pick<InspectorRepository, "getInspector">;
   /** Research evidence and source management. */
   evidence?: EvidenceRepository;
@@ -126,6 +170,24 @@ export type AppDependencies = {
    * services/core/src/research/team-collaboration-service.ts.
    */
   teamCollaboration?: TeamCollaborationRepository;
+  /**
+   * The notification centre's read markers.
+   *
+   * Only read state is stored: every card is derived at request time from a
+   * pending membership or a failed run, so the centre cannot announce
+   * something that has since been accepted, retried or deleted.
+   */
+  notifications?: NotificationRepository;
+  /**
+   * The governance page's counts — "did a person actually decide any of this".
+   *
+   * Injected as one function rather than a repository class because there is
+   * nothing to write and nothing to keep: every number is a `GROUP BY` over
+   * rows that already exist, scoped to the caller's readable set.
+   */
+  oversight?: {
+    loadCounts(sessionIds?: readonly string[]): Promise<OversightCounts>;
+  };
   /** Cross-examination run records and human fact-check rulings. */
   reviews?: ReviewRepository;
   /** Runs cross-examination against a single claim, reusing the arena. */
@@ -279,11 +341,27 @@ export type AppOptions = {
   originPolicy?: OriginPolicy;
   /** Turn the CSRF guard off for a non-browser process. Never used in service. */
   enforceOriginGuard?: boolean;
-  runtimeInfo?: {
-    mode: "mock" | "openai-compatible";
-    provider: string;
-    model: string;
-  };
+  runtimeInfo?:
+    | {
+        mode: "mock" | "openai-compatible";
+        provider: string;
+        model: string;
+        configured?: boolean;
+        canRunAnalysis?: boolean;
+      }
+    /**
+     * A function when the answer can change while the process runs — which it
+     * does the moment a model key is saved. Reading it per request is what
+     * lets the UI flip from "请先配置模型" to "可以开始" without a reload of
+     * anything but the page.
+     */
+    | (() => {
+        mode: "mock" | "openai-compatible";
+        provider: string;
+        model: string;
+        configured?: boolean;
+        canRunAnalysis?: boolean;
+      });
   /**
    * How the authentication routes behave. Left unset, a test app gets an
    * in-process throttle and a non-secure cookie; `server.ts` passes the real
@@ -381,6 +459,16 @@ export function createApp(
   });
   const allowedOrigins = originPolicy.allowed;
 
+  /**
+   * Who may read which research, enforced before any session-scoped handler
+   * runs. Installed here — ahead of every route — so a new endpoint cannot
+   * inherit the omission that let one account read another's workspace. See
+   * `api/security/session-access.ts` for the rule and its legacy-session
+   * compatibility decision.
+   */
+  registerSessionAccessGuard(app, dependencies);
+
+
   app.get("/health", async () => ({ status: "ok" }));
 
   // File uploads arrive as raw bytes, so those content types are read as buffers
@@ -421,13 +509,24 @@ export function createApp(
     }
   }
 
-  app.get("/api/runtime", async () =>
-    options.runtimeInfo ?? {
-      mode: "mock",
-      provider: "MockLlmProvider",
-      model: "deterministic-fixtures"
+  app.get("/api/runtime", async () => {
+    const info = options.runtimeInfo;
+    if (typeof info === "function") {
+      return info();
     }
-  );
+    return (
+      info ?? {
+        mode: "mock",
+        provider: "MockLlmProvider",
+        model: "deterministic-fixtures",
+        configured: false
+      }
+    );
+  });
+
+  if (dependencies.modelConfig) {
+    registerModelConfigRoutes(app, dependencies.modelConfig);
+  }
 
   if (dependencies.auth) {
     const authRuntime = options.authRuntime;
@@ -442,7 +541,10 @@ export function createApp(
   registerSessionRoutes(app, dependencies, idempotency);
   registerInspectorRoutes(app, dependencies);
   registerReportRoutes(app, dependencies);
+  registerNotificationRoutes(app, dependencies);
+  registerOversightRoutes(app, dependencies);
   registerHumanDecisionRoutes(app, dependencies, idempotency, eventBus);
+  registerMaterialRoutes(app, dependencies, eventBus);
   registerEvidenceRoutes(app, dependencies, idempotency, eventBus);
   registerEvidenceMapRoutes(app, dependencies);
   registerClaimExtractionRoutes(app, dependencies, idempotency);

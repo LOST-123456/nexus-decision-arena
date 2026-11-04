@@ -123,6 +123,9 @@ function buildApp(options: {
                 operationalStatus: "ACTIVE",
                 researchQuestion: "Did shipments grow last quarter?",
                 currentConclusion: null,
+                // The research belongs to the signed-in account: session access
+                // is decided from the recorded owner, never from the request.
+                ownerUserId: "user-1",
                 ...(options.session ?? {})
               }
         )
@@ -832,7 +835,14 @@ describe("research workspace route", () => {
   it("reports 501 when evidence storage is not wired", async () => {
     const app = createApp({
       auth: fakeAuth("reviewer"),
-      sessions: { getById: vi.fn() } as never,
+      // The session must exist and belong to the caller before the handler's
+      // own wiring check is what answers: access is settled first, by design.
+      sessions: {
+        getById: vi.fn().mockResolvedValue({
+          id: SESSION_ID,
+          ownerUserId: "user-1"
+        })
+      } as never,
       inspector: {} as never,
       events: {} as never,
       runSession: {} as never

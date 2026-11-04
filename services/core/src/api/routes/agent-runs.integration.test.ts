@@ -125,7 +125,10 @@ async function seedSession() {
       locale: "zh-CN",
       phase: "HUMAN_REVIEW",
       operationalStatus: "PAUSED",
-      currentConclusion: null
+      currentConclusion: null,
+      // The research belongs to the signed-in reviewer: access is decided from
+      // the recorded owner, never from the request.
+      ownerUserId: "user-1"
     });
   }
 }

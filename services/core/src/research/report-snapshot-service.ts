@@ -4,6 +4,8 @@ import {
   newId,
   REPORT_SCHEMA_VERSION,
   type ClaimVerdictForQuality,
+  type CursorPage,
+  type PageRequest,
   type RevalidationTask,
   type ReportSnapshotSummary,
   type ResearchPlanItem,
@@ -161,18 +163,21 @@ export class ResearchReportSnapshotService {
   }
 
   /**
-   * Every version of a session, newest first, without payloads.
+   * One page of a session's versions, newest first, without payloads.
    *
    * The session is checked first so an unknown one answers 404 instead of an
    * empty history: "no versions saved yet" and "no such session" are
    * different answers, and only one of them invites a retry.
    */
-  async listSnapshots(sessionId: string): Promise<ReportSnapshotSummary[]> {
+  async listSnapshots(
+    sessionId: string,
+    page: PageRequest = {}
+  ): Promise<CursorPage<ReportSnapshotSummary>> {
     const session = await this.deps.sessions.getById(sessionId);
     if (!session) {
       throw new ReportSnapshotSessionNotFoundError(sessionId);
     }
-    return this.deps.snapshots.listSummaries(sessionId);
+    return this.deps.snapshots.listSummaries(sessionId, page);
   }
 
   /**

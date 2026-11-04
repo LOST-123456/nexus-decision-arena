@@ -179,7 +179,10 @@ async function seed(): Promise<void> {
     locale: "zh-CN",
     phase: "EVIDENCE",
     operationalStatus: "ACTIVE",
-    currentConclusion: null
+    currentConclusion: null,
+    // The research belongs to the signed-in reviewer: access is decided from
+    // the recorded owner, never from the request.
+    ownerUserId: "user-1"
   });
   await arena.createResearchClaim({
     claim: {
