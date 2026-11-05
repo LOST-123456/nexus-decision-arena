@@ -39,7 +39,8 @@ artifacts/submission/Nexus-Decision-Arena-Demo.zh-CN.srt
 AI 协同段的具体口径（写清楚是为了让评审能核，而不是让它看起来更像现场）：
 
 - 四轮推理耗时 24.6 / 23.8 / 3.4 / 45.3 秒，共 1400 个流式块，原始时间戳在
-  `docs/ai-history/exports/ai-collab-2026-11-05/round1-4.jsonl`（逐块毫秒偏移，未删改）；
+  `docs/ai-history/exports/ai-collab-2026-11-05/round1.jsonl` ~ `round4.jsonl`
+  （逐块毫秒偏移，未删改；四份行数 361 + 338 + 50 + 651 = 1400）；
 - 成片里把等待**压缩了 1.59 倍**，文字、报错、退出码一字未改；
 - 终端画面按 `session.json` 里录下的真实输出回放渲染，**不是事后照着写的故事**，
   但也不是实时桌面像素捕获——这一点在片头右上的「会话回放 · 等待已压缩」标签里已标明；
