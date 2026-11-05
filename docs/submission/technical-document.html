@@ -737,9 +737,9 @@
       <div class="card wash">
         <h4>过程证据</h4>
         <ul class="checklist small">
-          <li>40 个细粒度 Git 提交，非一次性提交</li>
-          <li>140 条去噪后的实质 AI 对话消息</li>
-          <li>3 条完整核心 Prompt 链</li>
+          <li>134 个细粒度 Git 提交，非一次性提交</li>
+          <li>3404 条逐字对话消息，另有 09 月 142 条 Codex 记录</li>
+          <li>5 条完整核心 Prompt 链</li>
           <li>Prompt、测试、Commit 相互映射</li>
           <li>Mock Mode 无外网完成固定流程</li>
         </ul>
@@ -834,7 +834,8 @@
         <tr><td>复现指南</td><td class="mono">README.md</td><td>10 分钟环境配置与启动路径</td></tr>
         <tr><td>AI 对话导出</td><td class="mono">docs/ai-history/0016-codex-conversation-export.md</td><td>可读的对话快照</td></tr>
         <tr><td>结构化导出</td><td class="mono">docs/ai-history/exports/codex-session-curated.jsonl</td><td>140 条去噪消息的机器可读记录</td></tr>
-        <tr><td>核心 Prompt 链</td><td class="mono">docs/ai-history/0017-core-prompt-chains.md</td><td>三次核心迭代的纠偏与修复过程</td></tr>
+        <tr><td>逐周原始导出</td><td class="mono">docs/ai-history/0018…0028</td><td>2026-10-08 ~ 11-04 的 3404 条逐字消息，按周切分</td></tr>
+        <tr><td>核心 Prompt 链</td><td class="mono">docs/ai-history/0017-core-prompt-chains.md</td><td>五次核心迭代的纠偏与修复过程</td></tr>
         <tr><td>稳定性原始输出</td><td class="mono">docs/experiments/stability-output.txt</td><td>80/80 Playwright 用例原始结果</td></tr>
       </tbody>
     </table>
@@ -1868,10 +1869,10 @@ ClaimInspectorDTO {
 
   <section class="page">
     <div class="section-tag">08 · AI COLLABORATION</div>
-    <h2>AI 协同证据：三条完整 Prompt 链</h2>
+    <h2>AI 协同证据：五条完整 Prompt 链</h2>
     <p class="lead">
-      三条链路覆盖数据结构、并发状态和事件恢复三个高风险主题。每条都保留用户 Prompt、AI 建议、人工纠偏、
-      Bug 修复、回归测试和 Commit。
+      五条链路覆盖数据结构、并发状态、事件恢复、真实模型接入和提交历史治理五个高风险主题。每条都保留用户
+      Prompt、AI 建议、人工纠偏、Bug 修复、回归测试和 Commit。
     </p>
 
     <table>
@@ -1895,6 +1896,18 @@ ClaimInspectorDTO {
           <td>replay/live 窗口丢事件、乱序误丢、崩溃留下 processing、旧 lease 覆盖新结果</td>
           <td class="mono">ac90dbe<br />39f8ce7<br />c77551a<br />79f7e25</td>
         </tr>
+        <tr>
+          <td>4. 真实模型、人工理由与报告导出</td>
+          <td>真实模型模式、裁决理由留痕、报告 PDF / Markdown / JSON 三出口</td>
+          <td>Mock 下仍读固定 fixture；小模型原样返回枚举示例；challengerRunId 外键失败；Agent 全失败仍进 DECIDED</td>
+          <td class="mono">e9822d2</td>
+        </tr>
+        <tr>
+          <td>5. 三个「整层打包」提交拆细</td>
+          <td>把 39 / 59 / 103 个文件的三大提交拆成按功能落地的细粒度历史</td>
+          <td>首版「按层拆」编译不过（TS2740）；hunk 级切分带进无关路由；next dev 覆盖生产构建</td>
+          <td class="mono">9686d1e<br />…<br />4af99f4</td>
+        </tr>
       </tbody>
     </table>
 
@@ -1913,7 +1926,7 @@ ClaimInspectorDTO {
       <div class="card wash">
         <h4>Prompt 链</h4>
         <p class="mono small">docs/ai-history/0017-core-prompt-chains.md</p>
-        <p class="small muted">三条链的完整问题、建议、纠偏与验证。</p>
+        <p class="small muted">五条链的完整问题、建议、纠偏与验证。</p>
       </div>
       <div class="card wash">
         <h4>导出脚本</h4>
@@ -2234,9 +2247,9 @@ corepack pnpm dev</pre>
       <thead><tr><th>要求</th><th>文件 / 地址</th><th>状态</th></tr></thead>
       <tbody>
         <tr><td>公开代码仓库</td><td>GitHub + Gitee，main / feature 分支同步</td><td>完成</td></tr>
-        <tr><td>细粒度 Git 历史</td><td>47 个提交，首个为设计冻结</td><td>完成</td></tr>
-        <tr><td>AI 对话导出</td><td>0016 可读导出 + JSONL 结构化快照</td><td>完成</td></tr>
-        <tr><td>3 条核心 Prompt 链</td><td>0017-core-prompt-chains.md</td><td>完成</td></tr>
+        <tr><td>细粒度 Git 历史</td><td>134 个提交，首个为设计冻结</td><td>完成</td></tr>
+        <tr><td>AI 对话导出</td><td>0016 + 0018…0028 逐周导出，3404 条逐字消息</td><td>完成</td></tr>
+        <tr><td>5 条核心 Prompt 链</td><td>0017-core-prompt-chains.md</td><td>完成</td></tr>
         <tr><td>10 分钟复现指南</td><td>README.md</td><td>完成</td></tr>
         <tr><td>环境变量模板</td><td>.env.example</td><td>完成</td></tr>
         <tr><td>技术文档 PDF</td><td>本文件渲染输出</td><td>可重复生成</td></tr>
@@ -2263,7 +2276,7 @@ corepack pnpm dev</pre>
         <ul class="checklist small">
           <li>Git 历史与功能演进一致</li>
           <li>Prompt 与 Commit 可映射</li>
-          <li>至少三条完整协作链</li>
+          <li>五条完整协作链（要求至少三条）</li>
           <li>失败测试和修复过程保留</li>
           <li>技术文档不超过 30 页</li>
           <li>视频总长 5–8 分钟且协同片段不少于 2 分钟</li>
