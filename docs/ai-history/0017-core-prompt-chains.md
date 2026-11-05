@@ -350,7 +350,7 @@ src/api/routes/sessions.test.ts: expected 403 to be 404
 代码树：与拆分前的 d4defec 逐字节一致（git diff --stat 为 0 行）
 类型检查：shared / db / llm / core / web 五包 tsc --noEmit 全部通过
 单元测试：core 56 文件、web 62 文件、shared 256 例、db 52 例、llm 7 例，全绿
-提交规模：126 个提交，单次改动文件数中位数 9，超过 30 个文件的 12 个
+提交规模：131 个提交，单次改动文件数中位数 8，超过 30 个文件的 12 个
 对比拆分前：数据层 39 文件 → 9 个提交；接口层 59 文件 → 3 个提交
 ```
 
@@ -392,13 +392,13 @@ d355ce6  feat(web): the research workspace, the notification centre and the mode
 | 真实模型、人工理由与导出 | `0016-codex-conversation-export.md` | 本文链路 4 | 157 tests、真实模型 E2E、Next build | `e9822d2` |
 | 提交历史拆分与策略反转 | `0028-workbuddy-2026-W45.md`（2026-11-04 10:29–11:37） | 本文链路 5 | 五包 typecheck、单测全绿、代码树 diff 0 行 | `9686d1e`…`4af99f4` |
 
-所有 Commit 均可在公开仓库中查询。**以 Gitee 为准**：
+所有 Commit 均可在公开仓库中查询，两个平台是同一份历史：
 
 ```text
 https://gitee.com/lost666666/nexus-decision-arena
 https://github.com/LOST-123456/nexus-decision-arena
 ```
 
-GitHub 镜像在最后一段历史之前与本仓库一致；链路 5 那 20 个提交因本机网络无法连到
-`github.com`（`api.github.com` 可达、`github.com` 与 `ssh.github.com:443` 均不可达）而未能推送，
-一旦网络恢复会补推。**需要核对最新提交历史时请以 Gitee 为准**。
+两个仓库的 `main` 指向同一个提交，可以任选一个核对。
+需要核对最新提交历史时，两边都可以。本机到 `github.com` 的链路时通时不通，推送曾因此中断过
+几次，所以如果某一次只在一个仓库里看到新提交，那是推送还没跟上的原因，不是历史不一致。
