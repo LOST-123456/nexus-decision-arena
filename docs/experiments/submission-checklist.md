@@ -1,11 +1,17 @@
 # 投稿材料清单
 
+> **说明**：这份是 2026-11-04 的内部交付清单，用来回答「材料齐不齐」。
+> **要动手提交时看 `docs/submission/SUBMIT-GUIDE.md`**（哪一步做什么、表单填什么、怎么自查）。
+> 2026-11-05 已把过期数字改成实际值：分支只剩 `main`、技术文档 29 页、视频换成带旁白的 474 秒版，
+> 下面「8 分钟视频时间图」是旧分镜计划，成片实际时间轴以
+> `docs/submission/video-production-kit.md` 为准。
+
 ## 公开仓库
 
 - GitHub: https://github.com/LOST-123456/nexus-decision-arena
 - Gitee: https://gitee.com/lost666666/nexus-decision-arena
 - 默认分支：`main`
-- 完整功能分支：`feature/decision-arena`
+- 提交分支：`main`（`feature/decision-arena` 已于 2026-11-05 归档为 tag 后删除）
 - 两端已同步完整、细粒度的 Git 历史
 
 ## AI 对话快照
@@ -66,8 +72,8 @@
 - 源文件：`docs/submission/technical-document.html`
 - 渲染脚本：`scripts/render-technical-pdf.ps1`
 - PDF：`artifacts/submission/Nexus-Decision-Arena-Technical-Document.pdf`
-- 当前页数：28 页 A4
-- 当前 SHA-256：`38E1A45D127D4977611907058BC34D0170F3233FEA9080B52C9A46380C647341`
+- 当前页数：29 页 A4（上限 30 页）
+- 当前 SHA-256：`6A5F32BC8879EC8167F0D6E0B43950443D66115584F063F4A80EBA0153953DB9`
 
 PDF 重新渲染后必须更新哈希；正文不得超过 30 页，且只可引用已执行的测试或已保存的原始输出。
 
@@ -77,8 +83,8 @@ PDF 重新渲染后必须更新哈希；正文不得超过 30 页，且只可引
 - 字幕：`artifacts/submission/Nexus-Decision-Arena-Demo.zh-CN.srt`
 - 封面：`artifacts/submission/Nexus-Decision-Arena-Demo-poster.png`
 - 生成脚本：`scripts/render-submission-video.mjs`
-- 当前规格：7 分 54 秒、1920×1080、H.264、30fps
-- 当前视频 SHA-256：`4B58438C22780E4DDC9070A67D03C031888AAD6B204F391E7575EA385714DDEF`
+- 当前规格：474 秒、1920×1080、H.264、30fps、带中文 AI 旁白（48kHz 单声道）
+- 当前视频 SHA-256：`DC874CC51581711AA40D5069C3CE8E5C418FBEA2CCA068054CD87121A5855B91`
 
 ## 8 分钟视频时间图
 
@@ -119,6 +125,6 @@ PDF 重新渲染后必须更新哈希；正文不得超过 30 页，且只可引
 - [x] Prompt-to-Commit 表已补齐最终修复 hash
 - [x] `stability-output.txt` 已记录实际 80/80 输出（桌面 20 + 移动 20）
 - [x] 演示视频已生成，7 分 54 秒、1080p，并包含中文硬字幕和独立 SRT
-- [x] PDF 已生成，28 页且未包含未测量指标
+- [x] PDF 已生成，29 页且未包含未测量指标
 - [x] 固定 Demo 仍明确标记为 fixture，live UUID 会话已走真实持久化 orchestration
 - [x] 已提供 `/sessions/new` 项目录入入口，可创建并启动新的 live 评审
