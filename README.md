@@ -17,6 +17,27 @@ Nexus Decision Arena 是一个 AI 决策质询沙盘。五个角色先独立分�
 
 本仓库在 Windows 本地验证时使用的实际版本会记录到 `docs/ai-history/0014-demo-delivery.md`；提交材料和 CI 的目标版本以上面版本为准。
 
+#### 依赖清单
+
+除下表之外没有别的系统级依赖：不需要 Redis、消息队列或反向代理（事件流走 SSE，直连 core）。
+
+| 类别 | 需要的项 | 版本 / 值 | 锁定在哪 |
+| --- | --- | --- | --- |
+| 运行时 | Node.js | 22（`engines: >=22`） | `package.json` |
+| 包管理 | pnpm | 10.6.5（`corepack enable` 后自动选中） | `package.json` 的 `packageManager` |
+| 三方依赖 | 全部 npm 依赖 | 逐条锁定 | `pnpm-lock.yaml`（用 `--frozen-lockfile` 安装即不会漂移） |
+| 数据库 | PostgreSQL | `postgres:16-alpine` 镜像 | `docker-compose.yml` |
+| 容器 | Docker Desktop | 任意近期版本（需支持 compose v2） | —— |
+| 浏览器 | Chromium | Playwright 1.51.1 自带版本，**只有跑 E2E 才需要** | `apps/web/package.json` |
+| 端口 | Web / Core / 数据库 | 3000 / 4100 / 5432 | `.env.example`、`docker-compose.yml` |
+
+三个端口都可改，但要改对地方：
+
+- **Web 端口**：来自 `next dev` 的默认值 3000，改的话直接用 `next dev -p <端口>`；
+  改完必须同步把 `WEB_ORIGIN` 改成新地址，否则所有写操作会被来源校验拒掉。
+- **Core 端口**：`.env.example` 里的 `PORT`（默认 4100）。
+- **数据库端口**：同时改 `docker-compose.yml` 的 `ports` 与 `DATABASE_URL`。
+
 ### 2. 安装依赖
 
 ```bash
@@ -194,7 +215,7 @@ corepack pnpm test:stability
 
 - 第一条提交 `3b9be9a` 只有 **2 个文件、879 行**，是一份设计冻结文档，不含任何功能实现——
   不存在「一次提交塞进全部功能」。
-- 仓库共 **134 个提交**，单个提交改动文件数的**中位数是 8**（截至 2026-11-05；
+- 仓库共 **135 个提交**，单个提交改动文件数的**中位数是 8**（截至 2026-11-05；
   这个数会随后续提交增长，以 `git rev-list --count HEAD` 与 `git log --stat` 为准）。
 - 有 **12 个提交超过 30 个文件**，最大三个是 98、71、65。
 

@@ -350,7 +350,7 @@ src/api/routes/sessions.test.ts: expected 403 to be 404
 代码树：与拆分前的 d4defec 逐字节一致（git diff --stat 为 0 行）
 类型检查：shared / db / llm / core / web 五包 tsc --noEmit 全部通过
 单元测试：core 56 文件、web 62 文件、shared 256 例、db 52 例、llm 7 例，全绿
-提交规模：截至 2026-11-05 共 134 个提交，单次改动文件数中位数 8，超过 30 个文件的 12 个
+提交规模：截至 2026-11-05 共 135 个提交，单次改动文件数中位数 8，超过 30 个文件的 12 个
 对比拆分前：数据层 39 文件 → 9 个提交；接口层 59 文件 → 3 个提交
 ```
 
