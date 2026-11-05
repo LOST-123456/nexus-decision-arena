@@ -1,0 +1,50 @@
+{"t":3786,"chunk":"import"}
+{"t":3853,"chunk":" {"}
+{"t":3933,"chunk":" read"}
+{"t":4022,"chunk":"FileSync"}
+{"t":4092,"chunk":","}
+{"t":4160,"chunk":" exists"}
+{"t":4229,"chunk":"Sync"}
+{"t":4298,"chunk":" }"}
+{"t":4369,"chunk":" from"}
+{"t":4435,"chunk":" \""}
+{"t":4503,"chunk":"node"}
+{"t":4572,"chunk":":"}
+{"t":4640,"chunk":"fs"}
+{"t":4709,"chunk":"\";\n"}
+{"t":4777,"chunk":"import"}
+{"t":4847,"chunk":" path"}
+{"t":4917,"chunk":" from"}
+{"t":4986,"chunk":" \""}
+{"t":5060,"chunk":"node"}
+{"t":5133,"chunk":":path"}
+{"t":5202,"chunk":"\";\n"}
+{"t":5271,"chunk":"import"}
+{"t":5341,"chunk":" {"}
+{"t":5413,"chunk":" file"}
+{"t":5482,"chunk":"URL"}
+{"t":5552,"chunk":"To"}
+{"t":5618,"chunk":"Path"}
+{"t":5688,"chunk":" }"}
+{"t":5757,"chunk":" from"}
+{"t":5824,"chunk":" \""}
+{"t":5894,"chunk":"node"}
+{"t":5964,"chunk":":url"}
+{"t":6032,"chunk":"\";\n"}
+{"t":6101,"chunk":"const"}
+{"t":6171,"chunk":" root"}
+{"t":6239,"chunk":" ="}
+{"t":6307,"chunk":" path"}
+{"t":6379,"chunk":".resolve"}
+{"t":6451,"chunk":"(path"}
+{"t":6520,"chunk":".dirname"}
+{"t":6588,"chunk":"(file"}
+{"t":6660,"chunk":"URL"}
+{"t":6728,"chunk":"To"}
+{"t":6799,"chunk":"Path"}
+{"t":6869,"chunk":"(import"}
+{"t":6940,"chunk":".meta"}
+{"t":7010,"chunk":".url"}
+{"t":7079,"chunk":")),"}
+{"t":7151,"chunk":" \".."}
+{"t":7220,"chunk":"\");"}

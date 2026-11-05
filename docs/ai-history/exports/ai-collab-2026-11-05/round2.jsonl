@@ -1,0 +1,338 @@
+{"t":5775,"chunk":"```"}
+{"t":5841,"chunk":"js"}
+{"t":5912,"chunk":"\n"}
+{"t":5981,"chunk":"const"}
+{"t":6051,"chunk":" fs"}
+{"t":6121,"chunk":" ="}
+{"t":6192,"chunk":" require"}
+{"t":6265,"chunk":"('"}
+{"t":6337,"chunk":"fs"}
+{"t":6407,"chunk":"');\n"}
+{"t":6477,"chunk":"const"}
+{"t":6547,"chunk":" path"}
+{"t":6618,"chunk":" ="}
+{"t":6689,"chunk":" require"}
+{"t":6760,"chunk":"('"}
+{"t":6830,"chunk":"path"}
+{"t":6900,"chunk":"');\n"}
+{"t":6966,"chunk":"const"}
+{"t":7031,"chunk":" url"}
+{"t":7097,"chunk":" ="}
+{"t":7161,"chunk":" require"}
+{"t":7229,"chunk":"('"}
+{"t":7294,"chunk":"url"}
+{"t":7363,"chunk":"');\n\n"}
+{"t":7428,"chunk":"//"}
+{"t":7620,"chunk":" 假"}
+{"t":7688,"chunk":"设"}
+{"t":7754,"chunk":" README"}
+{"t":7820,"chunk":".md"}
+{"t":7887,"chunk":" 在"}
+{"t":7955,"chunk":"仓库"}
+{"t":8023,"chunk":"根"}
+{"t":8090,"chunk":"目录"}
+{"t":8158,"chunk":"下"}
+{"t":8224,"chunk":"\n"}
+{"t":8291,"chunk":"const"}
+{"t":8359,"chunk":" readme"}
+{"t":8426,"chunk":"Path"}
+{"t":8493,"chunk":" ="}
+{"t":8561,"chunk":" url"}
+{"t":8627,"chunk":".file"}
+{"t":8694,"chunk":"URL"}
+{"t":8761,"chunk":"To"}
+{"t":8826,"chunk":"Path"}
+{"t":8896,"chunk":"(import"}
+{"t":8978,"chunk":".meta"}
+{"t":9056,"chunk":".url"}
+{"t":9125,"chunk":");\n\n"}
+{"t":9193,"chunk":"//"}
+{"t":9262,"chunk":" "}
+{"t":9330,"chunk":"读"}
+{"t":9397,"chunk":"取"}
+{"t":9464,"chunk":" README"}
+{"t":9533,"chunk":".md"}
+{"t":9668,"chunk":" 内"}
+{"t":9733,"chunk":"容"}
+{"t":9801,"chunk":"\n"}
+{"t":9869,"chunk":"fs"}
+{"t":9937,"chunk":".readFile"}
+{"t":10005,"chunk":"(read"}
+{"t":10071,"chunk":"me"}
+{"t":10136,"chunk":"Path"}
+{"t":10206,"chunk":","}
+{"t":10275,"chunk":" '"}
+{"t":10345,"chunk":"utf"}
+{"t":10413,"chunk":"8"}
+{"t":10480,"chunk":"',"}
+{"t":10546,"chunk":" ("}
+{"t":10612,"chunk":"err"}
+{"t":10679,"chunk":","}
+{"t":10748,"chunk":" readme"}
+{"t":10815,"chunk":"Content"}
+{"t":10884,"chunk":")"}
+{"t":10952,"chunk":" =>"}
+{"t":11020,"chunk":" {\n"}
+{"t":11088,"chunk":" "}
+{"t":11155,"chunk":" if"}
+{"t":11222,"chunk":" ("}
+{"t":11289,"chunk":"err"}
+{"t":11356,"chunk":")"}
+{"t":11423,"chunk":" {\n"}
+{"t":11490,"chunk":"   "}
+{"t":11555,"chunk":" console"}
+{"t":11621,"chunk":".error"}
+{"t":11689,"chunk":"(`"}
+{"t":11756,"chunk":"读"}
+{"t":11828,"chunk":"取"}
+{"t":11901,"chunk":" README"}
+{"t":11979,"chunk":".md"}
+{"t":12050,"chunk":" 文件"}
+{"t":12120,"chunk":"时"}
+{"t":12192,"chunk":"出"}
+{"t":12262,"chunk":"错"}
+{"t":12332,"chunk":":"}
+{"t":12400,"chunk":" ${"}
+{"t":12467,"chunk":"err"}
+{"t":12538,"chunk":".message"}
+{"t":12609,"chunk":"}`);\n"}
+{"t":12683,"chunk":"   "}
+{"t":12752,"chunk":" process"}
+{"t":12820,"chunk":".exit"}
+{"t":12888,"chunk":"Code"}
+{"t":12955,"chunk":" ="}
+{"t":13024,"chunk":" "}
+{"t":13093,"chunk":"1"}
+{"t":13166,"chunk":";\n"}
+{"t":13236,"chunk":"   "}
+{"t":13304,"chunk":" return"}
+{"t":13373,"chunk":";\n"}
+{"t":13441,"chunk":" "}
+{"t":13510,"chunk":" }\n\n"}
+{"t":13578,"chunk":" "}
+{"t":13645,"chunk":" //"}
+{"t":13711,"chunk":" 使用"}
+{"t":13779,"chunk":"正"}
+{"t":13848,"chunk":"则"}
+{"t":13916,"chunk":"表达"}
+{"t":13984,"chunk":"式"}
+{"t":14052,"chunk":"找出"}
+{"t":14121,"chunk":"所有"}
+{"t":14193,"chunk":"被"}
+{"t":14264,"chunk":"反"}
+{"t":14334,"chunk":"引"}
+{"t":14404,"chunk":"号"}
+{"t":14473,"chunk":"包裹"}
+{"t":14541,"chunk":"的"}
+{"t":14609,"chunk":"行"}
+{"t":14678,"chunk":"内"}
+{"t":14747,"chunk":"代码"}
+{"t":14814,"chunk":"片段"}
+{"t":14882,"chunk":"\n"}
+{"t":14949,"chunk":" "}
+{"t":15018,"chunk":" const"}
+{"t":15087,"chunk":" code"}
+{"t":15156,"chunk":"Blocks"}
+{"t":15224,"chunk":" ="}
+{"t":15296,"chunk":" readme"}
+{"t":15366,"chunk":"Content"}
+{"t":15436,"chunk":".match"}
+{"t":15506,"chunk":"(/"}
+{"t":15576,"chunk":"`"}
+{"t":15645,"chunk":".*"}
+{"t":15713,"chunk":"`"}
+{"t":15783,"chunk":"/"}
+{"t":15851,"chunk":"g"}
+{"t":15918,"chunk":");\n\n"}
+{"t":15986,"chunk":" "}
+{"t":16054,"chunk":" if"}
+{"t":16122,"chunk":" (!"}
+{"t":16191,"chunk":"code"}
+{"t":16259,"chunk":"Blocks"}
+{"t":16328,"chunk":")"}
+{"t":16396,"chunk":" {\n"}
+{"t":16465,"chunk":"   "}
+{"t":16533,"chunk":" console"}
+{"t":16601,"chunk":".log"}
+{"t":16669,"chunk":"('"}
+{"t":16738,"chunk":"README"}
+{"t":16874,"chunk":" 引"}
+{"t":16942,"chunk":"用"}
+{"t":17012,"chunk":"检查"}
+{"t":17081,"chunk":"通过"}
+{"t":17149,"chunk":"："}
+{"t":17216,"chunk":"0"}
+{"t":17353,"chunk":" 条"}
+{"t":17420,"chunk":"');\n"}
+{"t":17490,"chunk":"   "}
+{"t":17558,"chunk":" process"}
+{"t":17625,"chunk":".exit"}
+{"t":17693,"chunk":"Code"}
+{"t":17758,"chunk":" ="}
+{"t":17826,"chunk":" "}
+{"t":17894,"chunk":"0"}
+{"t":17962,"chunk":";\n"}
+{"t":18032,"chunk":"   "}
+{"t":18100,"chunk":" return"}
+{"t":18166,"chunk":";\n"}
+{"t":18234,"chunk":" "}
+{"t":18302,"chunk":" }\n\n"}
+{"t":18370,"chunk":" "}
+{"t":18437,"chunk":" const"}
+{"t":18506,"chunk":" missing"}
+{"t":18573,"chunk":"Links"}
+{"t":18640,"chunk":" ="}
+{"t":18708,"chunk":" [];\n\n"}
+{"t":18777,"chunk":" "}
+{"t":18845,"chunk":" for"}
+{"t":18912,"chunk":" ("}
+{"t":18978,"chunk":"const"}
+{"t":19045,"chunk":" code"}
+{"t":19113,"chunk":"Block"}
+{"t":19178,"chunk":" of"}
+{"t":19247,"chunk":" code"}
+{"t":19312,"chunk":"Blocks"}
+{"t":19380,"chunk":")"}
+{"t":19447,"chunk":" {\n"}
+{"t":19515,"chunk":"   "}
+{"t":19583,"chunk":" const"}
+{"t":19650,"chunk":" filePath"}
+{"t":19717,"chunk":" ="}
+{"t":19785,"chunk":" code"}
+{"t":19851,"chunk":"Block"}
+{"t":19920,"chunk":".slice"}
+{"t":19987,"chunk":"("}
+{"t":20055,"chunk":"2"}
+{"t":20123,"chunk":","}
+{"t":20191,"chunk":" -"}
+{"t":20260,"chunk":"2"}
+{"t":20327,"chunk":");"}
+{"t":20396,"chunk":" //"}
+{"t":20612,"chunk":" 去"}
+{"t":20680,"chunk":"掉"}
+{"t":20747,"chunk":"反"}
+{"t":20816,"chunk":"引"}
+{"t":20883,"chunk":"号"}
+{"t":20950,"chunk":"\n"}
+{"t":21018,"chunk":"   "}
+{"t":21086,"chunk":" const"}
+{"t":21155,"chunk":" abs"}
+{"t":21223,"chunk":"Path"}
+{"t":21290,"chunk":" ="}
+{"t":21358,"chunk":" path"}
+{"t":21426,"chunk":".resolve"}
+{"t":21494,"chunk":"(read"}
+{"t":21560,"chunk":"me"}
+{"t":21628,"chunk":"Path"}
+{"t":21695,"chunk":","}
+{"t":21761,"chunk":" filePath"}
+{"t":21829,"chunk":");\n\n"}
+{"t":21899,"chunk":"   "}
+{"t":21970,"chunk":" try"}
+{"t":22042,"chunk":" {\n"}
+{"t":22113,"chunk":"     "}
+{"t":22188,"chunk":" fs"}
+{"t":22260,"chunk":".access"}
+{"t":22329,"chunk":"Sync"}
+{"t":22397,"chunk":"(abs"}
+{"t":22467,"chunk":"Path"}
+{"t":22541,"chunk":","}
+{"t":22615,"chunk":" fs"}
+{"t":22687,"chunk":".constants"}
+{"t":22756,"chunk":".F"}
+{"t":22826,"chunk":"_OK"}
+{"t":22896,"chunk":");\n"}
+{"t":22964,"chunk":"   "}
+{"t":23032,"chunk":" }"}
+{"t":23107,"chunk":" catch"}
+{"t":23176,"chunk":" ("}
+{"t":23245,"chunk":"access"}
+{"t":23314,"chunk":"Err"}
+{"t":23383,"chunk":")"}
+{"t":23451,"chunk":" {\n"}
+{"t":23520,"chunk":"     "}
+{"t":23587,"chunk":" if"}
+{"t":23655,"chunk":" ("}
+{"t":23723,"chunk":"access"}
+{"t":23791,"chunk":"Err"}
+{"t":23858,"chunk":".code"}
+{"t":23926,"chunk":" ==="}
+{"t":23993,"chunk":" '"}
+{"t":24061,"chunk":"ENO"}
+{"t":24135,"chunk":"ENT"}
+{"t":24205,"chunk":"')"}
+{"t":24274,"chunk":" {\n"}
+{"t":24343,"chunk":"       "}
+{"t":24411,"chunk":" missing"}
+{"t":24478,"chunk":"Links"}
+{"t":24546,"chunk":".push"}
+{"t":24614,"chunk":"(filePath"}
+{"t":24682,"chunk":");\n"}
+{"t":24749,"chunk":"     "}
+{"t":24817,"chunk":" }\n"}
+{"t":24886,"chunk":"   "}
+{"t":24954,"chunk":" }\n"}
+{"t":25024,"chunk":" "}
+{"t":25091,"chunk":" }\n\n"}
+{"t":25161,"chunk":" "}
+{"t":25232,"chunk":" if"}
+{"t":25300,"chunk":" ("}
+{"t":25369,"chunk":"missing"}
+{"t":25437,"chunk":"Links"}
+{"t":25506,"chunk":".length"}
+{"t":25576,"chunk":" >"}
+{"t":25645,"chunk":" "}
+{"t":25714,"chunk":"0"}
+{"t":25782,"chunk":")"}
+{"t":25852,"chunk":" {\n"}
+{"t":25922,"chunk":"   "}
+{"t":25990,"chunk":" missing"}
+{"t":26060,"chunk":"Links"}
+{"t":26133,"chunk":".forEach"}
+{"t":26204,"chunk":"(link"}
+{"t":26274,"chunk":" =>"}
+{"t":26344,"chunk":" {\n"}
+{"t":26415,"chunk":"     "}
+{"t":26486,"chunk":" console"}
+{"t":26555,"chunk":".log"}
+{"t":26627,"chunk":"(link"}
+{"t":26697,"chunk":");\n"}
+{"t":26766,"chunk":"   "}
+{"t":26836,"chunk":" });\n"}
+{"t":26907,"chunk":"   "}
+{"t":26975,"chunk":" process"}
+{"t":27046,"chunk":".exit"}
+{"t":27115,"chunk":"Code"}
+{"t":27185,"chunk":" ="}
+{"t":27254,"chunk":" "}
+{"t":27323,"chunk":"1"}
+{"t":27391,"chunk":";\n"}
+{"t":27459,"chunk":" "}
+{"t":27529,"chunk":" }"}
+{"t":27599,"chunk":" else"}
+{"t":27668,"chunk":" {\n"}
+{"t":27737,"chunk":"   "}
+{"t":27806,"chunk":" console"}
+{"t":27876,"chunk":".log"}
+{"t":27944,"chunk":"('"}
+{"t":28012,"chunk":"README"}
+{"t":28152,"chunk":" 引"}
+{"t":28223,"chunk":"用"}
+{"t":28292,"chunk":"检查"}
+{"t":28361,"chunk":"通过"}
+{"t":28430,"chunk":"："}
+{"t":28500,"chunk":"0"}
+{"t":28638,"chunk":" 条"}
+{"t":28707,"chunk":"');\n"}
+{"t":28775,"chunk":"   "}
+{"t":28845,"chunk":" process"}
+{"t":28915,"chunk":".exit"}
+{"t":28985,"chunk":"Code"}
+{"t":29055,"chunk":" ="}
+{"t":29124,"chunk":" "}
+{"t":29194,"chunk":"0"}
+{"t":29265,"chunk":";\n"}
+{"t":29334,"chunk":" "}
+{"t":29404,"chunk":" }\n"}
+{"t":29472,"chunk":"});\n"}
+{"t":29542,"chunk":"```"}
