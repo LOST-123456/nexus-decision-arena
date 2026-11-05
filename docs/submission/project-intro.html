@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>Nexus Decision Arena · 作品介绍文档</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm 16mm; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+    font-size: 10.5pt; line-height: 1.75; color: #1c2b31;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  h1 { font-size: 22pt; margin: 0 0 6pt; letter-spacing: .5pt; }
+  h2 {
+    font-size: 13.5pt; margin: 20pt 0 8pt; padding-bottom: 4pt;
+    border-bottom: 2pt solid #22a699; color: #0f3b3a;
+  }
+  h3 { font-size: 11pt; margin: 12pt 0 5pt; color: #12615c; }
+  p { margin: 0 0 7pt; text-align: justify; }
+  ul, ol { margin: 0 0 8pt; padding-left: 18pt; }
+  li { margin-bottom: 3pt; }
+  code {
+    font-family: Consolas, monospace; font-size: 9.5pt;
+    background: #eef5f4; padding: 1pt 3pt; border-radius: 2pt;
+  }
+  .cover { border-left: 6pt solid #e47c4a; padding: 4pt 0 4pt 12pt; margin-bottom: 14pt; }
+  .cover .sub { color: #5b7178; font-size: 10pt; }
+  table { width: 100%; border-collapse: collapse; margin: 6pt 0 10pt; font-size: 9.8pt; }
+  th, td { border: 1pt solid #cfdde0; padding: 4pt 6pt; text-align: left; vertical-align: top; }
+  th { background: #f2f8f7; font-weight: 600; color: #12615c; }
+  .meta td:first-child { width: 24%; background: #fafcfc; color: #455a60; }
+  figure { margin: 8pt 0 12pt; page-break-inside: avoid; }
+  figure img { width: 100%; border: 1pt solid #d5e3e4; border-radius: 3pt; }
+  figcaption { font-size: 9pt; color: #5b7178; margin-top: 4pt; }
+  .tag {
+    display: inline-block; font-family: Consolas, monospace; font-size: 8.5pt;
+    background: #eef5f4; color: #12615c; border-radius: 3pt; padding: 1pt 5pt; margin-right: 4pt;
+  }
+  .note {
+    background: #fbf7f3; border-left: 3pt solid #e47c4a;
+    padding: 7pt 10pt; margin: 8pt 0 10pt; font-size: 9.8pt;
+  }
+  .avoid { page-break-inside: avoid; }
+  .pb { page-break-before: always; }
+</style>
+</head>
+<body>
+
+<div class="cover">
+  <h1>Nexus Decision Arena</h1>
+  <div class="sub">多智能体决策评审与质询沙盘 · 作品介绍文档</div>
+</div>
+
+<table class="meta">
+  <tr><td>赛项</td><td>AI 创新应用挑战赛（个人赛）</td></tr>
+  <tr><td>作品形态</td><td>Web 应用（Next.js 前端 + Node 服务端 + PostgreSQL）</td></tr>
+  <tr><td>代码仓库</td><td>Gitee：gitee.com/lost666666/nexus-decision-arena　｜　GitHub：github.com/LOST-123456/nexus-decision-arena</td></tr>
+  <tr><td>配套材料</td><td>技术文档（29 页 PDF）、演示视频（7 分 54 秒，含 2 分 28 秒 AI 协同复现）</td></tr>
+</table>
+
+<h2>一、项目详情及使用方式</h2>
+
+<h3>1.1 要解决的问题</h3>
+<p>
+  用大模型做商业决策辅助，最常见的产出是一段结构完整、语气笃定的分析文本。它读起来像结论，
+  但既不能比较（两个角色的判断凭什么一个更可信？），也不能质疑（哪句是可验证事实，哪句是推测？），
+  更不能追责（最后拍板的是模型还是人？）。<strong>观点变多了，决策并没有变好。</strong>
+</p>
+<p>
+  Nexus Decision Arena 换了一个出发点：不追求生成更多观点，而是让观点<strong>可比较、可质疑、可追责</strong>。
+  系统把决策过程固定成五步，每个结论都必须携带类型、立场、置信度和证据引用，
+  未解决的分歧被显式记录为冲突，最终结论必须由人裁决并留下理由。
+</p>
+
+<h3>1.2 五步流程（LLM 不掌握编排权）</h3>
+<table>
+  <tr><th style="width:16%">步骤</th><th style="width:30%">系统做什么</th><th>为什么这样设计</th></tr>
+  <tr><td>① 意图确认</td><td>把项目简报解析为结构化 DecisionSession</td><td>先定领域语义，再让模型进入分析</td></tr>
+  <tr><td>② 独立分析</td><td>五角色并行产出 Claim 与 Evidence</td><td>先独立，后交叉，避免相互锚定</td></tr>
+  <tr><td>③ 交叉质询</td><td>结构化质询 → 应答 → 主持人评估</td><td>质疑是可测试的协议对象，不是自由文本</td></tr>
+  <tr><td>④ 冲突检测</td><td>把未解决分歧记为 Conflict，标注严重度与影响范围</td><td>分歧要显式存在，不能藏在段落之间</td></tr>
+  <tr><td>⑤ 人工裁决与报告</td><td>Human Checkpoint 三选一 + 理由；输出可回放报告</td><td>高风险决定不自动完成，决策必须可追责</td></tr>
+</table>
+
+<h3>1.3 怎么用（三步）</h3>
+<ol>
+  <li><strong>创建评审</strong>：进入「新建评审」，填写项目名称、简介、目标用户、商业模式与预期数据，选择报告语言，点「开始评审」。系统创建会话并启动五个角色。</li>
+  <li><strong>看过程</strong>：工作区左侧是五角色状态，中间是决策地图（Claim / Challenge / Conflict 三类节点，可缩放、可全览），右侧是选中节点的详情与证据。事件流走 SSE，页面实时更新；断线重连会按 <code>Last-Event-ID</code> 补发，不漏事件。</li>
+  <li><strong>做裁决并导出</strong>：遇到人工检查点时选择「采纳质询 / 维持判断 / 请求补充分析」，填写理由与影响范围。结论定稿后可打开报告页，用「打印 / 导出 PDF」「导出 Markdown」或审计包三种方式带走结果。</li>
+</ol>
+
+<h3>1.4 两种运行模式</h3>
+<table>
+  <tr><th style="width:22%">模式</th><th style="width:34%">用途</th><th>说明</th></tr>
+  <tr><td>固定 Demo</td><td>评委十分钟内复现完整流程</td><td>不依赖数据库、外网与模型密钥：<code>corepack pnpm demo:fixture</code></td></tr>
+  <tr><td>真实模型</td><td>用真实 LLM 跑任意新项目</td><td>需在设置里配置服务地址与密钥；运行模式标记会贯穿页面、报告与导出物，不会把 fixture 结果说成真实分析</td></tr>
+</table>
+<p>
+  环境要求：Node.js 22、pnpm（corepack 自带）、Docker Desktop（PostgreSQL 16）。完整步骤、依赖清单、
+  环境变量模板与故障排查见仓库 README 与随包 <code>03-reproduction-guide.md</code>。
+</p>
+
+<h2 class="pb">二、项目亮点</h2>
+
+<p><span class="tag">01</span><strong>流程是状态机，不是提示词。</strong>五步固定，模型只负责单步内的产出，
+  不能自行编排。这决定了结果可对比、可回归测试，也让「模型今天心情不同」不会改变流程本身。</p>
+
+<p><span class="tag">02</span><strong>每个结论都带「可被推翻的把手」。</strong>Claim 携带类型（事实 / 推断 / 假设）、
+  立场、重要度、置信度与证据引用；证据不足会触发结构化质疑，而不是被悄悄放过。</p>
+
+<p><span class="tag">03</span><strong>质疑是结构化协议对象。</strong>一条质询包含目标主张、所需证据、
+  严重度、解决策略与预期形态，可被程序校验、可被统计、可被回归——这是它区别于「再生成一段批评文字」的地方。</p>
+
+<p><span class="tag">04</span><strong>分歧显式化。</strong>未解决的分歧进入 Conflict，带严重度与影响范围，
+  在决策地图上以红色标记呈现。观众一眼能看到「哪里还没谈拢」，而不是读完整篇分析去找。</p>
+
+<p><span class="tag">05</span><strong>人的判断留在链上。</strong>人工裁决不只是点按钮：选择、理由、影响范围、
+  前后结论差异全部入库；历史报告快照不可变，同一会话继续评审会生成新版本而不是覆盖旧结论。</p>
+
+<p><span class="tag">06</span><strong>「像真的」不等于「已核实」。</strong>系统把定位、抓取、抽取候选与核实
+  拆成四个独立状态，任何一步都不会自动升级下一步。审计导出时默认<strong>保留并标注</strong>未核实内容，
+  而不是筛掉它假装干净。</p>
+
+<p><span class="tag">07</span><strong>结果能带走。</strong>报告支持 PDF / Markdown / 审计包三出口，
+  并附一条可回放的事件时间线：看到的不是一张截图，而是导致这个结论的完整事件链。</p>
+
+<h2>三、AI 测试技术落地使用情况概述</h2>
+
+<div class="note">
+  <strong>先把边界说清：</strong>本项目不是「AI 测试平台」，产品本身不提供 AI 自动测试能力。
+  本章讲的是另一件事——<strong>我们在研发过程中如何使用 AI，以及怎么防止 AI 把「通过」演给我们看</strong>。
+</div>
+
+<h3>3.1 测试分层与规模（本期提交时）</h3>
+<table>
+  <tr><th style="width:26%">层次</th><th style="width:22%">规模</th><th>覆盖什么</th></tr>
+  <tr><td>单元与集成</td><td>157 条断言全通过</td><td>共享 schema、状态机、质询协议、幂等与 lease、权限、报告汇总</td></tr>
+  <tr><td>E2E（Playwright）</td><td>桌面 + 移动 4/4</td><td>固定 Demo 全流程、Inspector、人工检查点、报告与导出</td></tr>
+  <tr><td>稳定性重复</td><td>80/80（同一批用例重复 20 轮）</td><td>并发与事件顺序是否稳定，验证「跑一次过」不是运气</td></tr>
+  <tr><td>类型与构建</td><td>5 个包 typecheck + 生产构建</td><td>类型契约不漂移；构建产物可用于部署</td></tr>
+</table>
+
+<h3>3.2 AI 用在哪三件事上</h3>
+<ul>
+  <li><strong>起稿用例</strong>：让模型先写出断言骨架，人再补「什么算失败」的边界。模型的强项是把样板铺开，弱项恰恰是判断什么叫红线。</li>
+  <li><strong>定位缺陷</strong>：给出报错、相关文件与复现命令，让模型提出假设，人负责验证。全部对话留档在 <code>docs/ai-history/</code>（3404 条逐字消息 + 5 条核心 Prompt 链）。</li>
+  <li><strong>重构与拆细</strong>：把早期三个「整层打包」的大提交拆成按功能落地的细粒度历史，这个过程本身也靠模型辅助，但每次拆分都要跑通类型检查与测试才算数。</li>
+</ul>
+
+<h3>3.3 三个机制，专门防「AI 假通过」</h3>
+<ol>
+  <li><strong>断言必须能红。</strong>新增的检查器都要做一次负向验证：故意注入一条错误数据，它必须报错并以非 0 退出。只演示「通过」的检查，和没有检查是一回事。</li>
+  <li><strong>真实模型门禁 fail-closed。</strong>真实 provider 模式有一条独立的校验入口，配置不全就直接拒绝启动，不允许静默回落到 Mock——否则「真实模型跑过了」这句话无法成立。</li>
+  <li><strong>运行模式标记贯穿产物。</strong>页面徽标、报告页、导出 Markdown 都带模式标记，使得「这次结果是 fixture 还是真实模型」不依赖口头说明。</li>
+</ol>
+
+<h3>3.4 三个真实案例（都有记录，可复查）</h3>
+<table>
+  <tr><th style="width:22%">问题</th><th style="width:34%">表现</th><th>根因与修复</th></tr>
+  <tr>
+    <td>进度条永远不动</td>
+    <td>整轮跑完也不自动刷新，用户只能手动刷新页面，像卡死</td>
+    <td>Next 的 gzip 把 SSE 攒在缓冲区（实测 8 秒 0 字节）。关掉压缩后同一请求 1 毫秒收到 51 KB</td>
+  </tr>
+  <tr>
+    <td>并发质询结果错位</td>
+    <td>把并发从 1 提到 10 之后，质询结果与主张对不上</td>
+    <td>固定样例 runner 里有一个共享的可变游标（<code>index</code>）当身份用。改为按身份定位，结果按输入顺序写回</td>
+  </tr>
+  <tr>
+    <td>模型「假通过」</td>
+    <td>模型只输出 4 行 import，脚本退出码 0，看起来检查通过</td>
+    <td>把验收条件写进 Prompt 并做负向验证；这一轮完整过程就是演示视频 5:26–7:54 那段</td>
+  </tr>
+</table>
+
+<p><strong>没做到的部分：</strong>没有做「AI 自动生成测试」的规模化评测，也没有把 AI 判定当作合入门槛。
+本期所有合入判断的依据仍是可执行的测试与人的复核。</p>
+
+<h2 class="pb">四、关键技术</h2>
+
+<h3>4.1 领域模型与状态机</h3>
+<p>
+  六个核心对象：<code>DecisionSession</code>、<code>Claim</code>、<code>Evidence</code>、
+  <code>Challenge</code>、<code>Conflict</code>、<code>HumanDecision</code>，全部有显式状态与合法迁移。
+  跨对象的约束写进数据库层（如「<code>open</code> 状态必须没有认领人、<code>in_review</code> 必须有」），
+  而不是只靠应用层自觉。
+</p>
+
+<h3>4.2 事件溯源与实时流</h3>
+<ul>
+  <li>每条事件写入时用 <code>next_event_sequence + 1 RETURNING</code> 原子自增，并发下不撞号。</li>
+  <li>SSE 订阅先建立、再补发历史：客户端带 <code>after</code> / <code>Last-Event-ID</code> 重连，缺失序号触发 gap 恢复，退避 25ms→1000ms。</li>
+  <li>服务端在 <code>close</code> / <code>error</code> 时释放订阅、计时器与心跳，避免长连接泄漏。</li>
+</ul>
+
+<h3>4.3 并发、幂等与租约</h3>
+<p>
+  质询默认并发 6、上限 12（质询段从 34.2 秒降到 4.3 秒）。并发改造必须保住一个语义：
+  「质询已创建但应答失败」仍以 <code>open</code> 计入结果，不能因为并发而丢。写回严格按输入顺序，
+  因为冲突检测与报告读取依赖顺序。同一 <code>Idempotency-Key</code> 的并发请求只允许一个执行者持租约，
+  过期租约可被安全回收，旧租约不能覆盖新租约的结果。
+</p>
+
+<h3>4.4 数据层</h3>
+<p>
+  PostgreSQL 16 + Drizzle ORM。踩过的一个坑值得记：<code>sql</code> 模板不会把 JS 数组展开成 SQL 列表，
+  传数组会直接 500——值列表一律走 <code>inArray()</code>，jsonb 重叠查询走专用判定，空数组在进查询前早退。
+  集成测试使用独立数据库并通过环境变量隔离，避免测试写进业务库。
+</p>
+
+<h3>4.5 权限与来源校验</h3>
+<p>
+  会话读取只有一个判定入口，所有 <code>/api/sessions/</code> 下的路由都必须经过它；
+  「无权访问」与「不存在」返回同形 404，避免通过状态码探测他人资源。
+  所有非幂等写操作要求 Origin / <code>Sec-Fetch-*</code> 校验并通过 CSRF 检查，
+  非浏览器客户端免来源校验但仍需鉴权。
+</p>
+
+<h3>4.6 前端</h3>
+<p>
+  Next.js 15 App Router。服务端取数必须手动转发 cookie，否则守卫直接 401、整页失败。
+  决策地图是自绘 SVG：两个缩放下限分开设置（全览能真装下 / 开局可读），节点出界时明确提示并给「全览」按钮，
+  不静默裁切。主题用三层 CSS 变量实现明暗切换。
+</p>
+
+<h2 class="pb">五、项目相关图片</h2>
+
+<figure>
+  <img src="../../artifacts/playwright/desktop-1440x900-initial.png" alt="工作区：五角色、决策地图与检查点" />
+  <figcaption>
+    <strong>图 1　工作区（质疑态）。</strong>左侧五角色并行分析已完成；中间决策地图同时呈现主张、质询与冲突三类节点，
+    红框为冲突；右侧是选中主张的详情与证据。顶部状态条显示「建议立项 → 暂缓规模化扩张」的结论变化，
+    此时人工裁决为「待裁决」。
+  </figcaption>
+</figure>
+
+<figure>
+  <img src="../../artifacts/playwright/desktop-1440x900-final.png" alt="裁决后：有限立项" />
+  <figcaption>
+    <strong>图 2　裁决后。</strong>人工采纳质询后结论变为「有限立项」，右上决策解释写明「先在 3 间实验室验证 12 个月，
+    设置阶段验收门槛」；冲突状态变为「已采纳（内部结论）」。底部时间线记录了从 Planner 到人工裁决的每一次状态变化。
+  </figcaption>
+</figure>
+
+<figure>
+  <img src="../../artifacts/playwright/desktop-1440x900-new-review-real-model.png" alt="新建评审与真实模型模式" />
+  <figcaption>
+    <strong>图 3　新建评审（真实模型模式）。</strong>右侧为项目简报表单，左上角 <code>REAL MODEL READY</code>
+    表示服务地址与密钥校验通过；左下运行条件写明「任意新项目必须使用真实模型模式，Mock Mode 只用于固定演示」，
+    并显示当前实际使用的模型（<code>openai-compatible / qwen2.5:3b</code>）。
+  </figcaption>
+</figure>
+
+<h2>六、是否发表过或获奖</h2>
+<p>
+  <strong>未发表、未获奖。</strong>本项目为本次赛事首次对外提交，此前没有论文、专利、软著或任何级别的获奖记录。
+  代码与文档在两个公开平台可查（Gitee / GitHub，main 分支，完整细粒度提交历史）。
+</p>
+
+<h2>七、是否在其他项目基础上优化</h2>
+<p>
+  <strong>不是在他人项目基础上的二次开发。</strong>本项目从空仓库起步，首个提交只有 2 个文件 879 行（设计冻结），
+  此后按功能模块逐个落地；没有 fork、没有沿用其他项目的代码或架构。
+</p>
+<p>
+  过程中做过一次<strong>自身架构调整</strong>：早期代码按「层」组织（web / core / lib），
+  路由与业务规则混在一起；后来收敛为按领域分层，并把会话读取权限集中到单一入口。
+  同时把三个「整层打包」的大提交拆成 13 个按功能落地的细粒度提交——这不是功能优化，
+  而是为了让开发过程本身可被复查。
+</p>
+
+<h3>使用的开源组件</h3>
+<p>
+  Next.js 15、React 19、TypeScript、PostgreSQL 16、Drizzle ORM、Zod、Vitest、Playwright、
+  Tailwind CSS、Ollama（本地模型运行时）。全部通过 pnpm 锁定版本，<code>pnpm-lock.yaml</code> 随仓库提交。
+</p>
+
+</body>
+</html>
