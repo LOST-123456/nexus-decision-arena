@@ -16,7 +16,7 @@
 
 | # | 东西 | 位置 | 大小 / 规格 | MD5 |
 | --- | --- | --- | --- | --- |
-| 1 | 提交包 zip | `_tmp/pkg/Nexus-Decision-Arena-submission.zip` | 709 条目，25.8 MB（解压 33.8 MB） | — |
+| 1 | 提交包 zip | `_tmp/pkg/Nexus-Decision-Arena-submission.zip` | 约 25.8 MB（解压后约 33.8 MB） | — |
 | 2 | 作品介绍文档 | 包内 `01-project-intro.pdf` | 8 页 | `bdcd280f…` |
 | 3 | 技术文档 | 包内 `02-technical-document.pdf` | 29 页（限 30） | `7b92b00d…` |
 | 4 | 演示视频 | 包内 `03-demo-video.mp4` | 7:54 / 1920×1080 / 30fps / 带中文旁白 | `5d30c3fd…` |
