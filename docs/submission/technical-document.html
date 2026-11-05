@@ -1690,7 +1690,6 @@ ClaimInspectorDTO {
         <tr><td>单个 Challenge 失败</td><td>记录 CHALLENGE_FAILED，不阻塞其他质询</td><td>当前质疑标记失败或未解决</td></tr>
         <tr><td>结构输出错误</td><td>解析和 Schema 校验，最多一次 Repair</td><td>重试中或明确失败</td></tr>
         <tr><td>SSE 断线</td><td>Last-Event-ID 或 after 补发事件</td><td>重连后状态恢复</td></tr>
-        <tr><td>并发重复写</td><td>Idempotency-Key + lease fencing</td><td>只应用一次结果</td></tr>
       </tbody>
     </table>
 
@@ -1729,7 +1728,6 @@ ClaimInspectorDTO {
           <li>导出前检查 Claim、Evidence 引用。</li>
           <li>检查 Conflict 是否仍处于待裁决状态。</li>
           <li>只汇总已通过 Schema 的对象。</li>
-          <li>最终报告保留人工裁决与决策解释。</li>
         </ul>
       </div>
       <div class="card">
@@ -2117,11 +2115,8 @@ corepack pnpm dev</pre>
       <tbody>
         <tr><td>Web</td><td class="mono">http://127.0.0.1:3000</td></tr>
         <tr><td>固定 Demo</td><td class="mono">http://127.0.0.1:3000/sessions/demo</td></tr>
-        <tr><td>Core API</td><td class="mono">http://127.0.0.1:4100</td></tr>
-        <tr><td>Health</td><td class="mono">http://127.0.0.1:4100/health</td></tr>
-        <tr><td>登录与团队</td><td class="mono">http://127.0.0.1:3000/login</td></tr>
-        <tr><td>历史记录</td><td class="mono">http://127.0.0.1:3000/history</td></tr>
-        <tr><td>安全治理</td><td class="mono">http://127.0.0.1:3000/security</td></tr>
+        <tr><td>Core API</td><td class="mono">http://127.0.0.1:4100（/health 探活）</td></tr>
+        <tr><td>登录 / 历史 / 治理</td><td class="mono">/login · /history · /security</td></tr>
       </tbody>
     </table>
 
@@ -2164,8 +2159,7 @@ corepack pnpm dev</pre>
 
     <div class="callout">
       <strong>常见故障：</strong>
-      PostgreSQL 5432 被占用时修改 compose 与 DATABASE_URL；Playwright 浏览器缺失时安装 Chromium；
-      页面无事件时先检查 Core /health 和浏览器 SSE 连接。
+      PostgreSQL 5432 被占用时修改 compose 与 DATABASE_URL；页面无事件时先检查 Core /health 和浏览器 SSE 连接。
     </div>
   </section>
 
@@ -2181,10 +2175,8 @@ corepack pnpm dev</pre>
         <tr><td>1:40–2:50</td><td>Challenge、回应、主持人评估</td><td>结构化质疑与新版 Claim</td></tr>
         <tr><td>2:50–3:40</td><td>Conflict Map 与高风险假设</td><td>冲突严重度、影响范围</td></tr>
         <tr><td>3:40–4:30</td><td>Human Checkpoint 三种动作</td><td>选择、理由、前后结论</td></tr>
-        <tr><td>4:30–5:20</td><td>Replay、决策解释与最终报告</td><td>Timeline 与报告</td></tr>
-        <tr><td>5:20–6:15</td><td>AI 案例 1：Decision Graph / UUIDv7</td><td>Prompt、Diff、测试、Commit</td></tr>
-        <tr><td>6:15–7:10</td><td>AI 案例 2：并行状态竞争</td><td>纠偏、Bug、回归测试、Commit</td></tr>
-        <tr><td>7:10–8:00</td><td>AI 案例 3：Cross Examination / SSE</td><td>协议、测试、稳定性、Commit</td></tr>
+        <tr><td>4:30–5:26</td><td>Replay、决策解释与最终报告</td><td>Timeline 与报告</td></tr>
+        <tr><td>5:26–7:54</td><td>AI 协同过程复现：一个真实模型回合，四轮往返</td><td>Prompt 原文、四轮报错、人工纠偏、退出码、Commit 5177555</td></tr>
       </tbody>
     </table>
 
@@ -2214,11 +2206,29 @@ corepack pnpm dev</pre>
     <ul class="checklist">
       <li>代码仓库、Git 历史、README、AI 对话导出和 Prompt 链已完成。</li>
       <li>技术 PDF 可由本 HTML 源文件重复渲染。</li>
-      <li>已生成 7 分 54 秒、1920×1080、H.264 的自动证据成片。</li>
-      <li>视频底部包含烧录中文字幕，并提供独立 zh-CN SRT 文件。</li>
+      <li>已生成 7 分 54 秒、1920×1080、H.264 的成片：功能段为图解与产品截图，AI 协同段为真实回合的会话录制。</li>
+      <li>视频底部包含烧录中文字幕，并提供独立 zh-CN SRT 文件，两者逐字一致。</li>
     </ul>
     <ul class="checklist pending">
       <li>团队实名、学校、指导老师、联系方式和赛事封面模板按平台要求补充。</li>
+    </ul>
+
+    <h3>5.3 AI 协同段的来源与口径</h3>
+    <p class="small">
+      这一段没有复用产品仓库里那 5 条 Prompt 链——它们发生在开发过程中，没有留下可复现的屏幕过程。
+      成片改用一个<strong>重新发起、可完整复查的真实回合</strong>：给
+      <code>scripts/check-readme-links.mjs</code> 起稿，本地 <code>qwen2.5:3b</code> 连跑四轮。
+      四轮依次死在：<code>__dirname</code>（ESM）→ <code>require</code>（ESM）→ 只回 4 行 import
+      却 <code>exit 0</code> 的<strong>假通过</strong> → 把验收样例硬编码进实现。人工接管核心逻辑后转绿，
+      提交 <code>5177555</code>（1 个文件 47 行）。四轮 Prompt、原始流式输出与定稿文件都归档在
+      <code>docs/ai-history/exports/ai-collab-2026-11-05/</code>，见 <code>0029</code> 号留档。
+    </p>
+    <ul class="checklist small">
+      <li>四轮推理 24.6 / 23.8 / 3.4 / 45.3 秒，1400 个流式块，<code>t</code> 为逐块相对毫秒，用时可直接算。</li>
+      <li>提交 <code>5177555</code> 产生于本次回合的独立副本；仓库内 <code>scripts/check-readme-links.mjs</code> 是同一份文件，可直接复跑。</li>
+      <li>成片把等待压缩了 <strong>1.59 倍</strong>；文字、报错、退出码一字未改。</li>
+      <li>终端画面按录下的真实输出回放渲染，<strong>不是事后编写的故事，也不是实时桌面像素捕获</strong>；片头标注「会话回放 · 等待已压缩」。</li>
+      <li>同回合留了一条负向验证：往 README 注入不存在的路径，脚本必须报出它并以 1 退出——「绿」不等于「没查」。</li>
     </ul>
 
     <div class="callout warn">
